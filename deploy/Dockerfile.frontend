@@ -4,7 +4,11 @@
 # and wrong for anything else — it ships an unminified bundle and a file watcher. This
 # is the artefact a deployment actually runs.
 
-FROM node:22-alpine AS build
+# Pinned to the NATIVE platform. The bundle this stage produces is just JavaScript and
+# CSS — identical on every architecture — so building it per target platform gains
+# nothing and costs a full npm install plus a Vite build running under QEMU emulation,
+# which is minutes per extra architecture. Only the nginx stage below is arch-specific.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 
 # The lockfile is copied first so a dependency install is only redone when dependencies
