@@ -20,8 +20,12 @@ jobs:
       - uses: bufbuild/buf-action@v1
         with: { setup_only: true }
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with: { version: latest, working-directory: backend }
+        # v8 of the action is the one that runs golangci-lint v2; v6 installs v1, which
+        # cannot parse a `version: "2"` config and refuses a go1.25 target outright.
+        # The version is PINNED rather than `latest` — an unpinned linter is how CI
+        # starts failing on a rule the developer's machine has never applied.
+        uses: golangci/golangci-lint-action@v8
+        with: { version: v2.12.2, working-directory: backend }
       - name: buf lint
         working-directory: backend
         run: buf lint
