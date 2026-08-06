@@ -1,0 +1,143 @@
+name: siem
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-siem}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-siem}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set CLICKHOUSE_PASSWORD in .env}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      # Configurable like the service ports: a developer machine already running
+      # ClickHouse or Redis is common, and a hardcoded mapping makes `make up` fail
+      # with a port conflict rather than starting on a free one.
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./deploy/clickhouse/config:/etc/clickhouse-server/config.d:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      # Probes the container's own address, not localhost: a server bound only to
+      # 127.0.0.1 passes a localhost check while refusing every other container, and
+      # Compose then starts dependents against a service that cannot serve them.
+      test: ["CMD-SHELL", "wget --spider -q http://$$(hostname -i | cut -d' ' -f1):8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.9
+    command:
+      - redpanda start
+      - --smp 1
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:9092
+      - --check=false
+    ports:
+      - "${REDPANDA_KAFKA_PORT:-9092}:9092"
+      - "${REDPANDA_ADMIN_PORT:-9644}:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "no", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  siem-api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      args: { SERVICE: siem-api }
+    env_file: [.env]
+    ports:
+      - "${API_HTTP_PORT:-8000}:8000"
+    depends_on:
+      clickhouse: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      redpanda: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/app/service", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  siem-ingest:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      args: { SERVICE: siem-ingest }
+    env_file: [.env]
+    ports:
+      - "${INGEST_HTTP_PORT:-8001}:8001"
+    depends_on:
+      redpanda: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+
+  siem-processor:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+      args: { SERVICE: siem-processor }
+    env_file: [.env]
+    ports:
+      - "${PROCESSOR_HTTP_PORT:-8002}:8002"
+    depends_on:
+      redpanda: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    environment:
+      VITE_API_TARGET: http://siem-api:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - ./backend/api/openapi.yaml:/backend/api/openapi.yaml:ro
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      - siem-api
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    volumes:
+      - ./deploy/prometheus:/etc/prometheus:ro
+    ports:
+      - "9090:9090"
+    profiles: ["observability"]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - ./deploy/grafana:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    profiles: ["observability"]
+
+volumes:
+  clickhouse-data:
+  redpanda-data:
+  frontend-node-modules:

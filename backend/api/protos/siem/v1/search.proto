@@ -1,0 +1,185 @@
+syntax = "proto3";
+
+// Cross-vendor search over normalized events and correlated requests.
+//
+// Every read here is bounded: a time range is required, the page size is capped, and
+// paging is by opaque cursor rather than offset. Those are not performance tuning —
+// an unbounded scan cannot meet the latency budget, and a partial result returned
+// without saying so reads as a complete answer.
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "siem/v1/common.proto";
+import "siem/v1/correlation.proto";
+
+service Search {
+  rpc SearchEvents(SearchEventsRequest) returns (SearchEventsResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/search/events"
+      body: "*"
+    };
+  }
+
+  rpc SearchCorrelated(SearchCorrelatedRequest) returns (SearchCorrelatedResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/search/correlated"
+      body: "*"
+    };
+  }
+
+  // Streamed and row-capped. Audited with the actor, the query, and the row count,
+  // because an export removes data from the platform's control (FR-026).
+  rpc ExportSearch(ExportSearchRequest) returns (ExportSearchResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/search/export"
+      body: "*"
+    };
+  }
+
+  // The raw vendor payload alongside the normalized view, so an analyst can always
+  // check what the platform did to a record (FR-005).
+  rpc GetEvent(GetEventRequest) returns (EventDetail) {
+    option (google.api.http) = {get: "/api/v1/events/{event_id}"};
+  }
+}
+
+// EventFilters are the cross-vendor filters an analyst can apply.
+//
+// Every field here is optional and every one is validated against an allowlist before
+// it reaches SQL. Unset fields are omitted from the query rather than matched against
+// an empty string, so a blank filter widens nothing.
+message EventFilters {
+  string client_ip = 1;
+  string request_host = 2;
+  string request_path = 3;
+  repeated Vendor vendor = 4;
+  repeated Verdict verdict = 5;
+  string rule_id = 6;
+  optional float min_score = 7;
+  optional float max_score = 8;
+  string country = 9;
+  optional uint32 asn = 10;
+  string user_agent = 11;
+  // Free-text match across the request path and user agent, backed by the token bloom
+  // indexes. Not a general full-text search: a substring scan over every column could
+  // not meet the latency budget and would quietly become the slowest query in the app.
+  string q = 12;
+  string vendor_request_id = 13;
+  string request_method = 14;
+  optional uint32 http_status = 15;
+}
+
+message SearchEventsRequest {
+  // Required. An unbounded scan is rejected, not queued.
+  TimeRange time_range = 1;
+  EventFilters filters = 2;
+  PageRequest page = 3;
+}
+
+// EventSummary is one search hit.
+//
+// Deliberately narrower than the detail view: the raw vendor payload is excluded, so a
+// thousand-row page stays kilobytes rather than tens of megabytes. GetEvent fetches
+// the payload for the one row an analyst opens.
+message EventSummary {
+  string event_id = 1;
+  google.protobuf.Timestamp event_time = 2;
+  Vendor vendor = 3;
+  string feed_id = 4;
+  string vendor_request_id = 5;
+
+  ClientInfo client = 6;
+  RequestInfo request = 7;
+
+  Verdict verdict = 8;
+  string verdict_reason = 9;
+  string rule_id = 10;
+  repeated string rule_ids = 11;
+  optional float score = 12;
+  string score_kind = 13;
+
+  // Vendor fields with no common-model home were preserved, not discarded (FR-012).
+  repeated string unknown_fields = 14;
+}
+
+message SearchEventsResponse {
+  repeated EventSummary items = 1;
+  // Carries next_cursor, total, and total_is_estimate. Those live on PageResponse
+  // rather than being repeated here: two places stating the same count is two places
+  // to keep in step, and they will not stay in step.
+  PageResponse page = 2;
+}
+
+// CorrelatedFilters add the join-level facets to the event filters.
+message CorrelatedFilters {
+  string client_ip = 1;
+  string request_host = 2;
+  string request_path = 3;
+  string country = 4;
+  optional uint32 asn = 5;
+  // Above 1 restricts the result to genuine cross-vendor joins.
+  optional uint32 min_vendor_count = 6;
+  bool only_disagreements = 7;
+  DisagreementKind disagreement_kind = 8;
+  Confidence confidence = 9;
+  Verdict combined_outcome = 10;
+}
+
+message SearchCorrelatedRequest {
+  TimeRange time_range = 1;
+  CorrelatedFilters filters = 2;
+  PageRequest page = 3;
+}
+
+message SearchCorrelatedResponse {
+  repeated CorrelatedRequest items = 1;
+  PageResponse page = 2;
+}
+
+// ExportFormat is the serialization an export produces.
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;
+  EXPORT_FORMAT_NDJSON = 1;
+  EXPORT_FORMAT_CSV = 2;
+}
+
+message ExportSearchRequest {
+  TimeRange time_range = 1;
+  EventFilters filters = 2;
+  ExportFormat format = 3;
+  // Capped server-side regardless of what is requested.
+  uint32 max_rows = 4;
+}
+
+message ExportSearchResponse {
+  // The export content, streamed to the caller.
+  bytes content = 1;
+  string content_type = 2;
+  string filename = 3;
+  // Signed, matching PageResponse.total: row counts are one concept and should not
+  // change type depending on which message carries them.
+  int64 row_count = 4;
+  // True when the export stopped at the row cap, so the caller knows the file is a
+  // prefix of the result rather than all of it.
+  bool truncated = 5;
+}
+
+message GetEventRequest {
+  string event_id = 1;
+}
+
+// EventDetail is one event with everything the platform holds about it.
+message EventDetail {
+  EventSummary summary = 1;
+  // The vendor payload exactly as received, written before any parsing was attempted
+  // so a parse failure can never cost the original (FR-005).
+  string raw_payload = 2;
+  string raw_content_type = 3;
+  // Vendor-native fields with no common-model home.
+  map<string, string> raw_extra = 4;
+  // Set when this event was correlated with others, for drill-through.
+  string correlation_id = 5;
+}

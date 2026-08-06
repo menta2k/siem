@@ -1,0 +1,6 @@
+[
+  {"requestid":"01J8XKQ2M4N7P9R3T5V6W8Y0AB","timestamp":1786017600123,"ip":"203.0.113.45","host":"shop.example.com","uri":"/api/checkout?step=2","method":"POST","status":403,"ua":"Mozilla/5.0 (X11; Linux x86_64)","botscore":95,"isbot":true,"botname":"scrapy","family":"Scraper","action":"BLOCK","country":"DE","asn":64512,"accountid":"acct_9f2b"},
+  {"requestid":"01J8XKQ2M4N7P9R3T5V6W8Y0AC","timestamp":1786017601500,"ip":"198.51.100.22","host":"shop.example.com","uri":"/","method":"GET","status":200,"ua":"curl/8.5.0","botscore":12,"isbot":false,"action":"ALLOW","country":"US","asn":64500,"accountid":"acct_9f2b"},
+  {"requestid":"01J8XKQ2M4N7P9R3T5V6W8Y0AD","timestamp":1786017602000,"ip":"198.51.100.23","host":"shop.example.com","uri":"/login","method":"POST","status":403,"botscore":78,"isbot":true,"botname":"headless-chrome","family":"AutomatedBrowser","action":"CAPTCHA","country":"FR","accountid":"acct_9f2b"},
+  {"requestid":"01J8XKQ2M4N7P9R3T5V6W8Y0AE","timestamp":1786017603000,"ip":"198.51.100.90","host":"shop.example.com","uri":"/api/price","method":"GET","status":200,"botscore":88,"isbot":true,"botname":"price-scraper","family":"Scraper","action":"MONITOR","country":"CN","accountid":"acct_9f2b"}
+]

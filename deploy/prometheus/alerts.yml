@@ -1,0 +1,94 @@
+groups:
+  - name: siem-ingest
+    rules:
+      # Edge case from the spec: a silent feed looks identical to clean traffic on a
+      # dashboard. It must alert, not just render as zero.
+      - alert: FeedSilent
+        expr: time() - siem_ingest_last_event_timestamp_seconds > 900
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Feed {{ $labels.feed_id }} ({{ $labels.vendor }}) has sent nothing for 15m"
+
+      - alert: IngestLagHigh
+        expr: siem_ingest_lag_seconds > 60
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Ingest lag above the 60s searchability budget (SC-003)"
+
+      - alert: IngestRejectRateHigh
+        expr: |
+          sum(rate(siem_ingest_events_rejected_total[5m])) by (feed_id)
+          / clamp_min(sum(rate(siem_ingest_events_received_total[5m])) by (feed_id), 1) > 0.01
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Feed {{ $labels.feed_id }} rejecting more than 1% of events"
+
+      - alert: SchemaDrift
+        expr: siem_ingest_schema_drift_ratio > 0.01
+        for: 10m
+        labels: { severity: info }
+        annotations:
+          summary: "Unrecognized fields on feed {{ $labels.feed_id }} — vendor may have changed its schema"
+
+      - alert: BrokerUnavailable
+        expr: increase(siem_ingest_publish_failures_total[5m]) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Durable publish failing — ingest is returning 503 and shedding load"
+
+  - name: siem-query
+    rules:
+      - alert: SearchLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(siem_query_duration_seconds_bucket[5m])) by (le)) > 3
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 search latency above the 3s budget (SC-005)"
+
+      - alert: ApiErrorRateHigh
+        expr: |
+          sum(rate(siem_http_requests_total{code=~"5.."}[5m]))
+          / clamp_min(sum(rate(siem_http_requests_total[5m])), 1) > 0.02
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "API 5xx rate above 2%"
+
+  - name: siem-correlation
+    rules:
+      # Computed from the vendors-per-record histogram rather than from a dedicated
+      # ratio gauge: a gauge would have to be maintained alongside the histogram and
+      # the two would disagree the first time one was updated without the other.
+      #
+      # `le="1"` counts records built from a single vendor. One minus that share is the
+      # fraction that actually joined, which is what SC-004 measures.
+      - alert: CorrelationJoinRateLow
+        expr: |
+          1 - (
+            sum(rate(siem_correlate_vendors_per_record_bucket{le="1"}[30m]))
+            / clamp_min(sum(rate(siem_correlate_vendors_per_record_count[30m])), 1)
+          ) < 0.95
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Cross-vendor join rate below the 95% target (SC-004)"
+
+      - alert: LateArrivalDropsRising
+        expr: increase(siem_correlate_late_arrivals_dropped_total[15m]) > 100
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Events arriving beyond the lateness bound — consider widening it"
+
+  - name: siem-alerting
+    rules:
+      - alert: AlertDeliveryFailing
+        expr: increase(siem_alerting_delivery_failures_total[15m]) > 3
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Alert deliveries are failing — operators may believe they were notified"

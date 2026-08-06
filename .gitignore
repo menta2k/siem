@@ -1,0 +1,39 @@
+# Secrets — never commit a filled-in environment file
+.env
+.env.local
+*.pem
+*.key
+*.crt
+
+# Go
+*.exe
+*.test
+*.out
+vendor/
+backend/bin/
+coverage.out
+coverage.html
+
+# Node
+node_modules/
+frontend/dist/
+frontend/coverage/
+*.log
+npm-debug.log*
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+
+# Local data volumes
+.data/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/
+dist/

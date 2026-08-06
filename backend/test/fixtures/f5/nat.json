@@ -1,0 +1,5 @@
+[
+  {"support_id":"8047392018374652","date_time":"2026-08-06 12:20:00","ip_client":"100.64.12.9","method":"GET","uri":"/api/items","response_code":200,"request_status":"passed","geo_location":"US"},
+  {"support_id":"8047392018374653","date_time":"2026-08-06 12:20:00","ip_client":"100.64.12.9","method":"GET","uri":"/api/items","response_code":200,"request_status":"passed","geo_location":"US"},
+  {"support_id":"8047392018374654","date_time":"2026-08-06 12:20:00","ip_client":"10.20.30.40","method":"POST","uri":"/api/cart","response_code":403,"request_status":"blocked","geo_location":"US"}
+]

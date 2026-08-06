@@ -1,0 +1,195 @@
+syntax = "proto3";
+
+// Feed configuration and health.
+//
+// A feed is one vendor connection for one tenant. Credentials are supplied once on
+// create and are never returned by any operation here — the platform stores a
+// reference into the secret manager, not the secret.
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "siem/v1/common.proto";
+
+service Feeds {
+  rpc ListFeeds(ListFeedsRequest) returns (ListFeedsResponse) {
+    option (google.api.http) = {get: "/api/v1/feeds"};
+  }
+
+  // The credential is accepted here, stored in the secret manager, and never echoed.
+  rpc CreateFeed(CreateFeedRequest) returns (Feed) {
+    option (google.api.http) = {
+      post: "/api/v1/feeds"
+      body: "*"
+    };
+  }
+
+  rpc GetFeed(GetFeedRequest) returns (Feed) {
+    option (google.api.http) = {get: "/api/v1/feeds/{feed_id}"};
+  }
+
+  rpc UpdateFeed(UpdateFeedRequest) returns (Feed) {
+    option (google.api.http) = {
+      patch: "/api/v1/feeds/{feed_id}"
+      body: "*"
+    };
+  }
+
+  // Soft-disables the feed. Ingested data is never removed by this operation.
+  rpc DeleteFeed(DeleteFeedRequest) returns (DeleteFeedResponse) {
+    option (google.api.http) = {delete: "/api/v1/feeds/{feed_id}"};
+  }
+
+  rpc TestFeed(TestFeedRequest) returns (TestFeedResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/feeds/{feed_id}/test"
+      body: "*"
+    };
+  }
+
+  rpc GetFeedHealth(GetFeedHealthRequest) returns (FeedHealth) {
+    option (google.api.http) = {get: "/api/v1/feeds/{feed_id}/health"};
+  }
+
+  // Dead-lettered events, so a rejected delivery is visible rather than silent.
+  rpc ListRejectedEvents(ListRejectedEventsRequest) returns (ListRejectedEventsResponse) {
+    option (google.api.http) = {get: "/api/v1/feeds/{feed_id}/rejected"};
+  }
+}
+
+// DeliveryMode is how events reach the platform.
+enum DeliveryMode {
+  DELIVERY_MODE_UNSPECIFIED = 0;
+  // The vendor posts to an ingest endpoint.
+  DELIVERY_MODE_PUSH = 1;
+  // The platform polls the vendor's object store or API.
+  DELIVERY_MODE_PULL = 2;
+}
+
+message Feed {
+  string feed_id = 1;
+  Vendor vendor = 2;
+  string name = 3;
+  DeliveryMode delivery_mode = 4;
+  bool enabled = 5;
+
+  // True when a credential is configured. The credential itself is NEVER returned.
+  bool credential_configured = 6;
+  bool signing_configured = 7;
+
+  string pull_config = 8;
+  uint32 quota_events_per_sec = 9;
+  uint64 quota_bytes_per_day = 10;
+
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+
+  // Populated on list and get so the console can show status without a second call.
+  FeedHealth health = 13;
+}
+
+message ListFeedsRequest {}
+
+message ListFeedsResponse {
+  repeated Feed feeds = 1;
+}
+
+message CreateFeedRequest {
+  Vendor vendor = 1;
+  string name = 2;
+  DeliveryMode delivery_mode = 3;
+
+  // Write-only. Supplied once, stored in the secret manager, never read back.
+  string credential = 4;
+  // Optional HMAC key for vendors that sign their deliveries.
+  string signing_secret = 5;
+
+  string pull_config = 6;
+  uint32 quota_events_per_sec = 7;
+  uint64 quota_bytes_per_day = 8;
+}
+
+message GetFeedRequest {
+  string feed_id = 1;
+}
+
+message UpdateFeedRequest {
+  string feed_id = 1;
+  optional string name = 2;
+  optional bool enabled = 3;
+  // Rotates the credential. Omitted leaves the existing one in place.
+  optional string credential = 4;
+  optional string signing_secret = 5;
+  optional string pull_config = 6;
+  optional uint32 quota_events_per_sec = 7;
+  optional uint64 quota_bytes_per_day = 8;
+}
+
+message DeleteFeedRequest {
+  string feed_id = 1;
+}
+
+message DeleteFeedResponse {}
+
+message TestFeedRequest {
+  string feed_id = 1;
+}
+
+message TestFeedResponse {
+  bool reachable = 1;
+  bool credential_valid = 2;
+  // Human-readable outcome. Never contains the credential or an internal address.
+  string detail = 3;
+}
+
+message GetFeedHealthRequest {
+  string feed_id = 1;
+}
+
+// FeedHealth answers "is this feed working" (FR-008).
+//
+// Silence detection lives here because a feed that stopped sending looks exactly like
+// clean traffic on a dashboard. `silent` is what distinguishes them.
+message FeedHealth {
+  string feed_id = 1;
+  google.protobuf.Timestamp last_event_at = 2;
+  // True when nothing has arrived for longer than the expected interval.
+  bool silent = 3;
+
+  double events_per_sec = 4;
+  uint64 events_received_1h = 5;
+  uint64 events_rejected_1h = 6;
+  uint64 duplicates_suppressed_1h = 7;
+  uint64 bytes_received_1h = 8;
+  uint32 max_ingest_lag_ms = 9;
+
+  bool credential_valid = 10;
+  // Set when unrecognized vendor fields crossed the drift threshold (FR-012).
+  bool schema_drift_warning = 11;
+  repeated string drift_fields = 12;
+}
+
+message ListRejectedEventsRequest {
+  string feed_id = 1;
+  TimeRange range = 2;
+  optional string reason_code = 3;
+  PageRequest page = 4;
+}
+
+message ListRejectedEventsResponse {
+  repeated RejectedEvent events = 1;
+  PageResponse page = 2;
+}
+
+message RejectedEvent {
+  google.protobuf.Timestamp rejected_at = 1;
+  Vendor vendor = 2;
+  string reason_code = 3;
+  string reason_detail = 4;
+  // The offending payload, so an operator can see exactly what the vendor sent.
+  // Rendered as inert text by the console.
+  string payload = 5;
+  string batch_id = 6;
+}

@@ -1,0 +1,36 @@
+version: v2
+
+# Single source of truth: protos generate BOTH the Kratos HTTP handlers and the
+# OpenAPI v3 document the frontend consumes. See specs/.../research.md R1.
+managed:
+  enabled: true
+  # Third-party protos keep their upstream Go import paths. Without this, managed
+  # mode rewrites google/api/annotations.proto to our prefix and the generated code
+  # imports a package that does not exist.
+  disable:
+    - file_option: go_package
+      module: buf.build/googleapis/googleapis
+  override:
+    - file_option: go_package_prefix
+      value: github.com/menta2k/siem/api/gen
+
+plugins:
+  - local: protoc-gen-go
+    out: api/gen
+    opt: paths=source_relative
+
+  - local: protoc-gen-go-http
+    out: api/gen
+    opt: paths=source_relative
+
+  # OpenAPI v3 — this is the contract the Vue client is generated from.
+  - local: protoc-gen-openapi
+    out: api
+    opt:
+      - naming=json
+      - fq_schema_naming=false
+      - default_response=false
+      # Enums as STRINGS, not integers. The default emits bare numbers, which gives a
+      # generated client no type safety and forces every consumer to know that 1 means
+      # Cloudflare — a mapping that silently breaks the moment the proto is reordered.
+      - enum_type=string

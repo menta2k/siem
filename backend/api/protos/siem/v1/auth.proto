@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+// Authentication surface.
+//
+// Login is deliberately two-step: password verification returns only a short-lived
+// challenge token, and the access token is issued after the TOTP code. Without the
+// challenge token a caller could brute-force codes without ever proving knowledge of
+// the password.
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+service Auth {
+  // Step 1: verify the password. Returns an MFA challenge, never an access token.
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/auth/login"
+      body: "*"
+    };
+  }
+
+  // Step 2: verify the TOTP code and issue the token pair.
+  rpc VerifyMFA(VerifyMFARequest) returns (TokenResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/auth/mfa"
+      body: "*"
+    };
+  }
+
+  // Exchange a refresh token for a new pair. The presented refresh token is revoked.
+  rpc Refresh(RefreshRequest) returns (TokenResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/auth/refresh"
+      body: "*"
+    };
+  }
+
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/auth/logout"
+      body: "*"
+    };
+  }
+
+  rpc Me(MeRequest) returns (MeResponse) {
+    option (google.api.http) = {get: "/api/v1/auth/me"};
+  }
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  // Short-lived token proving the password step succeeded. Grants nothing else.
+  string mfa_challenge_token = 1;
+  // True on first login, when the client must render the enrolment QR code.
+  bool mfa_enrolment_required = 2;
+  // Populated only during enrolment, and never again afterwards.
+  string mfa_provisioning_uri = 3;
+}
+
+message VerifyMFARequest {
+  string mfa_challenge_token = 1;
+  string code = 2;
+}
+
+message TokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  UserProfile user = 4;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {}
+
+message MeRequest {}
+
+message MeResponse {
+  UserProfile user = 1;
+}
+
+message UserProfile {
+  string user_id = 1;
+  string email = 2;
+  // admin | analyst | auditor | ingest_only
+  string role = 3;
+  string tenant_id = 4;
+  string tenant_name = 5;
+  bool mfa_enabled = 6;
+  google.protobuf.Timestamp last_login_at = 7;
+}

@@ -1,0 +1,41 @@
+# Multi-stage build shared by all three Go services; SERVICE selects the binary.
+ARG SERVICE=siem-api
+
+# --platform=$BUILDPLATFORM pins the build stage to the NATIVE architecture and lets Go
+# cross-compile to the target. Without it, buildx runs the whole Go toolchain under QEMU
+# emulation for every non-native platform, which turns a one-minute build into twenty.
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+ARG SERVICE
+ARG TARGETOS
+ARG TARGETARCH
+# Build identity, stamped into the binary so a running container can name its own build.
+ARG APP_VERSION=dev
+ARG APP_COMMIT=unknown
+ARG APP_DATE=unknown
+
+WORKDIR /src
+RUN apk add --no-cache ca-certificates
+
+COPY backend/go.mod backend/go.sum* ./
+RUN go mod download
+
+COPY backend/ ./
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+      -ldflags="-s -w \
+        -X github.com/menta2k/siem/internal/version.Version=${APP_VERSION} \
+        -X github.com/menta2k/siem/internal/version.Commit=${APP_COMMIT} \
+        -X github.com/menta2k/siem/internal/version.Date=${APP_DATE}" \
+      -o /out/app ./cmd/${SERVICE}
+
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+# Copied to a FIXED path rather than to ${SERVICE}. The exec form of ENTRYPOINT does
+# not expand build args, and the shell form that would expand them needs /bin/sh —
+# which a distroless image does not have. Naming the binary here keeps the image
+# shell-free, which is the whole reason for choosing distroless.
+# The RBAC model and policy are //go:embed-ed into the binary, so nothing else needs
+# copying — the image stays a single static file.
+COPY --from=build /out/app /app/service
+USER nonroot:nonroot
+ENTRYPOINT ["/app/service"]

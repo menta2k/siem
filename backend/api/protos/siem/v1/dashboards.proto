@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+// Dashboard panels.
+//
+// Every panel accepts the same from/to/interval and is served from the rollup tables,
+// never from raw events. Both properties are load-bearing: a shared range is what
+// makes two figures on one screen comparable (FR-025), and reading rollups is what
+// keeps a panel answerable at production volume.
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "siem/v1/common.proto";
+// FeedHealth is defined with the feeds API and reused verbatim here, so the health
+// tile on a dashboard and the one on the feeds page cannot drift apart.
+import "siem/v1/feeds.proto";
+
+service Dashboards {
+  rpc GetOverview(DashboardRequest) returns (OverviewPanel) {
+    option (google.api.http) = {get: "/api/v1/dashboards/overview"};
+  }
+
+  rpc GetRules(DashboardRequest) returns (RulesPanel) {
+    option (google.api.http) = {get: "/api/v1/dashboards/rules"};
+  }
+
+  rpc GetSources(DashboardRequest) returns (SourcesPanel) {
+    option (google.api.http) = {get: "/api/v1/dashboards/sources"};
+  }
+
+  rpc GetDisagreements(DashboardRequest) returns (DisagreementsPanel) {
+    option (google.api.http) = {get: "/api/v1/dashboards/disagreements"};
+  }
+
+  rpc GetFeedHealthPanel(DashboardRequest) returns (FeedHealthPanel) {
+    option (google.api.http) = {get: "/api/v1/dashboards/feed-health"};
+  }
+}
+
+// BucketInterval is the width of one point on a time series.
+//
+// A closed enum because the value reaches a SQL rounding function. This is the one
+// position in a dashboard query that a bound parameter cannot protect, so the set of
+// legal values is fixed here rather than validated downstream.
+enum BucketInterval {
+  BUCKET_INTERVAL_UNSPECIFIED = 0;
+  BUCKET_INTERVAL_5M = 1;
+  BUCKET_INTERVAL_1H = 2;
+  BUCKET_INTERVAL_1D = 3;
+}
+
+message DashboardRequest {
+  // Required, and shared by every panel so a range change moves them together.
+  TimeRange time_range = 1;
+  BucketInterval interval = 2;
+  // Caps the rows a top-N panel returns.
+  uint32 limit = 3;
+}
+
+// VolumePoint is one vendor's traffic in one bucket.
+message VolumePoint {
+  google.protobuf.Timestamp bucket = 1;
+  Vendor vendor = 2;
+  uint64 events = 3;
+}
+
+// VerdictPoint is one vendor's verdict count in one bucket.
+message VerdictPoint {
+  google.protobuf.Timestamp bucket = 1;
+  Vendor vendor = 2;
+  Verdict verdict = 3;
+  uint64 events = 4;
+}
+
+message OverviewPanel {
+  repeated VolumePoint volume = 1;
+  repeated VerdictPoint verdicts = 2;
+  // Totals for the whole range, so a headline figure does not require the client to
+  // re-sum the series and risk disagreeing with it.
+  uint64 total_events = 3;
+  uint64 total_blocked = 4;
+  uint64 total_challenged = 5;
+}
+
+message RuleCount {
+  Vendor vendor = 1;
+  string rule_id = 2;
+  uint64 events = 3;
+}
+
+message RulesPanel {
+  repeated RuleCount rules = 1;
+}
+
+message SourceCount {
+  string client_ip = 1;
+  string country = 2;
+  uint32 asn = 3;
+  uint64 events = 4;
+  // A subset of events, never a separate tally: a source showing more blocks than
+  // requests is nonsense an analyst cannot act on.
+  uint64 blocked = 5;
+}
+
+message SourcesPanel {
+  repeated SourceCount sources = 1;
+}
+
+message DisagreementPoint {
+  google.protobuf.Timestamp bucket = 1;
+  DisagreementKind kind = 2;
+  uint64 records = 3;
+  // Every correlated request in the bucket. Carried alongside the numerator so a rate
+  // can be computed from one row rather than by dividing figures fetched separately,
+  // which is how two panels on one screen end up disagreeing.
+  uint64 total = 4;
+}
+
+message DisagreementsPanel {
+  repeated DisagreementPoint points = 1;
+  uint64 total_records = 2;
+  uint64 total_disagreements = 3;
+}
+
+message FeedHealthPanel {
+  repeated FeedHealth feeds = 1;
+}

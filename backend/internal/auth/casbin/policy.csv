@@ -1,0 +1,121 @@
+# Role permissions. `*` in the domain column marks a per-tenant template: the enforcer
+# compares r.dom to p.dom, so no policy line can ever grant access across tenants.
+#
+# EVERY ROUTE IS LISTED EXPLICITLY. Path parameters use keyMatch2's `:param`, which
+# matches a single segment, so `/api/v1/feeds/:id` grants `/api/v1/feeds/abc` but NOT
+# `/api/v1/feeds/abc/health` — that needs its own line.
+#
+# This is verbose on purpose. A prefix wildcard would auto-grant every route added in
+# future, which is precisely the deny-by-default property this file exists to provide.
+# Adding an endpoint without adding a line here makes it unreachable, and that is the
+# intended direction to fail in.
+
+# ---------------------------------------------------------------- admin
+p, admin, *, /api/v1/auth/logout, POST
+p, admin, *, /api/v1/auth/me, GET
+
+p, admin, *, /api/v1/feeds, GET
+p, admin, *, /api/v1/feeds, POST
+p, admin, *, /api/v1/feeds/:id, GET
+p, admin, *, /api/v1/feeds/:id, PATCH
+p, admin, *, /api/v1/feeds/:id, DELETE
+p, admin, *, /api/v1/feeds/:id/test, POST
+p, admin, *, /api/v1/feeds/:id/health, GET
+p, admin, *, /api/v1/feeds/:id/rejected, GET
+
+p, admin, *, /api/v1/search/events, POST
+p, admin, *, /api/v1/search/correlated, POST
+p, admin, *, /api/v1/search/export, POST
+p, admin, *, /api/v1/events/:id, GET
+p, admin, *, /api/v1/correlated, GET
+p, admin, *, /api/v1/correlated/:id, GET
+
+p, admin, *, /api/v1/dashboards/overview, GET
+p, admin, *, /api/v1/dashboards/rules, GET
+p, admin, *, /api/v1/dashboards/sources, GET
+p, admin, *, /api/v1/dashboards/disagreements, GET
+p, admin, *, /api/v1/dashboards/feed-health, GET
+
+p, admin, *, /api/v1/alert-rules, GET
+p, admin, *, /api/v1/alert-rules, POST
+p, admin, *, /api/v1/alert-rules/:id, PATCH
+p, admin, *, /api/v1/alert-rules/:id, DELETE
+p, admin, *, /api/v1/alert-rules/:id/preview, POST
+p, admin, *, /api/v1/alerts, GET
+p, admin, *, /api/v1/alerts/:id, GET
+p, admin, *, /api/v1/alerts/:id/acknowledge, POST
+p, admin, *, /api/v1/alerts/:id/resolve, POST
+
+p, admin, *, /api/v1/admin/users, GET
+p, admin, *, /api/v1/admin/users, POST
+p, admin, *, /api/v1/admin/users/:id, PATCH
+p, admin, *, /api/v1/admin/users/:id, DELETE
+p, admin, *, /api/v1/admin/tenant, GET
+p, admin, *, /api/v1/admin/tenant, PATCH
+p, admin, *, /api/v1/admin/correlation-settings, GET
+p, admin, *, /api/v1/admin/correlation-settings, PATCH
+p, admin, *, /api/v1/admin/purge, POST
+p, admin, *, /api/v1/audit, GET
+
+# ---------------------------------------------------------------- analyst
+# Investigate and triage. Explicitly cannot change configuration, retention, or roles.
+p, analyst, *, /api/v1/auth/logout, POST
+p, analyst, *, /api/v1/auth/me, GET
+
+p, analyst, *, /api/v1/feeds, GET
+p, analyst, *, /api/v1/feeds/:id, GET
+p, analyst, *, /api/v1/feeds/:id/health, GET
+p, analyst, *, /api/v1/feeds/:id/rejected, GET
+
+p, analyst, *, /api/v1/search/events, POST
+p, analyst, *, /api/v1/search/correlated, POST
+p, analyst, *, /api/v1/search/export, POST
+p, analyst, *, /api/v1/events/:id, GET
+p, analyst, *, /api/v1/correlated, GET
+p, analyst, *, /api/v1/correlated/:id, GET
+
+p, analyst, *, /api/v1/dashboards/overview, GET
+p, analyst, *, /api/v1/dashboards/rules, GET
+p, analyst, *, /api/v1/dashboards/sources, GET
+p, analyst, *, /api/v1/dashboards/disagreements, GET
+p, analyst, *, /api/v1/dashboards/feed-health, GET
+
+p, analyst, *, /api/v1/alert-rules, GET
+p, analyst, *, /api/v1/alert-rules/:id/preview, POST
+p, analyst, *, /api/v1/alerts, GET
+p, analyst, *, /api/v1/alerts/:id, GET
+p, analyst, *, /api/v1/alerts/:id/acknowledge, POST
+p, analyst, *, /api/v1/alerts/:id/resolve, POST
+
+# ---------------------------------------------------------------- auditor
+# Read-only everywhere, including the audit trail. Holds no write permission at all,
+# so an auditor account cannot alter the record it exists to inspect. Export is a
+# write in the sense that matters here: it removes data from the platform.
+p, auditor, *, /api/v1/auth/logout, POST
+p, auditor, *, /api/v1/auth/me, GET
+
+p, auditor, *, /api/v1/feeds, GET
+p, auditor, *, /api/v1/feeds/:id, GET
+p, auditor, *, /api/v1/feeds/:id/health, GET
+
+p, auditor, *, /api/v1/search/events, POST
+p, auditor, *, /api/v1/search/correlated, POST
+p, auditor, *, /api/v1/events/:id, GET
+p, auditor, *, /api/v1/correlated, GET
+p, auditor, *, /api/v1/correlated/:id, GET
+
+p, auditor, *, /api/v1/dashboards/overview, GET
+p, auditor, *, /api/v1/dashboards/rules, GET
+p, auditor, *, /api/v1/dashboards/sources, GET
+p, auditor, *, /api/v1/dashboards/disagreements, GET
+p, auditor, *, /api/v1/dashboards/feed-health, GET
+
+p, auditor, *, /api/v1/alert-rules, GET
+p, auditor, *, /api/v1/alerts, GET
+p, auditor, *, /api/v1/alerts/:id, GET
+p, auditor, *, /api/v1/audit, GET
+
+# ---------------------------------------------------------------- ingest_only
+# Feed delivery credentials. These live in third-party vendor configuration and are
+# the most widely exposed secret in the system, so they grant the least: one route.
+p, ingest_only, *, /ingest/v1/:vendor/:feed_id, POST

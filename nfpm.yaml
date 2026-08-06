@@ -1,0 +1,108 @@
+# Package definition for nfpm. VERSION and ARCH are substituted by CI (envsubst).
+#
+# ONE package carries all three services rather than three packages carrying one each.
+# They share a Go module, a wire contract and a release version, so they are always
+# upgraded together; splitting them would mean a fourth "siem-common" package purely to
+# own /etc/siem/env, since two packages cannot both ship the same file. A host installs
+# the package and enables only the units it should run — the units are independent, so
+# an ingest-only node simply never enables the other two.
+
+name: siem
+arch: ${ARCH}
+version: ${VERSION}
+section: net
+priority: optional
+maintainer: menta2k <veselin.iordanov@gmail.com>
+description: |
+  Multi-vendor WAF and bot-defence log correlation platform.
+  Ingests Cloudflare, F5 and DataDome logs, normalizes them onto a common model, and
+  correlates the same request across vendors so disagreements between them are visible.
+homepage: https://github.com/menta2k/siem
+license: MIT
+vendor: menta2k
+
+contents:
+  # ---- binaries ----
+  - src: dist/siem-api
+    dst: /usr/bin/siem-api
+    file_info: { mode: 0755 }
+  - src: dist/siem-ingest
+    dst: /usr/bin/siem-ingest
+    file_info: { mode: 0755 }
+  - src: dist/siem-processor
+    dst: /usr/bin/siem-processor
+    file_info: { mode: 0755 }
+  - src: dist/siem-seed
+    dst: /usr/bin/siem-seed
+    file_info: { mode: 0755 }
+
+  # ---- systemd units ----
+  # Not enabled on install; see deploy/scripts/postinstall.sh for why.
+  - src: deploy/systemd/siem-api.service
+    dst: /lib/systemd/system/siem-api.service
+    file_info: { mode: 0644 }
+  - src: deploy/systemd/siem-ingest.service
+    dst: /lib/systemd/system/siem-ingest.service
+    file_info: { mode: 0644 }
+  - src: deploy/systemd/siem-processor.service
+    dst: /lib/systemd/system/siem-processor.service
+    file_info: { mode: 0644 }
+
+  # ---- schema ----
+  # Shipped rather than applied: a package install must not migrate a database it was
+  # never told about, and the ClickHouse it targets may not even be on this host.
+  - src: deploy/clickhouse/migrations
+    dst: /usr/share/siem/migrations
+
+  # ---- web UI ----
+  # Static assets for a web server to serve; the SPA talks to the API over /api.
+  - src: frontend/dist
+    dst: /usr/share/siem/frontend
+
+  # ---- templates and examples ----
+  # These live under /usr/share/siem, NOT /usr/share/doc. Debian policy forbids a
+  # package needing anything in /usr/share/doc to function, and minimal images enforce
+  # it for real: debian:*-slim ships path-exclude=/usr/share/doc/*, so a postinstall
+  # that reads its env template from there fails the install outright.
+  #
+  # The env template is NOT declared as a config file. postinstall seeds /etc/siem/env
+  # from it only when that file is absent; declaring it under /etc would let an upgrade
+  # prompt about — or overwrite — an operator's live secrets.
+  - src: .env.example
+    dst: /usr/share/siem/env.example
+    file_info: { mode: 0644 }
+  - src: deploy/nginx/siem.conf.example
+    dst: /usr/share/siem/nginx.conf.example
+    file_info: { mode: 0644 }
+  # Included by the example site config; nginx has no cascading add_header, so the
+  # headers live in one file that every location block includes explicitly.
+  - src: deploy/nginx/security-headers.conf
+    dst: /usr/share/siem/nginx-security-headers.conf
+    file_info: { mode: 0644 }
+
+  # Genuine documentation: nothing functional reads it, so /usr/share/doc is right and
+  # a slim image dropping it costs nothing.
+  - src: docs/connecting-vendors.md
+    dst: /usr/share/doc/siem/connecting-vendors.md
+    file_info: { mode: 0644 }
+
+  # /var/lib/siem is deliberately NOT listed here. A package-owned directory is removed
+  # by dpkg on uninstall; created by postinstall instead, it survives — which is what
+  # preremove promises when it leaves the operator's state alone.
+
+scripts:
+  postinstall: deploy/scripts/postinstall.sh
+  preremove: deploy/scripts/preremove.sh
+  postremove: deploy/scripts/postremove.sh
+
+overrides:
+  deb:
+    depends:
+      - systemd
+      # postinstall creates the service account with useradd/groupadd, which live in
+      # passwd — not in adduser, whose tooling is the higher-level adduser/addgroup.
+      - passwd
+  rpm:
+    depends:
+      - systemd
+      - shadow-utils

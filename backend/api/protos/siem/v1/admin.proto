@@ -1,0 +1,192 @@
+syntax = "proto3";
+
+// Administration surface: users, tenant settings, correlation tuning, and the audit
+// trail. Every mutating operation here writes an audit entry before it returns.
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "siem/v1/auth.proto";
+import "siem/v1/common.proto";
+
+service Admin {
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {
+    option (google.api.http) = {get: "/api/v1/admin/users"};
+  }
+
+  rpc CreateUser(CreateUserRequest) returns (UserProfile) {
+    option (google.api.http) = {
+      post: "/api/v1/admin/users"
+      body: "*"
+    };
+  }
+
+  rpc UpdateUser(UpdateUserRequest) returns (UserProfile) {
+    option (google.api.http) = {
+      patch: "/api/v1/admin/users/{user_id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse) {
+    option (google.api.http) = {delete: "/api/v1/admin/users/{user_id}"};
+  }
+
+  rpc GetTenantSettings(GetTenantSettingsRequest) returns (TenantSettings) {
+    option (google.api.http) = {get: "/api/v1/admin/tenant"};
+  }
+
+  // Retention and redaction changes are audited with before and after values.
+  rpc UpdateTenantSettings(UpdateTenantSettingsRequest) returns (TenantSettings) {
+    option (google.api.http) = {
+      patch: "/api/v1/admin/tenant"
+      body: "*"
+    };
+  }
+
+  rpc GetCorrelationSettings(GetCorrelationSettingsRequest) returns (CorrelationSettings) {
+    option (google.api.http) = {get: "/api/v1/admin/correlation-settings"};
+  }
+
+  rpc UpdateCorrelationSettings(UpdateCorrelationSettingsRequest) returns (CorrelationSettings) {
+    option (google.api.http) = {
+      patch: "/api/v1/admin/correlation-settings"
+      body: "*"
+    };
+  }
+
+  // Explicit, audited data deletion outside the normal retention path.
+  rpc Purge(PurgeRequest) returns (PurgeResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/admin/purge"
+      body: "*"
+    };
+  }
+
+  // Read-only. There is deliberately no operation that writes, edits, or deletes an
+  // audit entry.
+  rpc ListAuditEntries(ListAuditEntriesRequest) returns (ListAuditEntriesResponse) {
+    option (google.api.http) = {get: "/api/v1/audit"};
+  }
+}
+
+message ListUsersRequest {
+  PageRequest page = 1;
+}
+
+message ListUsersResponse {
+  repeated UserProfile users = 1;
+  PageResponse page = 2;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string password = 2;
+  string role = 3;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  optional string role = 2;
+  optional string status = 3;
+  // Setting this resets MFA enrolment, forcing re-enrolment on next login.
+  optional bool reset_mfa = 4;
+}
+
+message DeleteUserRequest {
+  string user_id = 1;
+}
+
+message DeleteUserResponse {}
+
+message GetTenantSettingsRequest {}
+
+message TenantSettings {
+  string tenant_id = 1;
+  string name = 2;
+  string status = 3;
+  uint32 raw_retention_days = 4;
+  uint32 correlated_retention_days = 5;
+  uint32 alert_retention_days = 6;
+  // Fields masked at ingest, so they are never stored in readable form.
+  repeated string redacted_fields = 7;
+  float score_conflict_threshold = 8;
+}
+
+message UpdateTenantSettingsRequest {
+  optional uint32 raw_retention_days = 1;
+  optional uint32 correlated_retention_days = 2;
+  optional uint32 alert_retention_days = 3;
+  repeated string redacted_fields = 4;
+  optional float score_conflict_threshold = 5;
+}
+
+message GetCorrelationSettingsRequest {}
+
+message CorrelationSettings {
+  // How far apart two events may be and still describe the same request.
+  uint32 correlation_window_ms = 1;
+  // How late an event may arrive and still amend an existing correlated record.
+  uint32 lateness_bound_ms = 2;
+  // Ranked join signals, most trusted first.
+  repeated JoinSignal signal_ranking = 3;
+}
+
+message UpdateCorrelationSettingsRequest {
+  optional uint32 correlation_window_ms = 1;
+  optional uint32 lateness_bound_ms = 2;
+  repeated JoinSignal signal_ranking = 3;
+}
+
+message PurgeRequest {
+  TimeRange range = 1;
+  // Must equal the tenant name. A destructive operation should not be reachable by
+  // an accidental click.
+  string confirmation = 2;
+  string reason = 3;
+}
+
+message PurgeResponse {
+  int64 rows_deleted = 1;
+}
+
+message ListAuditEntriesRequest {
+  TimeRange range = 1;
+  PageRequest page = 2;
+  optional string action = 3;
+  optional string actor_email = 4;
+}
+
+message ListAuditEntriesResponse {
+  repeated AuditEntry entries = 1;
+  PageResponse page = 2;
+  // False when the hash chain over the returned range does not verify, meaning an
+  // entry was altered or removed.
+  bool chain_intact = 3;
+}
+
+message AuditEntry {
+  string entry_id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+  string actor_email = 3;
+  string source_ip = 4;
+  string action = 5;
+  string target_type = 6;
+  string target_id = 7;
+  string before_value = 8;
+  string after_value = 9;
+  string result = 10;
+  string detail = 11;
+
+  // The hash chain. Exposed so a reader can verify the LINKAGE themselves rather than
+  // take the platform's word for it — an audit trail whose integrity can only be
+  // confirmed by the system that wrote it is not evidence.
+  //
+  // Checking these proves no entry was removed from the middle of a range: a deletion
+  // breaks the chain where it happened. It does NOT prove the whole range was not
+  // rewritten from the start; that needs the server-held anchor.
+  string entry_hash = 12;
+  string previous_hash = 13;
+}

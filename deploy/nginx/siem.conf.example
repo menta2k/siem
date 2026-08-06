@@ -1,0 +1,58 @@
+# Example nginx site for a package install.
+#
+# Serves the SPA from /usr/share/siem/frontend and proxies the contract surface to the
+# API service on this host. Copy to /etc/nginx/sites-available/siem and enable it.
+
+server {
+    listen 80;
+    server_name siem.example.com;
+
+    root /usr/share/siem/frontend;
+    index index.html;
+
+    # Included per location, NOT only here. nginx discards every inherited add_header
+    # in any block that sets one of its own, so a Cache-Control line in `location /` is
+    # enough to silently strip the CSP from every page the SPA serves.
+    include /usr/share/siem/nginx-security-headers.conf;
+
+    # An export can be large and slow; the default 60s proxy timeout would cut it off
+    # mid-stream and hand the analyst a truncated CSV that looks complete.
+    location /api/ {
+        include /usr/share/siem/nginx-security-headers.conf;
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+    }
+
+    # The vendors deliver here. Kept on the ingest service's own port so a flood of
+    # deliveries cannot starve the analyst-facing API.
+    location /ingest/ {
+        include /usr/share/siem/nginx-security-headers.conf;
+        proxy_pass http://127.0.0.1:8001;
+        proxy_http_version 1.1;
+        proxy_set_header Host            $host;
+        proxy_set_header X-Real-IP       $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Logpush and BIG-IP send large batches.
+        client_max_body_size 64m;
+    }
+
+    location /assets/ {
+        include /usr/share/siem/nginx-security-headers.conf;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # SPA routing: a deep link is a client-side route. index.html must never be cached,
+    # or a deployed update stays invisible until every browser's cache expires.
+    location / {
+        include /usr/share/siem/nginx-security-headers.conf;
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-store" always;
+    }
+}

@@ -1,0 +1,55 @@
+# Serves the SPA and proxies the contract surface to the API.
+#
+# ${API_UPSTREAM} and ${DNS_RESOLVER} are substituted at container start by the nginx
+# image's envsubst template mechanism, so one image works against any backend address.
+
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Included per location, never only here: nginx discards inherited add_header
+    # directives in any block that sets one of its own. See security-headers.conf.
+    include /etc/nginx/snippets/security-headers.conf;
+
+    location /api/ {
+        include /etc/nginx/snippets/security-headers.conf;
+
+        # proxy_pass through a VARIABLE, which is what makes nginx resolve the upstream
+        # per request instead of once at startup. With a literal host it refuses to
+        # start at all when the API is not yet resolvable — so the SPA cannot come up
+        # before the backend — and once started it pins the first IP for the process
+        # lifetime, quietly proxying to a dead address after the API restarts.
+        resolver ${DNS_RESOLVER} valid=10s ipv6=off;
+        set $upstream ${API_UPSTREAM};
+        proxy_pass $upstream;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # An export can be large and slow; the default 60s read timeout would cut it off
+        # mid-stream and leave the analyst with a truncated CSV that looks complete.
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+    }
+
+    # Hashed assets are immutable: the filename changes when the content does.
+    location /assets/ {
+        include /etc/nginx/snippets/security-headers.conf;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    }
+
+    # SPA routing: a deep link is a client-side route, so unknown paths return the shell
+    # rather than a 404. index.html itself must never be cached, or a deployed update is
+    # invisible until every browser's cache expires.
+    location / {
+        include /etc/nginx/snippets/security-headers.conf;
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-store" always;
+    }
+}

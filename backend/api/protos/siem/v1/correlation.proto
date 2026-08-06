@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+// Correlated requests: one record per request, holding every vendor's view of it.
+//
+// The record is the product's central artefact, so it exposes not just WHAT was
+// concluded but WHY: which evidence produced the join, how much trust it deserves,
+// and which events contributed. An analyst who cannot audit a join cannot act on it.
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "siem/v1/common.proto";
+
+// Per-tenant correlation tuning lives on the Admin service alongside retention and
+// redaction, not here: it is a privileged configuration change, and splitting the
+// tenant's settings across two services would split their authorization with them.
+service Correlation {
+  rpc GetCorrelatedRequest(GetCorrelatedRequestRequest) returns (CorrelatedRequest) {
+    option (google.api.http) = {get: "/api/v1/correlated/{correlation_id}"};
+  }
+
+  rpc ListCorrelatedRequests(ListCorrelatedRequestsRequest) returns (ListCorrelatedRequestsResponse) {
+    option (google.api.http) = {get: "/api/v1/correlated"};
+  }
+
+}
+
+// CorrelatedRequest is one request as every vendor that saw it reported it.
+message CorrelatedRequest {
+  string correlation_id = 1;
+
+  google.protobuf.Timestamp window_start = 2;
+  google.protobuf.Timestamp first_event_time = 3;
+  google.protobuf.Timestamp last_event_time = 4;
+
+  ClientInfo client = 5;
+  RequestInfo request = 6;
+
+  // One entry per contributing vendor, so a disagreement can be read directly off
+  // the record rather than inferred from a flattened summary.
+  repeated VendorVerdict vendor_verdicts = 7;
+  // 1 is normal, not an error: plenty of hostnames sit behind a single vendor (FR-016).
+  uint32 vendor_count = 8;
+  // Ids of the contributing events, for drilling through to the raw payloads (FR-024).
+  repeated string event_ids = 9;
+
+  // The most restrictive verdict any vendor reached.
+  Verdict combined_outcome = 10;
+  bool has_disagreement = 11;
+  DisagreementKind disagreement_kind = 12;
+
+  // ---- why this join was made, and how far to trust it (FR-015)
+
+  repeated JoinSignal join_signals = 13;
+  // 1 = exact shared request id, 2 = heuristic match.
+  uint32 join_tier = 14;
+  Confidence confidence = 15;
+  // Above 1, several events competed for the join and the chosen one may be wrong.
+  uint32 candidate_count = 16;
+
+  // ---- amendment history (FR-018)
+
+  // Increments each time a late arrival amends the record. The correlation_id never
+  // changes, so a bookmarked record stays findable.
+  uint64 version = 17;
+  bool amended = 18;
+}
+
+message GetCorrelatedRequestRequest {
+  string correlation_id = 1;
+}
+
+message ListCorrelatedRequestsRequest {
+  // Required. Unbounded scans are rejected rather than queued.
+  TimeRange time_range = 1;
+  // Optional filter; unspecified returns every confidence level.
+  Confidence confidence = 2;
+  // Restricts the result to records where vendors reached conflicting verdicts.
+  bool only_disagreements = 3;
+  // Restricts the result to genuine cross-vendor joins when set above 1.
+  uint32 min_vendor_count = 4;
+  PageRequest page = 5;
+}
+
+message ListCorrelatedRequestsResponse {
+  repeated CorrelatedRequest requests = 1;
+  PageResponse page = 2;
+}

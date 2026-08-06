@@ -1,0 +1,214 @@
+package correlate_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/menta2k/siem/internal/correlate"
+	"github.com/menta2k/siem/internal/correlate/keys"
+	"github.com/menta2k/siem/internal/correlate/window"
+	chdata "github.com/menta2k/siem/internal/data/clickhouse"
+	mw "github.com/menta2k/siem/internal/middleware"
+)
+
+// countingCorrelatedStore records how many inserts the closer issued and how many
+// records each one carried.
+type countingCorrelatedStore struct {
+	calls        int
+	records      int
+	versionCalls int
+
+	// existing seeds records that are already stored, so the amendment path can be
+	// exercised without a second close pass.
+	existing map[uuid.UUID]uint64
+
+	// written keeps the rows themselves, so the version contract can be asserted on
+	// what was actually stored rather than on a count.
+	written []chdata.CorrelatedRequest
+}
+
+func (s *countingCorrelatedStore) Insert(
+	_ context.Context, records []chdata.CorrelatedRequest,
+) error {
+	s.calls++
+	s.records += len(records)
+	s.written = append(s.written, records...)
+	return nil
+}
+
+func (s *countingCorrelatedStore) Versions(
+	_ context.Context, correlationIDs []uuid.UUID,
+) (map[uuid.UUID]uint64, error) {
+	s.versionCalls++
+
+	found := map[uuid.UUID]uint64{}
+	for _, id := range correlationIDs {
+		if version, ok := s.existing[id]; ok {
+			found[id] = version
+		}
+	}
+	return found, nil
+}
+
+func newCloser(
+	windowStore *countingWindowStore, records *countingCorrelatedStore,
+) *correlate.Closer {
+	return correlate.NewCloser(
+		window.New(windowStore), records,
+		correlate.FixedSettings{Value: correlate.Resolved{Keys: keys.DefaultSettings()}},
+		mw.NewLogger("error", "json"))
+}
+
+// fileAndClose files n events, then closes every window they opened.
+func fileAndClose(
+	t *testing.T, n int, windowStore *countingWindowStore, records *countingCorrelatedStore,
+) {
+	t.Helper()
+
+	if _, err := newBatchWorker(windowStore).
+		HandleBatch(context.Background(), recordBatch(t, n)); err != nil {
+		t.Fatalf("HandleBatch: %v", err)
+	}
+
+	// Far enough ahead that every window's deadline has passed.
+	future := time.Now().UTC().Add(time.Hour)
+	if err := newCloser(windowStore, records).Tick(context.Background(), future); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+}
+
+// Closing a window used to cost a full ClickHouse round trip EACH, which under the
+// ingest profile's wait_for_async_insert is the entire cost of closing. A tick now
+// writes its whole claim in one insert per tenant.
+func TestATickWritesOneInsertPerTenant(t *testing.T) {
+	windowStore := newCountingWindowStore()
+	records := &countingCorrelatedStore{}
+
+	fileAndClose(t, 100, windowStore, records)
+
+	if records.calls != 1 {
+		t.Errorf("%d inserts for 100 single-tenant windows, want 1", records.calls)
+	}
+	if records.records != 100 {
+		t.Errorf("wrote %d correlated records, want 100", records.records)
+	}
+}
+
+// A tick keeps claiming while the schedule hands back full batches. Without that, a
+// backlog drains at one batch per second no matter how cheap each window became.
+func TestATickDrainsMoreThanOneBatch(t *testing.T) {
+	windowStore := newCountingWindowStore()
+	records := &countingCorrelatedStore{}
+
+	// Comfortably more than window.DefaultBatch, so a single-claim tick would leave
+	// most of it behind.
+	const windows = 900
+	fileAndClose(t, windows, windowStore, records)
+
+	if records.records != windows {
+		t.Errorf("one tick emitted %d of %d closed windows; a backlog would drain at "+
+			"one batch per tick", records.records, windows)
+	}
+}
+
+// The pass bound has to hold, or one tenant's continuously rescheduled windows would
+// hold the close loop forever and starve every other tenant.
+func TestATickStopsAtThePassBound(t *testing.T) {
+	windowStore := newCountingWindowStore()
+	records := &countingCorrelatedStore{}
+
+	// More windows than the bound can claim in one tick.
+	total := correlate.MaxPassesPerTick*window.DefaultBatch + 500
+	fileAndClose(t, total, windowStore, records)
+
+	if records.records >= total {
+		t.Errorf("one tick emitted %d of %d windows; the pass bound did not hold",
+			records.records, total)
+	}
+	if records.records == 0 {
+		t.Error("the bounded tick emitted nothing at all")
+	}
+}
+
+// The version lookup is one query per close pass, not one per record. It used to be a
+// ClickHouse point query on every correlated record, which is what made closing a
+// window cost a round trip.
+func TestVersionsIsAskedOncePerPass(t *testing.T) {
+	windowStore := newCountingWindowStore()
+	records := &countingCorrelatedStore{}
+
+	fileAndClose(t, 100, windowStore, records)
+
+	if records.versionCalls != 1 {
+		t.Errorf("%d version lookups for 100 windows, want 1", records.versionCalls)
+	}
+}
+
+// A record with no existing row is version 1 and not an amendment.
+func TestANewRecordIsVersionOne(t *testing.T) {
+	windowStore := newCountingWindowStore()
+	records := &countingCorrelatedStore{}
+
+	fileAndClose(t, 5, windowStore, records)
+
+	if len(records.written) == 0 {
+		t.Fatal("nothing was written")
+	}
+	for _, record := range records.written {
+		if record.Version != 1 {
+			t.Errorf("new record written at version %d, want 1", record.Version)
+		}
+		if record.Amended {
+			t.Error("a first emission was marked as an amendment")
+		}
+	}
+}
+
+// A record that already exists is an amendment at the next version — the late-arrival
+// contract (FR-018). Losing this would strand the analyst who bookmarked the id, and
+// the batched version lookup is where that decision now happens.
+func TestAnExistingRecordIsAmendedAtTheNextVersion(t *testing.T) {
+	windowStore := newCountingWindowStore()
+
+	// Close once to learn the ids the closer assigns.
+	first := &countingCorrelatedStore{}
+	fileAndClose(t, 5, windowStore, first)
+
+	stored := map[uuid.UUID]uint64{}
+	for _, record := range first.written {
+		stored[record.CorrelationID] = 3
+	}
+
+	// Re-file the SAME events, so the same windows close again under the same ids,
+	// this time against a store that already holds them at version 3.
+	second := &countingCorrelatedStore{existing: stored}
+	if _, err := newBatchWorker(windowStore).
+		HandleBatch(context.Background(), recordBatch(t, 5)); err != nil {
+		t.Fatalf("HandleBatch: %v", err)
+	}
+	future := time.Now().UTC().Add(2 * time.Hour)
+	if err := newCloser(windowStore, second).Tick(context.Background(), future); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	amended := 0
+	for _, record := range second.written {
+		if _, seeded := stored[record.CorrelationID]; !seeded {
+			continue
+		}
+		amended++
+		if record.Version != 4 {
+			t.Errorf("amendment written at version %d, want 4", record.Version)
+		}
+		if !record.Amended {
+			t.Error("an amendment was written without its amended flag")
+		}
+	}
+	if amended == 0 {
+		t.Fatal("no window closed under a previously seen correlation id, so the " +
+			"amendment path was never exercised")
+	}
+}

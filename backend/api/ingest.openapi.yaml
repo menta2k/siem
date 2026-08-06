@@ -1,0 +1,195 @@
+# Vendor ingest surface.
+#
+# WHY THIS FILE IS HAND-AUTHORED, unlike every other contract in this repo:
+#
+# The ingest endpoints accept opaque vendor bytes — gzipped NDJSON from Cloudflare,
+# CEF or syslog lines from F5, JSON arrays from DataDome. Protobuf/JSON transcoding
+# cannot express "the body is arbitrary bytes whose format the server sniffs", so
+# generating this from a .proto would either lie about the request shape or force
+# vendors to re-encode their output before we would accept it.
+#
+# The trade-off: this file must be kept in step with internal/ingest/receiver by hand.
+# test/contract/ingest_test.go is what makes that safe — it drives the real handler and
+# fails when the responses stop matching what is documented here.
+openapi: 3.0.3
+
+info:
+  title: SIEM Vendor Ingest
+  version: 1.0.0
+  description: |
+    Endpoints vendors deliver logs to. Authenticated with a per-feed bearer token that
+    grants nothing but ingestion.
+
+    A 2xx is returned ONLY after the event is durably committed. Any doubt produces a
+    retryable status: a vendor retry is absorbed by deduplication, whereas a false
+    acknowledgement loses the event permanently.
+
+paths:
+  /ingest/v1/{vendor}/{feed_id}:
+    post:
+      operationId: deliverEvents
+      summary: Deliver a batch of log events
+      parameters:
+        - name: vendor
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [cloudflare, f5, datadome]
+        - name: feed_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: X-Signature
+          in: header
+          required: false
+          description: |
+            Hex HMAC-SHA256 over the raw body, optionally prefixed `sha256=`. Required
+            when the feed has signing configured; a valid bearer token alone is not
+            sufficient in that case.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        description: |
+          The vendor's payload, verbatim. The server sniffs the encoding rather than
+          requiring a particular Content-Type, because vendors are inconsistent about
+          setting one. Maximum 32 MiB and 50,000 events per request.
+        content:
+          application/x-ndjson:
+            schema: {type: string}
+          application/json:
+            schema: {type: string}
+          text/plain:
+            schema: {type: string}
+          application/gzip:
+            schema: {type: string, format: binary}
+      responses:
+        "202":
+          description: Every event durably committed.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Outcome"}
+        "207":
+          description: |
+            Committed, with some events dead-lettered. The vendor should NOT retry:
+            the rejected records will fail identically.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Outcome"}
+        "400":
+          description: |
+            The batch envelope could not be parsed. Retrying the same bytes will fail
+            identically, so this is deliberately not retryable.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "401":
+          description: Missing or invalid feed credential, or a bad body signature.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "403":
+          description: The token is valid but does not match the requested feed.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404":
+          description: No such feed, or the feed is disabled.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "413":
+          description: Body or batch exceeds the configured limits.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "429":
+          description: Feed quota exceeded. Retry after the stated delay.
+          headers:
+            Retry-After:
+              schema: {type: integer}
+              description: Seconds to wait before retrying.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "503":
+          description: |
+            The platform could not confirm a durable write. The events were NOT
+            accepted — retry the whole batch. Deduplication absorbs anything that did
+            get committed.
+          headers:
+            Retry-After:
+              schema: {type: integer}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+      security:
+        - feedToken: []
+
+components:
+  securitySchemes:
+    feedToken:
+      type: http
+      scheme: bearer
+      description: Per-feed token. Grants ingestion only; no console access.
+
+  schemas:
+    Outcome:
+      type: object
+      required: [batch_id, accepted, duplicates_suppressed]
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+        accepted:
+          type: integer
+          description: Events durably committed by this request.
+        duplicates_suppressed:
+          type: integer
+          description: Events recognized as redeliveries and not re-committed.
+        rejected:
+          type: array
+          items: {$ref: "#/components/schemas/Rejection"}
+
+    Rejection:
+      type: object
+      required: [index, reason_code, reason_detail]
+      properties:
+        index:
+          type: integer
+          description: Position in the delivered batch, so the vendor can identify the record.
+        reason_code:
+          type: string
+          enum:
+            - PARSE_ERROR
+            - SCHEMA_UNKNOWN
+            - QUOTA_EXCEEDED
+            - TIMESTAMP_OUT_OF_RANGE
+            - TENANT_UNKNOWN
+            - PAYLOAD_TOO_LARGE
+        reason_detail:
+          type: string
+          description: Parser message. Never contains a secret.
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable, machine-readable. Branch on this, never on the message.
+        message:
+          type: string
+          description: Safe to show a user. Never leaks internal detail.
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field: {type: string}
+              issue: {type: string}
+        trace_id:
+          type: string

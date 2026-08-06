@@ -1,0 +1,277 @@
+syntax = "proto3";
+
+// Alert rules and the alerts they produce.
+//
+// A rule is validated and DRY-RUN before it can be saved, because the failure mode of
+// an untested alerting rule is silence: it sits enabled, never trips, and nobody
+// notices until the incident it was written for goes unreported.
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "siem/v1/common.proto";
+
+service Alerts {
+  rpc ListAlertRules(ListAlertRulesRequest) returns (ListAlertRulesResponse) {
+    option (google.api.http) = {get: "/api/v1/alert-rules"};
+  }
+
+  // The condition is validated and dry-run against recent data before it is stored.
+  rpc CreateAlertRule(CreateAlertRuleRequest) returns (AlertRule) {
+    option (google.api.http) = {
+      post: "/api/v1/alert-rules"
+      body: "*"
+    };
+  }
+
+  rpc UpdateAlertRule(UpdateAlertRuleRequest) returns (AlertRule) {
+    option (google.api.http) = {
+      patch: "/api/v1/alert-rules/{rule_id}"
+      body: "*"
+    };
+  }
+
+  // Disables the rule. Its alerts are kept: an alert whose rule has vanished cannot
+  // be explained afterwards.
+  rpc DeleteAlertRule(DeleteAlertRuleRequest) returns (DeleteAlertRuleResponse) {
+    option (google.api.http) = {delete: "/api/v1/alert-rules/{rule_id}"};
+  }
+
+  // Measures a condition over recent data WITHOUT firing anything, so an author can
+  // see what their threshold would have caught before committing to it.
+  rpc PreviewAlertRule(PreviewAlertRuleRequest) returns (PreviewAlertRuleResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/alert-rules/{rule_id}/preview"
+      body: "*"
+    };
+  }
+
+  rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse) {
+    option (google.api.http) = {get: "/api/v1/alerts"};
+  }
+
+  rpc GetAlert(GetAlertRequest) returns (Alert) {
+    option (google.api.http) = {get: "/api/v1/alerts/{alert_id}"};
+  }
+
+  rpc AcknowledgeAlert(AcknowledgeAlertRequest) returns (Alert) {
+    option (google.api.http) = {
+      post: "/api/v1/alerts/{alert_id}/acknowledge"
+      body: "*"
+    };
+  }
+
+  rpc ResolveAlert(ResolveAlertRequest) returns (Alert) {
+    option (google.api.http) = {
+      post: "/api/v1/alerts/{alert_id}/resolve"
+      body: "*"
+    };
+  }
+}
+
+// Severity ranks how urgently an alert needs attention.
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_LOW = 1;
+  SEVERITY_MEDIUM = 2;
+  SEVERITY_HIGH = 3;
+  SEVERITY_CRITICAL = 4;
+}
+
+// AlertState is where an alert sits in triage.
+enum AlertState {
+  ALERT_STATE_UNSPECIFIED = 0;
+  ALERT_STATE_NEW = 1;
+  ALERT_STATE_ACKNOWLEDGED = 2;
+  ALERT_STATE_RESOLVED = 3;
+}
+
+// NotifyStatus is the outcome of the webhook delivery.
+//
+// Carried on the alert, not only in logs: a webhook that silently fails leaves the
+// operator believing they were notified (FR-032).
+enum NotifyStatus {
+  NOTIFY_STATUS_UNSPECIFIED = 0;
+  NOTIFY_STATUS_PENDING = 1;
+  NOTIFY_STATUS_DELIVERED = 2;
+  NOTIFY_STATUS_FAILED = 3;
+}
+
+// RuleAggregate is what a rule measures over its window.
+enum RuleAggregate {
+  RULE_AGGREGATE_UNSPECIFIED = 0;
+  RULE_AGGREGATE_COUNT = 1;
+  // A share of all traffic in the window, not a raw count: a spike in blocks during a
+  // traffic surge is normal, the same count in quiet hours is not.
+  RULE_AGGREGATE_RATE = 2;
+  RULE_AGGREGATE_DISTINCT_IPS = 3;
+}
+
+// RuleComparator tests the observed value against the threshold.
+enum RuleComparator {
+  RULE_COMPARATOR_UNSPECIFIED = 0;
+  RULE_COMPARATOR_GT = 1;
+  RULE_COMPARATOR_GTE = 2;
+  RULE_COMPARATOR_LT = 3;
+  RULE_COMPARATOR_LTE = 4;
+}
+
+// RuleCondition is what a rule matches and measures.
+//
+// A closed structure rather than an expression language: an operator writing a rule
+// must not be able to author something that scans without bounds or references a
+// column that does not exist.
+message RuleCondition {
+  // Filters narrow which correlated requests the rule considers. Field names are
+  // validated against the same allowlist a search uses.
+  map<string, string> filters = 1;
+  bool only_disagreements = 2;
+  uint32 min_vendor_count = 3;
+
+  RuleAggregate aggregate = 4;
+  RuleComparator comparator = 5;
+  double threshold = 6;
+
+  uint32 window_seconds = 7;
+  // Each group is a separate alert and a separate cooldown, so this is capped.
+  repeated string group_by = 8;
+  // Must be at least as long as the window, or one sustained condition produces a
+  // stream of duplicate alerts.
+  uint32 cooldown_seconds = 9;
+}
+
+message AlertRule {
+  string rule_id = 1;
+  string name = 2;
+  bool enabled = 3;
+  Severity severity = 4;
+  RuleCondition condition = 5;
+
+  string webhook_url = 6;
+  // True when a signing secret is configured. The secret itself is NEVER returned.
+  bool webhook_signing_configured = 7;
+
+  string created_by = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message ListAlertRulesRequest {}
+
+message ListAlertRulesResponse {
+  repeated AlertRule rules = 1;
+}
+
+message CreateAlertRuleRequest {
+  string name = 1;
+  Severity severity = 2;
+  RuleCondition condition = 3;
+  string webhook_url = 4;
+  // Accepted here, stored in the secret manager, and never echoed back.
+  string webhook_secret = 5;
+  bool enabled = 6;
+}
+
+message UpdateAlertRuleRequest {
+  string rule_id = 1;
+  optional string name = 2;
+  optional Severity severity = 3;
+  RuleCondition condition = 4;
+  optional string webhook_url = 5;
+  optional string webhook_secret = 6;
+  optional bool enabled = 7;
+}
+
+message DeleteAlertRuleRequest {
+  string rule_id = 1;
+}
+
+message DeleteAlertRuleResponse {
+  bool disabled = 1;
+}
+
+message PreviewAlertRuleRequest {
+  // Empty when previewing an unsaved rule.
+  string rule_id = 1;
+  // The condition to measure. Required, so an author can preview an edit before
+  // saving it rather than only after.
+  RuleCondition condition = 2;
+  // How far back to measure. Defaults to the condition's own window.
+  TimeRange time_range = 3;
+}
+
+// PreviewGroup is one group's measurement in a dry run.
+message PreviewGroup {
+  map<string, string> group_values = 1;
+  double observed_value = 2;
+  double total = 3;
+  // Whether this group WOULD have fired. Groups that would not fire are returned too:
+  // an author tuning a threshold needs to see the values it did not trip on.
+  bool would_fire = 4;
+  repeated string evidence_correlation_ids = 5;
+}
+
+message PreviewAlertRuleResponse {
+  repeated PreviewGroup groups = 1;
+  uint32 would_fire_count = 2;
+}
+
+message Alert {
+  string alert_id = 1;
+  string rule_id = 2;
+  string rule_name = 3;
+  google.protobuf.Timestamp fired_at = 4;
+  Severity severity = 5;
+  AlertState state = 6;
+
+  map<string, string> group_values = 7;
+  double observed_value = 8;
+  double threshold = 9;
+
+  // Links to the correlated records that caused the alert, so an operator opens the
+  // evidence rather than reconstructing the query behind a number (SC-006).
+  repeated string evidence_correlation_ids = 10;
+
+  string acknowledged_by = 11;
+  google.protobuf.Timestamp acknowledged_at = 12;
+  string resolved_by = 13;
+  google.protobuf.Timestamp resolved_at = 14;
+
+  NotifyStatus notify_status = 15;
+  uint32 notify_attempts = 16;
+  // The last delivery error, shown in the console so a failure is visible where the
+  // alert is rather than only in a log an analyst cannot read.
+  string notify_last_error = 17;
+}
+
+message ListAlertsRequest {
+  TimeRange time_range = 1;
+  AlertState state = 2;
+  Severity severity = 3;
+  string rule_id = 4;
+  // Filters to alerts whose notification failed, which is the operator's other entry
+  // point: "what did we fail to send".
+  NotifyStatus notify_status = 5;
+  PageRequest page = 6;
+}
+
+message ListAlertsResponse {
+  repeated Alert alerts = 1;
+  PageResponse page = 2;
+}
+
+message GetAlertRequest {
+  string alert_id = 1;
+}
+
+message AcknowledgeAlertRequest {
+  string alert_id = 1;
+  string note = 2;
+}
+
+message ResolveAlertRequest {
+  string alert_id = 1;
+  string note = 2;
+}

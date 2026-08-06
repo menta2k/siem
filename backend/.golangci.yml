@@ -1,0 +1,73 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - unused
+    - revive
+    - funlen
+    - gocognit
+    - lll
+    - gosec
+    - bodyclose
+    - noctx
+    - nilerr
+    - errorlint
+    - copyloopvar
+    - misspell
+
+  settings:
+    funlen:
+      # Constitution: functions stay under 50 lines.
+      lines: 50
+      statements: 40
+    gocognit:
+      # Constitution: no deep nesting.
+      min-complexity: 20
+    lll:
+      line-length: 100
+    errcheck:
+      # Constitution: never silently swallow errors. An unchecked call is caught here.
+      check-type-assertions: true
+      # `_ = f()` stays allowed: it is an explicit statement that the error is being
+      # ignored, which is the opposite of silent. Review still requires a reason
+      # comment wherever the reason is not self-evident (deferred Close, best-effort
+      # cleanup). Flagging it here only trained us to add nolint directives.
+      check-blank: false
+    revive:
+      rules:
+        - name: exported
+        - name: error-return
+        - name: error-naming
+        - name: context-as-argument
+        - name: indent-error-flow
+        - name: deep-exit
+
+  exclusions:
+    rules:
+      # Generated code is not ours to lint.
+      - path: api/gen/
+        linters: [lll, funlen, revive, gosec, staticcheck, unused]
+      # Table-driven tests legitimately run long.
+      - path: _test\.go$
+        linters: [funlen, gocognit, gosec]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/menta2k/siem
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

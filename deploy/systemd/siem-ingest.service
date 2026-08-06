@@ -1,0 +1,53 @@
+[Unit]
+Description=SIEM vendor log ingestion endpoint
+Documentation=https://github.com/menta2k/siem
+After=network-online.target
+Wants=network-online.target
+# StartLimit* belong in [Unit], not [Service]. systemd moved them in v229 and silently
+# IGNORES them under [Service] — the restart rate limit then does nothing at all, and a
+# service crash-looping on a bad config restarts for ever instead of backing off.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=siem
+Group=siem
+ExecStart=/usr/bin/siem-ingest
+Restart=on-failure
+RestartSec=10
+
+# All configuration is environment-driven and validated at startup: a missing secret
+# stops the service here rather than surfacing as a failure under load. Put the values
+# in /etc/siem/env — see /usr/share/doc/siem/env.example.
+EnvironmentFile=/etc/siem/env
+
+# Hardening. The services read configuration and talk to ClickHouse, Redpanda and
+# Redis over the network; they have no reason to touch the filesystem beyond their
+# own state directory.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/siem
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=siem-ingest
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,231 @@
+# Produces the deployable artefacts: container images and OS packages.
+#
+# Deliberately separate from ci.yml. That workflow is the merge gate and runs on every
+# push and pull request; this one publishes, and publishing on every commit to a branch
+# is how a half-finished change ends up tagged `latest`. Images are built for any push
+# to main (tagged by branch and SHA) so a deployment can track the tip, but versioned
+# artefacts and packages are only produced for a `v*` tag.
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+env:
+  REGISTRY: ghcr.io
+  GO_VERSION: "1.25"
+  NODE_VERSION: "22"
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------- images
+  images:
+    name: Image (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: siem-api
+            dockerfile: deploy/Dockerfile.backend
+            service_arg: SERVICE=siem-api
+          - service: siem-ingest
+            dockerfile: deploy/Dockerfile.backend
+            service_arg: SERVICE=siem-ingest
+          - service: siem-processor
+            dockerfile: deploy/Dockerfile.backend
+            service_arg: SERVICE=siem-processor
+          # The frontend image takes no SERVICE: it is one bundle, not one of three
+          # binaries. Passing the arg anyway would make buildx warn on every build.
+          - service: siem-frontend
+            dockerfile: deploy/Dockerfile.frontend
+            service_arg: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build identity
+        id: build
+        run: |
+          echo "date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          # Strips the leading v from a tag; a branch build reports itself as "dev"
+          # rather than borrowing a version number it does not have.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          # The build stage is pinned to the native platform and Go cross-compiles, so
+          # arm64 costs a second compile rather than an emulated toolchain.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          build-args: |
+            ${{ matrix.service_arg }}
+            APP_VERSION=${{ steps.build.outputs.version }}
+            APP_COMMIT=${{ steps.build.outputs.commit }}
+            APP_DATE=${{ steps.build.outputs.date }}
+
+  # ---------------------------------------------------------------- packages
+  packages:
+    name: Package (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            goarch: amd64
+          - arch: arm64
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the web UI
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Build binaries
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          PKG=github.com/menta2k/siem/internal/version
+
+          mkdir -p dist
+          cd backend
+          for svc in siem-api siem-ingest siem-processor; do
+            go build -trimpath \
+              -ldflags "-s -w -X ${PKG}.Version=${VERSION} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Date=${DATE}" \
+              -o "../dist/${svc}" "./cmd/${svc}"
+          done
+          # The seeding tool ships too: creating the first tenant and admin is part of
+          # installing, and an operator should not need a Go toolchain to do it.
+          go build -trimpath -ldflags "-s -w" -o ../dist/siem-seed ./cmd/seed
+
+      - name: Verify the version stamp took
+        run: |
+          # -X against a symbol that does not exist is silently ignored by the linker,
+          # so an unstamped binary looks exactly like a successful build. Checking here
+          # is what stops a release shipping binaries that all report "dev".
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! grep -qa "$VERSION" dist/siem-api; then
+            echo "::error::the version string $VERSION is absent from dist/siem-api;" \
+                 "the -X ldflags path no longer matches internal/version"
+            exit 1
+          fi
+
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Build deb and rpm
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          export VERSION ARCH
+          envsubst < nfpm.yaml > /tmp/nfpm.rendered.yaml
+          nfpm package -f /tmp/nfpm.rendered.yaml -p deb -t dist/
+          nfpm package -f /tmp/nfpm.rendered.yaml -p rpm -t dist/
+
+      - name: Inspect the package
+        run: |
+          # A package that installs to the wrong paths still builds cleanly, so the
+          # layout is asserted rather than assumed.
+          deb=$(ls dist/*.deb)
+          dpkg-deb --contents "$deb"
+          for path in ./usr/bin/siem-api ./usr/bin/siem-ingest ./usr/bin/siem-processor \
+                      ./lib/systemd/system/siem-api.service ./usr/share/siem/frontend/index.html; do
+            dpkg-deb --contents "$deb" | grep -q " $path\$" || {
+              echo "::error::$path is missing from $deb"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.arch }}
+          path: |
+            dist/*.deb
+            dist/*.rpm
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- release
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    needs: [images, packages]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum ./*.deb ./*.rpm > siem-checksums.sha256
+          cat siem-checksums.sha256
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*

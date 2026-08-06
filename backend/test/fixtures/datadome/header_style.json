@@ -1,0 +1,1 @@
+[{"X-DataDome-requestid":"01J8XKQ2M4N7P9R3T5V6W8Y0EA","X-DataDome-isbot":"true","X-DataDome-botname":"curl","X-DataDome-family":"Tool","timestamp":1786019000000,"ip":"203.0.113.224","host":"shop.example.com","uri":"/api/stock","method":"GET","status":403,"botscore":91,"action":"BLOCK"}]

@@ -1,0 +1,1 @@
+{"support_id":"6947392018374652","date_time":"2026-08-06 12:10:00","ip_client":"203.0.113.150","method":"GET","uri":"/api/items","response_code":200,"request_status":"passed","policy_name":"prod_waf_policy","geo_location":"GB"}

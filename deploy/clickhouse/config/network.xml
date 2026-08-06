@@ -1,0 +1,13 @@
+<clickhouse>
+    <!-- Listen on all interfaces.
+         ClickHouse defaults to 127.0.0.1, which inside a container means only the
+         container itself can connect. That failure is unusually hard to read: the
+         healthcheck runs INSIDE the container and passes over localhost, so Compose
+         reports the service healthy while every other container is refused. The
+         services then fail to start with "connection refused" against a dependency
+         Compose has just declared ready.
+
+         Binding here rather than in the image's own config because config.d is the
+         supported override point and survives an image upgrade. -->
+    <listen_host>0.0.0.0</listen_host>
+</clickhouse>

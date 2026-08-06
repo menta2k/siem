@@ -1,0 +1,2471 @@
+# Generated with protoc-gen-openapi
+# https://github.com/google/gnostic/tree/master/cmd/protoc-gen-openapi
+
+openapi: 3.0.3
+info:
+    title: ""
+    version: 0.0.1
+paths:
+    /api/v1/admin/correlation-settings:
+        get:
+            tags:
+                - Admin
+            operationId: Admin_GetCorrelationSettings
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CorrelationSettings'
+        patch:
+            tags:
+                - Admin
+            operationId: Admin_UpdateCorrelationSettings
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateCorrelationSettingsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CorrelationSettings'
+    /api/v1/admin/purge:
+        post:
+            tags:
+                - Admin
+            description: Explicit, audited data deletion outside the normal retention path.
+            operationId: Admin_Purge
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/PurgeRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PurgeResponse'
+    /api/v1/admin/tenant:
+        get:
+            tags:
+                - Admin
+            operationId: Admin_GetTenantSettings
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TenantSettings'
+        patch:
+            tags:
+                - Admin
+            description: Retention and redaction changes are audited with before and after values.
+            operationId: Admin_UpdateTenantSettings
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateTenantSettingsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TenantSettings'
+    /api/v1/admin/users:
+        get:
+            tags:
+                - Admin
+            operationId: Admin_ListUsers
+            parameters:
+                - name: page.cursor
+                  in: query
+                  description: Opaque cursor from a previous PageResponse. Empty requests the first page.
+                  schema:
+                    type: string
+                - name: page.limit
+                  in: query
+                  description: Server caps this at QUERY_MAX_RESULT_ROWS regardless of what is requested.
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListUsersResponse'
+        post:
+            tags:
+                - Admin
+            operationId: Admin_CreateUser
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateUserRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UserProfile'
+    /api/v1/admin/users/{userId}:
+        delete:
+            tags:
+                - Admin
+            operationId: Admin_DeleteUser
+            parameters:
+                - name: userId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DeleteUserResponse'
+        patch:
+            tags:
+                - Admin
+            operationId: Admin_UpdateUser
+            parameters:
+                - name: userId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateUserRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UserProfile'
+    /api/v1/alert-rules:
+        get:
+            tags:
+                - Alerts
+            operationId: Alerts_ListAlertRules
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListAlertRulesResponse'
+        post:
+            tags:
+                - Alerts
+            description: The condition is validated and dry-run against recent data before it is stored.
+            operationId: Alerts_CreateAlertRule
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateAlertRuleRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AlertRule'
+    /api/v1/alert-rules/{ruleId}:
+        delete:
+            tags:
+                - Alerts
+            description: |-
+                Disables the rule. Its alerts are kept: an alert whose rule has vanished cannot
+                 be explained afterwards.
+            operationId: Alerts_DeleteAlertRule
+            parameters:
+                - name: ruleId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DeleteAlertRuleResponse'
+        patch:
+            tags:
+                - Alerts
+            operationId: Alerts_UpdateAlertRule
+            parameters:
+                - name: ruleId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateAlertRuleRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/AlertRule'
+    /api/v1/alert-rules/{ruleId}/preview:
+        post:
+            tags:
+                - Alerts
+            description: |-
+                Measures a condition over recent data WITHOUT firing anything, so an author can
+                 see what their threshold would have caught before committing to it.
+            operationId: Alerts_PreviewAlertRule
+            parameters:
+                - name: ruleId
+                  in: path
+                  description: Empty when previewing an unsaved rule.
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/PreviewAlertRuleRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PreviewAlertRuleResponse'
+    /api/v1/alerts:
+        get:
+            tags:
+                - Alerts
+            operationId: Alerts_ListAlerts
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: state
+                  in: query
+                  schema:
+                    enum:
+                        - ALERT_STATE_UNSPECIFIED
+                        - ALERT_STATE_NEW
+                        - ALERT_STATE_ACKNOWLEDGED
+                        - ALERT_STATE_RESOLVED
+                    type: string
+                    format: enum
+                - name: severity
+                  in: query
+                  schema:
+                    enum:
+                        - SEVERITY_UNSPECIFIED
+                        - SEVERITY_LOW
+                        - SEVERITY_MEDIUM
+                        - SEVERITY_HIGH
+                        - SEVERITY_CRITICAL
+                    type: string
+                    format: enum
+                - name: ruleId
+                  in: query
+                  schema:
+                    type: string
+                - name: notifyStatus
+                  in: query
+                  description: |-
+                    Filters to alerts whose notification failed, which is the operator's other entry
+                     point: "what did we fail to send".
+                  schema:
+                    enum:
+                        - NOTIFY_STATUS_UNSPECIFIED
+                        - NOTIFY_STATUS_PENDING
+                        - NOTIFY_STATUS_DELIVERED
+                        - NOTIFY_STATUS_FAILED
+                    type: string
+                    format: enum
+                - name: page.cursor
+                  in: query
+                  description: Opaque cursor from a previous PageResponse. Empty requests the first page.
+                  schema:
+                    type: string
+                - name: page.limit
+                  in: query
+                  description: Server caps this at QUERY_MAX_RESULT_ROWS regardless of what is requested.
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListAlertsResponse'
+    /api/v1/alerts/{alertId}:
+        get:
+            tags:
+                - Alerts
+            operationId: Alerts_GetAlert
+            parameters:
+                - name: alertId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Alert'
+    /api/v1/alerts/{alertId}/acknowledge:
+        post:
+            tags:
+                - Alerts
+            operationId: Alerts_AcknowledgeAlert
+            parameters:
+                - name: alertId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/AcknowledgeAlertRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Alert'
+    /api/v1/alerts/{alertId}/resolve:
+        post:
+            tags:
+                - Alerts
+            operationId: Alerts_ResolveAlert
+            parameters:
+                - name: alertId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ResolveAlertRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Alert'
+    /api/v1/audit:
+        get:
+            tags:
+                - Admin
+            description: |-
+                Read-only. There is deliberately no operation that writes, edits, or deletes an
+                 audit entry.
+            operationId: Admin_ListAuditEntries
+            parameters:
+                - name: range.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: range.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: page.cursor
+                  in: query
+                  description: Opaque cursor from a previous PageResponse. Empty requests the first page.
+                  schema:
+                    type: string
+                - name: page.limit
+                  in: query
+                  description: Server caps this at QUERY_MAX_RESULT_ROWS regardless of what is requested.
+                  schema:
+                    type: integer
+                    format: int32
+                - name: action
+                  in: query
+                  schema:
+                    type: string
+                - name: actorEmail
+                  in: query
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListAuditEntriesResponse'
+    /api/v1/auth/login:
+        post:
+            tags:
+                - Auth
+            description: 'Step 1: verify the password. Returns an MFA challenge, never an access token.'
+            operationId: Auth_Login
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/LoginRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/LoginResponse'
+    /api/v1/auth/logout:
+        post:
+            tags:
+                - Auth
+            operationId: Auth_Logout
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/LogoutRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/LogoutResponse'
+    /api/v1/auth/me:
+        get:
+            tags:
+                - Auth
+            operationId: Auth_Me
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/MeResponse'
+    /api/v1/auth/mfa:
+        post:
+            tags:
+                - Auth
+            description: 'Step 2: verify the TOTP code and issue the token pair.'
+            operationId: Auth_VerifyMFA
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/VerifyMFARequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TokenResponse'
+    /api/v1/auth/refresh:
+        post:
+            tags:
+                - Auth
+            description: Exchange a refresh token for a new pair. The presented refresh token is revoked.
+            operationId: Auth_Refresh
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/RefreshRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TokenResponse'
+    /api/v1/correlated:
+        get:
+            tags:
+                - Correlation
+            operationId: Correlation_ListCorrelatedRequests
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: confidence
+                  in: query
+                  description: Optional filter; unspecified returns every confidence level.
+                  schema:
+                    enum:
+                        - CONFIDENCE_UNSPECIFIED
+                        - CONFIDENCE_HIGH
+                        - CONFIDENCE_MEDIUM
+                        - CONFIDENCE_LOW
+                    type: string
+                    format: enum
+                - name: onlyDisagreements
+                  in: query
+                  description: Restricts the result to records where vendors reached conflicting verdicts.
+                  schema:
+                    type: boolean
+                - name: minVendorCount
+                  in: query
+                  description: Restricts the result to genuine cross-vendor joins when set above 1.
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: page.cursor
+                  in: query
+                  description: Opaque cursor from a previous PageResponse. Empty requests the first page.
+                  schema:
+                    type: string
+                - name: page.limit
+                  in: query
+                  description: Server caps this at QUERY_MAX_RESULT_ROWS regardless of what is requested.
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListCorrelatedRequestsResponse'
+    /api/v1/correlated/{correlationId}:
+        get:
+            tags:
+                - Correlation
+            operationId: Correlation_GetCorrelatedRequest
+            parameters:
+                - name: correlationId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/CorrelatedRequest'
+    /api/v1/dashboards/disagreements:
+        get:
+            tags:
+                - Dashboards
+            operationId: Dashboards_GetDisagreements
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: interval
+                  in: query
+                  schema:
+                    enum:
+                        - BUCKET_INTERVAL_UNSPECIFIED
+                        - BUCKET_INTERVAL_5M
+                        - BUCKET_INTERVAL_1H
+                        - BUCKET_INTERVAL_1D
+                    type: string
+                    format: enum
+                - name: limit
+                  in: query
+                  description: Caps the rows a top-N panel returns.
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DisagreementsPanel'
+    /api/v1/dashboards/feed-health:
+        get:
+            tags:
+                - Dashboards
+            operationId: Dashboards_GetFeedHealthPanel
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: interval
+                  in: query
+                  schema:
+                    enum:
+                        - BUCKET_INTERVAL_UNSPECIFIED
+                        - BUCKET_INTERVAL_5M
+                        - BUCKET_INTERVAL_1H
+                        - BUCKET_INTERVAL_1D
+                    type: string
+                    format: enum
+                - name: limit
+                  in: query
+                  description: Caps the rows a top-N panel returns.
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/FeedHealthPanel'
+    /api/v1/dashboards/overview:
+        get:
+            tags:
+                - Dashboards
+            operationId: Dashboards_GetOverview
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: interval
+                  in: query
+                  schema:
+                    enum:
+                        - BUCKET_INTERVAL_UNSPECIFIED
+                        - BUCKET_INTERVAL_5M
+                        - BUCKET_INTERVAL_1H
+                        - BUCKET_INTERVAL_1D
+                    type: string
+                    format: enum
+                - name: limit
+                  in: query
+                  description: Caps the rows a top-N panel returns.
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/OverviewPanel'
+    /api/v1/dashboards/rules:
+        get:
+            tags:
+                - Dashboards
+            operationId: Dashboards_GetRules
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: interval
+                  in: query
+                  schema:
+                    enum:
+                        - BUCKET_INTERVAL_UNSPECIFIED
+                        - BUCKET_INTERVAL_5M
+                        - BUCKET_INTERVAL_1H
+                        - BUCKET_INTERVAL_1D
+                    type: string
+                    format: enum
+                - name: limit
+                  in: query
+                  description: Caps the rows a top-N panel returns.
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RulesPanel'
+    /api/v1/dashboards/sources:
+        get:
+            tags:
+                - Dashboards
+            operationId: Dashboards_GetSources
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: interval
+                  in: query
+                  schema:
+                    enum:
+                        - BUCKET_INTERVAL_UNSPECIFIED
+                        - BUCKET_INTERVAL_5M
+                        - BUCKET_INTERVAL_1H
+                        - BUCKET_INTERVAL_1D
+                    type: string
+                    format: enum
+                - name: limit
+                  in: query
+                  description: Caps the rows a top-N panel returns.
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SourcesPanel'
+    /api/v1/events/{eventId}:
+        get:
+            tags:
+                - Search
+            description: |-
+                The raw vendor payload alongside the normalized view, so an analyst can always
+                 check what the platform did to a record (FR-005).
+            operationId: Search_GetEvent
+            parameters:
+                - name: eventId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EventDetail'
+    /api/v1/feeds:
+        get:
+            tags:
+                - Feeds
+            operationId: Feeds_ListFeeds
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListFeedsResponse'
+        post:
+            tags:
+                - Feeds
+            description: The credential is accepted here, stored in the secret manager, and never echoed.
+            operationId: Feeds_CreateFeed
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/CreateFeedRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Feed'
+    /api/v1/feeds/{feedId}:
+        get:
+            tags:
+                - Feeds
+            operationId: Feeds_GetFeed
+            parameters:
+                - name: feedId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Feed'
+        delete:
+            tags:
+                - Feeds
+            description: Soft-disables the feed. Ingested data is never removed by this operation.
+            operationId: Feeds_DeleteFeed
+            parameters:
+                - name: feedId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/DeleteFeedResponse'
+        patch:
+            tags:
+                - Feeds
+            operationId: Feeds_UpdateFeed
+            parameters:
+                - name: feedId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/UpdateFeedRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Feed'
+    /api/v1/feeds/{feedId}/health:
+        get:
+            tags:
+                - Feeds
+            operationId: Feeds_GetFeedHealth
+            parameters:
+                - name: feedId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/FeedHealth'
+    /api/v1/feeds/{feedId}/rejected:
+        get:
+            tags:
+                - Feeds
+            description: Dead-lettered events, so a rejected delivery is visible rather than silent.
+            operationId: Feeds_ListRejectedEvents
+            parameters:
+                - name: feedId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: range.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: range.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: reasonCode
+                  in: query
+                  schema:
+                    type: string
+                - name: page.cursor
+                  in: query
+                  description: Opaque cursor from a previous PageResponse. Empty requests the first page.
+                  schema:
+                    type: string
+                - name: page.limit
+                  in: query
+                  description: Server caps this at QUERY_MAX_RESULT_ROWS regardless of what is requested.
+                  schema:
+                    type: integer
+                    format: int32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ListRejectedEventsResponse'
+    /api/v1/feeds/{feedId}/test:
+        post:
+            tags:
+                - Feeds
+            operationId: Feeds_TestFeed
+            parameters:
+                - name: feedId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/TestFeedRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TestFeedResponse'
+    /api/v1/search/correlated:
+        post:
+            tags:
+                - Search
+            operationId: Search_SearchCorrelated
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SearchCorrelatedRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SearchCorrelatedResponse'
+    /api/v1/search/events:
+        post:
+            tags:
+                - Search
+            operationId: Search_SearchEvents
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/SearchEventsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/SearchEventsResponse'
+    /api/v1/search/export:
+        post:
+            tags:
+                - Search
+            description: |-
+                Streamed and row-capped. Audited with the actor, the query, and the row count,
+                 because an export removes data from the platform's control (FR-026).
+            operationId: Search_ExportSearch
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ExportSearchRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ExportSearchResponse'
+components:
+    schemas:
+        AcknowledgeAlertRequest:
+            type: object
+            properties:
+                alertId:
+                    type: string
+                note:
+                    type: string
+        Alert:
+            type: object
+            properties:
+                alertId:
+                    type: string
+                ruleId:
+                    type: string
+                ruleName:
+                    type: string
+                firedAt:
+                    type: string
+                    format: date-time
+                severity:
+                    enum:
+                        - SEVERITY_UNSPECIFIED
+                        - SEVERITY_LOW
+                        - SEVERITY_MEDIUM
+                        - SEVERITY_HIGH
+                        - SEVERITY_CRITICAL
+                    type: string
+                    format: enum
+                state:
+                    enum:
+                        - ALERT_STATE_UNSPECIFIED
+                        - ALERT_STATE_NEW
+                        - ALERT_STATE_ACKNOWLEDGED
+                        - ALERT_STATE_RESOLVED
+                    type: string
+                    format: enum
+                groupValues:
+                    type: object
+                    additionalProperties:
+                        type: string
+                observedValue:
+                    type: number
+                    format: double
+                threshold:
+                    type: number
+                    format: double
+                evidenceCorrelationIds:
+                    type: array
+                    items:
+                        type: string
+                    description: |-
+                        Links to the correlated records that caused the alert, so an operator opens the
+                         evidence rather than reconstructing the query behind a number (SC-006).
+                acknowledgedBy:
+                    type: string
+                acknowledgedAt:
+                    type: string
+                    format: date-time
+                resolvedBy:
+                    type: string
+                resolvedAt:
+                    type: string
+                    format: date-time
+                notifyStatus:
+                    enum:
+                        - NOTIFY_STATUS_UNSPECIFIED
+                        - NOTIFY_STATUS_PENDING
+                        - NOTIFY_STATUS_DELIVERED
+                        - NOTIFY_STATUS_FAILED
+                    type: string
+                    format: enum
+                notifyAttempts:
+                    type: integer
+                    format: uint32
+                notifyLastError:
+                    type: string
+                    description: |-
+                        The last delivery error, shown in the console so a failure is visible where the
+                         alert is rather than only in a log an analyst cannot read.
+        AlertRule:
+            type: object
+            properties:
+                ruleId:
+                    type: string
+                name:
+                    type: string
+                enabled:
+                    type: boolean
+                severity:
+                    enum:
+                        - SEVERITY_UNSPECIFIED
+                        - SEVERITY_LOW
+                        - SEVERITY_MEDIUM
+                        - SEVERITY_HIGH
+                        - SEVERITY_CRITICAL
+                    type: string
+                    format: enum
+                condition:
+                    $ref: '#/components/schemas/RuleCondition'
+                webhookUrl:
+                    type: string
+                webhookSigningConfigured:
+                    type: boolean
+                    description: True when a signing secret is configured. The secret itself is NEVER returned.
+                createdBy:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+        AuditEntry:
+            type: object
+            properties:
+                entryId:
+                    type: string
+                occurredAt:
+                    type: string
+                    format: date-time
+                actorEmail:
+                    type: string
+                sourceIp:
+                    type: string
+                action:
+                    type: string
+                targetType:
+                    type: string
+                targetId:
+                    type: string
+                beforeValue:
+                    type: string
+                afterValue:
+                    type: string
+                result:
+                    type: string
+                detail:
+                    type: string
+                entryHash:
+                    type: string
+                    description: |-
+                        The hash chain. Exposed so a reader can verify the LINKAGE themselves rather than
+                         take the platform's word for it — an audit trail whose integrity can only be
+                         confirmed by the system that wrote it is not evidence.
+
+                         Checking these proves no entry was removed from the middle of a range: a deletion
+                         breaks the chain where it happened. It does NOT prove the whole range was not
+                         rewritten from the start; that needs the server-held anchor.
+                previousHash:
+                    type: string
+        ClientInfo:
+            type: object
+            properties:
+                ip:
+                    type: string
+                ipShared:
+                    type: boolean
+                    description: |-
+                        True when the address looks like NAT, a proxy chain, or a carrier range. This
+                         downgrades join confidence rather than silently weakening the match.
+                asn:
+                    type: integer
+                    format: uint32
+                country:
+                    type: string
+                userAgent:
+                    type: string
+            description: ClientInfo describes the requesting client as normalized across vendors.
+        CorrelatedFilters:
+            type: object
+            properties:
+                clientIp:
+                    type: string
+                requestHost:
+                    type: string
+                requestPath:
+                    type: string
+                country:
+                    type: string
+                asn:
+                    type: integer
+                    format: uint32
+                minVendorCount:
+                    type: integer
+                    description: Above 1 restricts the result to genuine cross-vendor joins.
+                    format: uint32
+                onlyDisagreements:
+                    type: boolean
+                disagreementKind:
+                    enum:
+                        - DISAGREEMENT_KIND_UNSPECIFIED
+                        - DISAGREEMENT_KIND_NONE
+                        - DISAGREEMENT_KIND_ALLOW_VS_BLOCK
+                        - DISAGREEMENT_KIND_ALLOW_VS_CHALLENGE
+                        - DISAGREEMENT_KIND_SCORE_CONFLICT
+                    type: string
+                    format: enum
+                confidence:
+                    enum:
+                        - CONFIDENCE_UNSPECIFIED
+                        - CONFIDENCE_HIGH
+                        - CONFIDENCE_MEDIUM
+                        - CONFIDENCE_LOW
+                    type: string
+                    format: enum
+                combinedOutcome:
+                    enum:
+                        - VERDICT_UNSPECIFIED
+                        - VERDICT_ALLOWED
+                        - VERDICT_BLOCKED
+                        - VERDICT_CHALLENGED
+                        - VERDICT_RATE_LIMITED
+                        - VERDICT_MONITORED
+                        - VERDICT_UNKNOWN
+                    type: string
+                    format: enum
+            description: CorrelatedFilters add the join-level facets to the event filters.
+        CorrelatedRequest:
+            type: object
+            properties:
+                correlationId:
+                    type: string
+                windowStart:
+                    type: string
+                    format: date-time
+                firstEventTime:
+                    type: string
+                    format: date-time
+                lastEventTime:
+                    type: string
+                    format: date-time
+                client:
+                    $ref: '#/components/schemas/ClientInfo'
+                request:
+                    $ref: '#/components/schemas/RequestInfo'
+                vendorVerdicts:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/VendorVerdict'
+                    description: |-
+                        One entry per contributing vendor, so a disagreement can be read directly off
+                         the record rather than inferred from a flattened summary.
+                vendorCount:
+                    type: integer
+                    description: '1 is normal, not an error: plenty of hostnames sit behind a single vendor (FR-016).'
+                    format: uint32
+                eventIds:
+                    type: array
+                    items:
+                        type: string
+                    description: Ids of the contributing events, for drilling through to the raw payloads (FR-024).
+                combinedOutcome:
+                    enum:
+                        - VERDICT_UNSPECIFIED
+                        - VERDICT_ALLOWED
+                        - VERDICT_BLOCKED
+                        - VERDICT_CHALLENGED
+                        - VERDICT_RATE_LIMITED
+                        - VERDICT_MONITORED
+                        - VERDICT_UNKNOWN
+                    type: string
+                    description: The most restrictive verdict any vendor reached.
+                    format: enum
+                hasDisagreement:
+                    type: boolean
+                disagreementKind:
+                    enum:
+                        - DISAGREEMENT_KIND_UNSPECIFIED
+                        - DISAGREEMENT_KIND_NONE
+                        - DISAGREEMENT_KIND_ALLOW_VS_BLOCK
+                        - DISAGREEMENT_KIND_ALLOW_VS_CHALLENGE
+                        - DISAGREEMENT_KIND_SCORE_CONFLICT
+                    type: string
+                    format: enum
+                joinSignals:
+                    type: array
+                    items:
+                        enum:
+                            - JOIN_SIGNAL_UNSPECIFIED
+                            - JOIN_SIGNAL_VENDOR_REQUEST_ID
+                            - JOIN_SIGNAL_IP_HOST_PATH_METHOD
+                            - JOIN_SIGNAL_TIME_WINDOW
+                        type: string
+                        format: enum
+                joinTier:
+                    type: integer
+                    description: 1 = exact shared request id, 2 = heuristic match.
+                    format: uint32
+                confidence:
+                    enum:
+                        - CONFIDENCE_UNSPECIFIED
+                        - CONFIDENCE_HIGH
+                        - CONFIDENCE_MEDIUM
+                        - CONFIDENCE_LOW
+                    type: string
+                    format: enum
+                candidateCount:
+                    type: integer
+                    description: Above 1, several events competed for the join and the chosen one may be wrong.
+                    format: uint32
+                version:
+                    type: string
+                    description: |-
+                        Increments each time a late arrival amends the record. The correlation_id never
+                         changes, so a bookmarked record stays findable.
+                amended:
+                    type: boolean
+            description: CorrelatedRequest is one request as every vendor that saw it reported it.
+        CorrelationSettings:
+            type: object
+            properties:
+                correlationWindowMs:
+                    type: integer
+                    description: How far apart two events may be and still describe the same request.
+                    format: uint32
+                latenessBoundMs:
+                    type: integer
+                    description: How late an event may arrive and still amend an existing correlated record.
+                    format: uint32
+                signalRanking:
+                    type: array
+                    items:
+                        enum:
+                            - JOIN_SIGNAL_UNSPECIFIED
+                            - JOIN_SIGNAL_VENDOR_REQUEST_ID
+                            - JOIN_SIGNAL_IP_HOST_PATH_METHOD
+                            - JOIN_SIGNAL_TIME_WINDOW
+                        type: string
+                        format: enum
+                    description: Ranked join signals, most trusted first.
+        CreateAlertRuleRequest:
+            type: object
+            properties:
+                name:
+                    type: string
+                severity:
+                    enum:
+                        - SEVERITY_UNSPECIFIED
+                        - SEVERITY_LOW
+                        - SEVERITY_MEDIUM
+                        - SEVERITY_HIGH
+                        - SEVERITY_CRITICAL
+                    type: string
+                    format: enum
+                condition:
+                    $ref: '#/components/schemas/RuleCondition'
+                webhookUrl:
+                    type: string
+                webhookSecret:
+                    type: string
+                    description: Accepted here, stored in the secret manager, and never echoed back.
+                enabled:
+                    type: boolean
+        CreateFeedRequest:
+            type: object
+            properties:
+                vendor:
+                    enum:
+                        - VENDOR_UNSPECIFIED
+                        - VENDOR_CLOUDFLARE
+                        - VENDOR_F5
+                        - VENDOR_DATADOME
+                    type: string
+                    format: enum
+                name:
+                    type: string
+                deliveryMode:
+                    enum:
+                        - DELIVERY_MODE_UNSPECIFIED
+                        - DELIVERY_MODE_PUSH
+                        - DELIVERY_MODE_PULL
+                    type: string
+                    format: enum
+                credential:
+                    type: string
+                    description: Write-only. Supplied once, stored in the secret manager, never read back.
+                signingSecret:
+                    type: string
+                    description: Optional HMAC key for vendors that sign their deliveries.
+                pullConfig:
+                    type: string
+                quotaEventsPerSec:
+                    type: integer
+                    format: uint32
+                quotaBytesPerDay:
+                    type: string
+        CreateUserRequest:
+            type: object
+            properties:
+                email:
+                    type: string
+                password:
+                    type: string
+                role:
+                    type: string
+        DeleteAlertRuleResponse:
+            type: object
+            properties:
+                disabled:
+                    type: boolean
+        DeleteFeedResponse:
+            type: object
+            properties: {}
+        DeleteUserResponse:
+            type: object
+            properties: {}
+        DisagreementPoint:
+            type: object
+            properties:
+                bucket:
+                    type: string
+                    format: date-time
+                kind:
+                    enum:
+                        - DISAGREEMENT_KIND_UNSPECIFIED
+                        - DISAGREEMENT_KIND_NONE
+                        - DISAGREEMENT_KIND_ALLOW_VS_BLOCK
+                        - DISAGREEMENT_KIND_ALLOW_VS_CHALLENGE
+                        - DISAGREEMENT_KIND_SCORE_CONFLICT
+                    type: string
+                    format: enum
+                records:
+                    type: string
+                total:
+                    type: string
+                    description: |-
+                        Every correlated request in the bucket. Carried alongside the numerator so a rate
+                         can be computed from one row rather than by dividing figures fetched separately,
+                         which is how two panels on one screen end up disagreeing.
+        DisagreementsPanel:
+            type: object
+            properties:
+                points:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/DisagreementPoint'
+                totalRecords:
+                    type: string
+                totalDisagreements:
+                    type: string
+        EventDetail:
+            type: object
+            properties:
+                summary:
+                    $ref: '#/components/schemas/EventSummary'
+                rawPayload:
+                    type: string
+                    description: |-
+                        The vendor payload exactly as received, written before any parsing was attempted
+                         so a parse failure can never cost the original (FR-005).
+                rawContentType:
+                    type: string
+                rawExtra:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: Vendor-native fields with no common-model home.
+                correlationId:
+                    type: string
+                    description: Set when this event was correlated with others, for drill-through.
+            description: EventDetail is one event with everything the platform holds about it.
+        EventFilters:
+            type: object
+            properties:
+                clientIp:
+                    type: string
+                requestHost:
+                    type: string
+                requestPath:
+                    type: string
+                vendor:
+                    type: array
+                    items:
+                        enum:
+                            - VENDOR_UNSPECIFIED
+                            - VENDOR_CLOUDFLARE
+                            - VENDOR_F5
+                            - VENDOR_DATADOME
+                        type: string
+                        format: enum
+                verdict:
+                    type: array
+                    items:
+                        enum:
+                            - VERDICT_UNSPECIFIED
+                            - VERDICT_ALLOWED
+                            - VERDICT_BLOCKED
+                            - VERDICT_CHALLENGED
+                            - VERDICT_RATE_LIMITED
+                            - VERDICT_MONITORED
+                            - VERDICT_UNKNOWN
+                        type: string
+                        format: enum
+                ruleId:
+                    type: string
+                minScore:
+                    type: number
+                    format: float
+                maxScore:
+                    type: number
+                    format: float
+                country:
+                    type: string
+                asn:
+                    type: integer
+                    format: uint32
+                userAgent:
+                    type: string
+                q:
+                    type: string
+                    description: |-
+                        Free-text match across the request path and user agent, backed by the token bloom
+                         indexes. Not a general full-text search: a substring scan over every column could
+                         not meet the latency budget and would quietly become the slowest query in the app.
+                vendorRequestId:
+                    type: string
+                requestMethod:
+                    type: string
+                httpStatus:
+                    type: integer
+                    format: uint32
+            description: |-
+                EventFilters are the cross-vendor filters an analyst can apply.
+
+                 Every field here is optional and every one is validated against an allowlist before
+                 it reaches SQL. Unset fields are omitted from the query rather than matched against
+                 an empty string, so a blank filter widens nothing.
+        EventSummary:
+            type: object
+            properties:
+                eventId:
+                    type: string
+                eventTime:
+                    type: string
+                    format: date-time
+                vendor:
+                    enum:
+                        - VENDOR_UNSPECIFIED
+                        - VENDOR_CLOUDFLARE
+                        - VENDOR_F5
+                        - VENDOR_DATADOME
+                    type: string
+                    format: enum
+                feedId:
+                    type: string
+                vendorRequestId:
+                    type: string
+                client:
+                    $ref: '#/components/schemas/ClientInfo'
+                request:
+                    $ref: '#/components/schemas/RequestInfo'
+                verdict:
+                    enum:
+                        - VERDICT_UNSPECIFIED
+                        - VERDICT_ALLOWED
+                        - VERDICT_BLOCKED
+                        - VERDICT_CHALLENGED
+                        - VERDICT_RATE_LIMITED
+                        - VERDICT_MONITORED
+                        - VERDICT_UNKNOWN
+                    type: string
+                    format: enum
+                verdictReason:
+                    type: string
+                ruleId:
+                    type: string
+                ruleIds:
+                    type: array
+                    items:
+                        type: string
+                score:
+                    type: number
+                    format: float
+                scoreKind:
+                    type: string
+                unknownFields:
+                    type: array
+                    items:
+                        type: string
+                    description: Vendor fields with no common-model home were preserved, not discarded (FR-012).
+            description: |-
+                EventSummary is one search hit.
+
+                 Deliberately narrower than the detail view: the raw vendor payload is excluded, so a
+                 thousand-row page stays kilobytes rather than tens of megabytes. GetEvent fetches
+                 the payload for the one row an analyst opens.
+        ExportSearchRequest:
+            type: object
+            properties:
+                timeRange:
+                    $ref: '#/components/schemas/TimeRange'
+                filters:
+                    $ref: '#/components/schemas/EventFilters'
+                format:
+                    enum:
+                        - EXPORT_FORMAT_UNSPECIFIED
+                        - EXPORT_FORMAT_NDJSON
+                        - EXPORT_FORMAT_CSV
+                    type: string
+                    format: enum
+                maxRows:
+                    type: integer
+                    description: Capped server-side regardless of what is requested.
+                    format: uint32
+        ExportSearchResponse:
+            type: object
+            properties:
+                content:
+                    type: string
+                    description: The export content, streamed to the caller.
+                    format: bytes
+                contentType:
+                    type: string
+                filename:
+                    type: string
+                rowCount:
+                    type: string
+                    description: |-
+                        Signed, matching PageResponse.total: row counts are one concept and should not
+                         change type depending on which message carries them.
+                truncated:
+                    type: boolean
+                    description: |-
+                        True when the export stopped at the row cap, so the caller knows the file is a
+                         prefix of the result rather than all of it.
+        Feed:
+            type: object
+            properties:
+                feedId:
+                    type: string
+                vendor:
+                    enum:
+                        - VENDOR_UNSPECIFIED
+                        - VENDOR_CLOUDFLARE
+                        - VENDOR_F5
+                        - VENDOR_DATADOME
+                    type: string
+                    format: enum
+                name:
+                    type: string
+                deliveryMode:
+                    enum:
+                        - DELIVERY_MODE_UNSPECIFIED
+                        - DELIVERY_MODE_PUSH
+                        - DELIVERY_MODE_PULL
+                    type: string
+                    format: enum
+                enabled:
+                    type: boolean
+                credentialConfigured:
+                    type: boolean
+                    description: True when a credential is configured. The credential itself is NEVER returned.
+                signingConfigured:
+                    type: boolean
+                pullConfig:
+                    type: string
+                quotaEventsPerSec:
+                    type: integer
+                    format: uint32
+                quotaBytesPerDay:
+                    type: string
+                createdAt:
+                    type: string
+                    format: date-time
+                updatedAt:
+                    type: string
+                    format: date-time
+                health:
+                    allOf:
+                        - $ref: '#/components/schemas/FeedHealth'
+                    description: Populated on list and get so the console can show status without a second call.
+        FeedHealth:
+            type: object
+            properties:
+                feedId:
+                    type: string
+                lastEventAt:
+                    type: string
+                    format: date-time
+                silent:
+                    type: boolean
+                    description: True when nothing has arrived for longer than the expected interval.
+                eventsPerSec:
+                    type: number
+                    format: double
+                eventsReceived1h:
+                    type: string
+                eventsRejected1h:
+                    type: string
+                duplicatesSuppressed1h:
+                    type: string
+                bytesReceived1h:
+                    type: string
+                maxIngestLagMs:
+                    type: integer
+                    format: uint32
+                credentialValid:
+                    type: boolean
+                schemaDriftWarning:
+                    type: boolean
+                    description: Set when unrecognized vendor fields crossed the drift threshold (FR-012).
+                driftFields:
+                    type: array
+                    items:
+                        type: string
+            description: |-
+                FeedHealth answers "is this feed working" (FR-008).
+
+                 Silence detection lives here because a feed that stopped sending looks exactly like
+                 clean traffic on a dashboard. `silent` is what distinguishes them.
+        FeedHealthPanel:
+            type: object
+            properties:
+                feeds:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/FeedHealth'
+        ListAlertRulesResponse:
+            type: object
+            properties:
+                rules:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AlertRule'
+        ListAlertsResponse:
+            type: object
+            properties:
+                alerts:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/Alert'
+                page:
+                    $ref: '#/components/schemas/PageResponse'
+        ListAuditEntriesResponse:
+            type: object
+            properties:
+                entries:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AuditEntry'
+                page:
+                    $ref: '#/components/schemas/PageResponse'
+                chainIntact:
+                    type: boolean
+                    description: |-
+                        False when the hash chain over the returned range does not verify, meaning an
+                         entry was altered or removed.
+        ListCorrelatedRequestsResponse:
+            type: object
+            properties:
+                requests:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/CorrelatedRequest'
+                page:
+                    $ref: '#/components/schemas/PageResponse'
+        ListFeedsResponse:
+            type: object
+            properties:
+                feeds:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/Feed'
+        ListRejectedEventsResponse:
+            type: object
+            properties:
+                events:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/RejectedEvent'
+                page:
+                    $ref: '#/components/schemas/PageResponse'
+        ListUsersResponse:
+            type: object
+            properties:
+                users:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/UserProfile'
+                page:
+                    $ref: '#/components/schemas/PageResponse'
+        LoginRequest:
+            type: object
+            properties:
+                email:
+                    type: string
+                password:
+                    type: string
+        LoginResponse:
+            type: object
+            properties:
+                mfaChallengeToken:
+                    type: string
+                    description: Short-lived token proving the password step succeeded. Grants nothing else.
+                mfaEnrolmentRequired:
+                    type: boolean
+                    description: True on first login, when the client must render the enrolment QR code.
+                mfaProvisioningUri:
+                    type: string
+                    description: Populated only during enrolment, and never again afterwards.
+        LogoutRequest:
+            type: object
+            properties:
+                refreshToken:
+                    type: string
+        LogoutResponse:
+            type: object
+            properties: {}
+        MeResponse:
+            type: object
+            properties:
+                user:
+                    $ref: '#/components/schemas/UserProfile'
+        OverviewPanel:
+            type: object
+            properties:
+                volume:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/VolumePoint'
+                verdicts:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/VerdictPoint'
+                totalEvents:
+                    type: string
+                    description: |-
+                        Totals for the whole range, so a headline figure does not require the client to
+                         re-sum the series and risk disagreeing with it.
+                totalBlocked:
+                    type: string
+                totalChallenged:
+                    type: string
+        PageRequest:
+            type: object
+            properties:
+                cursor:
+                    type: string
+                    description: Opaque cursor from a previous PageResponse. Empty requests the first page.
+                limit:
+                    type: integer
+                    description: Server caps this at QUERY_MAX_RESULT_ROWS regardless of what is requested.
+                    format: int32
+            description: |-
+                PageRequest carries cursor-based paging. Offsets are never used — they skip and
+                 repeat rows when data arrives mid-pagination, which this system does constantly.
+        PageResponse:
+            type: object
+            properties:
+                nextCursor:
+                    type: string
+                    description: Empty when there are no further pages.
+                total:
+                    type: string
+                    description: |-
+                        Approximate match count. Exact counts over hundreds of millions of rows cannot
+                         meet the latency budget, so the API states when a count is an estimate rather
+                         than implying precision it does not have.
+                totalIsEstimate:
+                    type: boolean
+        PreviewAlertRuleRequest:
+            type: object
+            properties:
+                ruleId:
+                    type: string
+                    description: Empty when previewing an unsaved rule.
+                condition:
+                    allOf:
+                        - $ref: '#/components/schemas/RuleCondition'
+                    description: |-
+                        The condition to measure. Required, so an author can preview an edit before
+                         saving it rather than only after.
+                timeRange:
+                    allOf:
+                        - $ref: '#/components/schemas/TimeRange'
+                    description: How far back to measure. Defaults to the condition's own window.
+        PreviewAlertRuleResponse:
+            type: object
+            properties:
+                groups:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/PreviewGroup'
+                wouldFireCount:
+                    type: integer
+                    format: uint32
+        PreviewGroup:
+            type: object
+            properties:
+                groupValues:
+                    type: object
+                    additionalProperties:
+                        type: string
+                observedValue:
+                    type: number
+                    format: double
+                total:
+                    type: number
+                    format: double
+                wouldFire:
+                    type: boolean
+                    description: |-
+                        Whether this group WOULD have fired. Groups that would not fire are returned too:
+                         an author tuning a threshold needs to see the values it did not trip on.
+                evidenceCorrelationIds:
+                    type: array
+                    items:
+                        type: string
+            description: PreviewGroup is one group's measurement in a dry run.
+        PurgeRequest:
+            type: object
+            properties:
+                range:
+                    $ref: '#/components/schemas/TimeRange'
+                confirmation:
+                    type: string
+                    description: |-
+                        Must equal the tenant name. A destructive operation should not be reachable by
+                         an accidental click.
+                reason:
+                    type: string
+        PurgeResponse:
+            type: object
+            properties:
+                rowsDeleted:
+                    type: string
+        RefreshRequest:
+            type: object
+            properties:
+                refreshToken:
+                    type: string
+        RejectedEvent:
+            type: object
+            properties:
+                rejectedAt:
+                    type: string
+                    format: date-time
+                vendor:
+                    enum:
+                        - VENDOR_UNSPECIFIED
+                        - VENDOR_CLOUDFLARE
+                        - VENDOR_F5
+                        - VENDOR_DATADOME
+                    type: string
+                    format: enum
+                reasonCode:
+                    type: string
+                reasonDetail:
+                    type: string
+                payload:
+                    type: string
+                    description: |-
+                        The offending payload, so an operator can see exactly what the vendor sent.
+                         Rendered as inert text by the console.
+                batchId:
+                    type: string
+        RequestInfo:
+            type: object
+            properties:
+                host:
+                    type: string
+                path:
+                    type: string
+                query:
+                    type: string
+                method:
+                    type: string
+                status:
+                    type: integer
+                    format: uint32
+            description: RequestInfo describes the HTTP request as normalized across vendors.
+        ResolveAlertRequest:
+            type: object
+            properties:
+                alertId:
+                    type: string
+                note:
+                    type: string
+        RuleCondition:
+            type: object
+            properties:
+                filters:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: |-
+                        Filters narrow which correlated requests the rule considers. Field names are
+                         validated against the same allowlist a search uses.
+                onlyDisagreements:
+                    type: boolean
+                minVendorCount:
+                    type: integer
+                    format: uint32
+                aggregate:
+                    enum:
+                        - RULE_AGGREGATE_UNSPECIFIED
+                        - RULE_AGGREGATE_COUNT
+                        - RULE_AGGREGATE_RATE
+                        - RULE_AGGREGATE_DISTINCT_IPS
+                    type: string
+                    format: enum
+                comparator:
+                    enum:
+                        - RULE_COMPARATOR_UNSPECIFIED
+                        - RULE_COMPARATOR_GT
+                        - RULE_COMPARATOR_GTE
+                        - RULE_COMPARATOR_LT
+                        - RULE_COMPARATOR_LTE
+                    type: string
+                    format: enum
+                threshold:
+                    type: number
+                    format: double
+                windowSeconds:
+                    type: integer
+                    format: uint32
+                groupBy:
+                    type: array
+                    items:
+                        type: string
+                    description: Each group is a separate alert and a separate cooldown, so this is capped.
+                cooldownSeconds:
+                    type: integer
+                    description: |-
+                        Must be at least as long as the window, or one sustained condition produces a
+                         stream of duplicate alerts.
+                    format: uint32
+            description: |-
+                RuleCondition is what a rule matches and measures.
+
+                 A closed structure rather than an expression language: an operator writing a rule
+                 must not be able to author something that scans without bounds or references a
+                 column that does not exist.
+        RuleCount:
+            type: object
+            properties:
+                vendor:
+                    enum:
+                        - VENDOR_UNSPECIFIED
+                        - VENDOR_CLOUDFLARE
+                        - VENDOR_F5
+                        - VENDOR_DATADOME
+                    type: string
+                    format: enum
+                ruleId:
+                    type: string
+                events:
+                    type: string
+        RulesPanel:
+            type: object
+            properties:
+                rules:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/RuleCount'
+        SearchCorrelatedRequest:
+            type: object
+            properties:
+                timeRange:
+                    $ref: '#/components/schemas/TimeRange'
+                filters:
+                    $ref: '#/components/schemas/CorrelatedFilters'
+                page:
+                    $ref: '#/components/schemas/PageRequest'
+        SearchCorrelatedResponse:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/CorrelatedRequest'
+                page:
+                    $ref: '#/components/schemas/PageResponse'
+        SearchEventsRequest:
+            type: object
+            properties:
+                timeRange:
+                    allOf:
+                        - $ref: '#/components/schemas/TimeRange'
+                    description: Required. An unbounded scan is rejected, not queued.
+                filters:
+                    $ref: '#/components/schemas/EventFilters'
+                page:
+                    $ref: '#/components/schemas/PageRequest'
+        SearchEventsResponse:
+            type: object
+            properties:
+                items:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/EventSummary'
+                page:
+                    allOf:
+                        - $ref: '#/components/schemas/PageResponse'
+                    description: |-
+                        Carries next_cursor, total, and total_is_estimate. Those live on PageResponse
+                         rather than being repeated here: two places stating the same count is two places
+                         to keep in step, and they will not stay in step.
+        SourceCount:
+            type: object
+            properties:
+                clientIp:
+                    type: string
+                country:
+                    type: string
+                asn:
+                    type: integer
+                    format: uint32
+                events:
+                    type: string
+                blocked:
+                    type: string
+                    description: |-
+                        A subset of events, never a separate tally: a source showing more blocks than
+                         requests is nonsense an analyst cannot act on.
+        SourcesPanel:
+            type: object
+            properties:
+                sources:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/SourceCount'
+        TenantSettings:
+            type: object
+            properties:
+                tenantId:
+                    type: string
+                name:
+                    type: string
+                status:
+                    type: string
+                rawRetentionDays:
+                    type: integer
+                    format: uint32
+                correlatedRetentionDays:
+                    type: integer
+                    format: uint32
+                alertRetentionDays:
+                    type: integer
+                    format: uint32
+                redactedFields:
+                    type: array
+                    items:
+                        type: string
+                    description: Fields masked at ingest, so they are never stored in readable form.
+                scoreConflictThreshold:
+                    type: number
+                    format: float
+        TestFeedRequest:
+            type: object
+            properties:
+                feedId:
+                    type: string
+        TestFeedResponse:
+            type: object
+            properties:
+                reachable:
+                    type: boolean
+                credentialValid:
+                    type: boolean
+                detail:
+                    type: string
+                    description: Human-readable outcome. Never contains the credential or an internal address.
+        TimeRange:
+            type: object
+            properties:
+                from:
+                    type: string
+                    format: date-time
+                to:
+                    type: string
+                    format: date-time
+            description: |-
+                TimeRange bounds a query. Both ends are REQUIRED on every event-data read:
+                 unbounded scans are rejected, not queued (Constitution Principle V).
+        TokenResponse:
+            type: object
+            properties:
+                accessToken:
+                    type: string
+                refreshToken:
+                    type: string
+                expiresAt:
+                    type: string
+                    format: date-time
+                user:
+                    $ref: '#/components/schemas/UserProfile'
+        UpdateAlertRuleRequest:
+            type: object
+            properties:
+                ruleId:
+                    type: string
+                name:
+                    type: string
+                severity:
+                    enum:
+                        - SEVERITY_UNSPECIFIED
+                        - SEVERITY_LOW
+                        - SEVERITY_MEDIUM
+                        - SEVERITY_HIGH
+                        - SEVERITY_CRITICAL
+                    type: string
+                    format: enum
+                condition:
+                    $ref: '#/components/schemas/RuleCondition'
+                webhookUrl:
+                    type: string
+                webhookSecret:
+                    type: string
+                enabled:
+                    type: boolean
+        UpdateCorrelationSettingsRequest:
+            type: object
+            properties:
+                correlationWindowMs:
+                    type: integer
+                    format: uint32
+                latenessBoundMs:
+                    type: integer
+                    format: uint32
+                signalRanking:
+                    type: array
+                    items:
+                        enum:
+                            - JOIN_SIGNAL_UNSPECIFIED
+                            - JOIN_SIGNAL_VENDOR_REQUEST_ID
+                            - JOIN_SIGNAL_IP_HOST_PATH_METHOD
+                            - JOIN_SIGNAL_TIME_WINDOW
+                        type: string
+                        format: enum
+        UpdateFeedRequest:
+            type: object
+            properties:
+                feedId:
+                    type: string
+                name:
+                    type: string
+                enabled:
+                    type: boolean
+                credential:
+                    type: string
+                    description: Rotates the credential. Omitted leaves the existing one in place.
+                signingSecret:
+                    type: string
+                pullConfig:
+                    type: string
+                quotaEventsPerSec:
+                    type: integer
+                    format: uint32
+                quotaBytesPerDay:
+                    type: string
+        UpdateTenantSettingsRequest:
+            type: object
+            properties:
+                rawRetentionDays:
+                    type: integer
+                    format: uint32
+                correlatedRetentionDays:
+                    type: integer
+                    format: uint32
+                alertRetentionDays:
+                    type: integer
+                    format: uint32
+                redactedFields:
+                    type: array
+                    items:
+                        type: string
+                scoreConflictThreshold:
+                    type: number
+                    format: float
+        UpdateUserRequest:
+            type: object
+            properties:
+                userId:
+                    type: string
+                role:
+                    type: string
+                status:
+                    type: string
+                resetMfa:
+                    type: boolean
+                    description: Setting this resets MFA enrolment, forcing re-enrolment on next login.
+        UserProfile:
+            type: object
+            properties:
+                userId:
+                    type: string
+                email:
+                    type: string
+                role:
+                    type: string
+                    description: admin | analyst | auditor | ingest_only
+                tenantId:
+                    type: string
+                tenantName:
+                    type: string
+                mfaEnabled:
+                    type: boolean
+                lastLoginAt:
+                    type: string
+                    format: date-time
+        VendorVerdict:
+            type: object
+            properties:
+                vendor:
+                    enum:
+                        - VENDOR_UNSPECIFIED
+                        - VENDOR_CLOUDFLARE
+                        - VENDOR_F5
+                        - VENDOR_DATADOME
+                    type: string
+                    format: enum
+                verdict:
+                    enum:
+                        - VERDICT_UNSPECIFIED
+                        - VERDICT_ALLOWED
+                        - VERDICT_BLOCKED
+                        - VERDICT_CHALLENGED
+                        - VERDICT_RATE_LIMITED
+                        - VERDICT_MONITORED
+                        - VERDICT_UNKNOWN
+                    type: string
+                    format: enum
+                verdictReason:
+                    type: string
+                ruleId:
+                    type: string
+                ruleIds:
+                    type: array
+                    items:
+                        type: string
+                score:
+                    type: number
+                    description: Absent when the vendor does not score requests.
+                    format: float
+                scoreKind:
+                    type: string
+                eventId:
+                    type: string
+                eventTime:
+                    type: string
+                    format: date-time
+            description: VendorVerdict is one vendor's contribution to a correlated request.
+        VerdictPoint:
+            type: object
+            properties:
+                bucket:
+                    type: string
+                    format: date-time
+                vendor:
+                    enum:
+                        - VENDOR_UNSPECIFIED
+                        - VENDOR_CLOUDFLARE
+                        - VENDOR_F5
+                        - VENDOR_DATADOME
+                    type: string
+                    format: enum
+                verdict:
+                    enum:
+                        - VERDICT_UNSPECIFIED
+                        - VERDICT_ALLOWED
+                        - VERDICT_BLOCKED
+                        - VERDICT_CHALLENGED
+                        - VERDICT_RATE_LIMITED
+                        - VERDICT_MONITORED
+                        - VERDICT_UNKNOWN
+                    type: string
+                    format: enum
+                events:
+                    type: string
+            description: VerdictPoint is one vendor's verdict count in one bucket.
+        VerifyMFARequest:
+            type: object
+            properties:
+                mfaChallengeToken:
+                    type: string
+                code:
+                    type: string
+        VolumePoint:
+            type: object
+            properties:
+                bucket:
+                    type: string
+                    format: date-time
+                vendor:
+                    enum:
+                        - VENDOR_UNSPECIFIED
+                        - VENDOR_CLOUDFLARE
+                        - VENDOR_F5
+                        - VENDOR_DATADOME
+                    type: string
+                    format: enum
+                events:
+                    type: string
+            description: VolumePoint is one vendor's traffic in one bucket.
+tags:
+    - name: Admin
+    - name: Alerts
+    - name: Auth
+    - name: Correlation
+      description: |-
+        Per-tenant correlation tuning lives on the Admin service alongside retention and
+         redaction, not here: it is a privileged configuration change, and splitting the
+         tenant's settings across two services would split their authorization with them.
+    - name: Dashboards
+    - name: Feeds
+    - name: Search

@@ -1,0 +1,242 @@
+{
+  "uid": "siem-correlation",
+  "title": "SIEM / Correlation",
+  "tags": ["siem", "correlation"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "description": "Operational read on SC-004. The corpus harness proves the join logic against ground truth at build time; production has no ground truth, so what is watched here is the SHAPE of the output. A move in the tier mix or the single-vendor rate means the input changed even though the code did not — which is how a vendor's silent format change announces itself.",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Join quality",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Records emitted by join tier",
+      "description": "Tier 1 is an exact shared request id and carries no false-join risk; tier 2 is the heuristic and is where the entire risk surface lives. A shift from 1 to 2 means vendors stopped agreeing on identifiers.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 20, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (tier) (rate(siem_correlate_records_emitted_total[5m]))",
+          "legendFormat": "tier {{tier}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Single-vendor record share",
+      "description": "A single-vendor record is normal (FR-016), not an error. A RISING SHARE is the clearest early warning that one vendor's feed has stalled while the others keep flowing — an event-count graph alone cannot distinguish that from a traffic drop.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 0.8 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(siem_correlate_single_vendor_records_total[5m])) / clamp_min(sum(rate(siem_correlate_records_emitted_total[5m])), 0.001)",
+          "legendFormat": "single-vendor share"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Confidence mix",
+      "description": "An ambiguous join is published as ambiguous rather than suppressed or asserted. A growing `low` share means more traffic behind shared addresses, and it is the leading indicator for the false-join budget.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "custom": { "fillOpacity": 30, "stacking": { "mode": "percent" } } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (confidence) (rate(siem_correlate_records_emitted_total[5m]))",
+          "legendFormat": "{{confidence}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Vendors per record (p50 / p90)",
+      "description": "The join-rate proxy. A healthy multi-vendor tenant sits well above 1; a drift toward 1 means joins are being missed rather than that traffic changed.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(siem_correlate_vendors_per_record_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.9, sum by (le) (rate(siem_correlate_vendors_per_record_bucket[5m])))",
+          "legendFormat": "p90"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Amendment and lateness",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Amendment rate",
+      "description": "Late arrivals that amended an existing record rather than creating a duplicate (FR-018). A sustained climb means one feed is consistently slower than the others and its events keep landing after the window closes.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(siem_correlate_records_amended_total[5m])) / clamp_min(sum(rate(siem_correlate_records_emitted_total[5m])), 0.001)",
+          "legendFormat": "amended share"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Late-arrival drops",
+      "description": "Windows whose state had already expired when they were closed. The events are NOT lost — they are in ClickHouse — but the correlation opportunity is. Non-zero means the lateness bound is tighter than a feed's real delay.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(siem_correlate_late_arrivals_dropped_total[5m]))",
+          "legendFormat": "dropped/sec"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Throughput and failures",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Events filed by vendor",
+      "description": "The correlator's own throughput reading, independent of the ingest counters upstream. A vendor flatlining here while its ingest counter still moves points at the normalization stage, not the feed.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 27 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (vendor) (rate(siem_correlate_events_filed_total[5m]))",
+          "legendFormat": "{{vendor}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Window size (p90 / p99)",
+      "description": "Events held in a window when it closed. A large window for one key is either NAT or an attack, and both mean the heuristic is choosing among several plausible partners — the condition that spends the false-join budget.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 27 },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.9, sum by (le) (rate(siem_correlate_window_size_bucket[5m])))",
+          "legendFormat": "p90"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(siem_correlate_window_size_bucket[5m])))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Close failures by stage",
+      "description": "The durability signal for the closer. A sustained non-zero rate means records are not being written while the window state behind them ticks toward its TTL — after which the correlation is unrecoverable.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 27 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage) (rate(siem_correlate_close_failures_total[5m]))",
+          "legendFormat": "{{stage}}"
+        }
+      ]
+    }
+  ]
+}

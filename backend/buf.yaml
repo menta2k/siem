@@ -1,0 +1,39 @@
+version: v2
+modules:
+  - path: api/protos
+lint:
+  use:
+    - STANDARD
+  except:
+    - PACKAGE_VERSION_SUFFIX
+    # The three rules below are naming conventions that this API deliberately does
+    # not follow. They are excluded rather than tolerated as failures: `buf lint`
+    # is a gate in `make lint`, and a gate that always exits non-zero gates nothing
+    # — every real violation would arrive buried in the same known noise.
+    #
+    # SERVICE_SUFFIX wants `FeedsService`. Kratos generates the HTTP handler name
+    # from the service name, so the suffix would read as `FeedsServiceHTTPServer`
+    # on every call site to say nothing new.
+    #
+    # RPC_RESPONSE_STANDARD_NAME wants `GetFeedResponse` wrapping a `Feed`. Returning
+    # the domain message directly is what keeps the generated OpenAPI schemas — and
+    # therefore the frontend's types — named after the things they describe instead
+    # of after the call that fetched them.
+    #
+    # RPC_REQUEST_RESPONSE_UNIQUE follows from that: Create and Update both return a
+    # `Feed`, because they do.
+    #
+    # RPC_REQUEST_STANDARD_NAME wants a `GetOverviewRequest` per dashboard panel. All
+    # five panels take the same from/to/interval, and FR-025 requires exactly that —
+    # a range change has to move every panel together. One shared `DashboardRequest`
+    # states that in the type system; five identical messages would state it in a
+    # comment and let them drift.
+    - SERVICE_SUFFIX
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    - RPC_REQUEST_STANDARD_NAME
+breaking:
+  use:
+    - FILE
+deps:
+  - buf.build/googleapis/googleapis

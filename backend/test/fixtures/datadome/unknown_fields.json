@@ -1,0 +1,1 @@
+[{"requestid":"01J8XKQ2M4N7P9R3T5V6W8Y0DA","timestamp":1786018900000,"ip":"203.0.113.223","host":"drift.example.com","uri":"/new","method":"GET","status":200,"botscore":3,"isbot":false,"action":"ALLOW","brandNewSignal":"unexpected","deviceFingerprintV3":"abc123"}]

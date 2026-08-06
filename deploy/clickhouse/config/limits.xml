@@ -1,0 +1,30 @@
+<clickhouse>
+    <!-- Bounded queries are a constitutional requirement (Principle V). These server-side
+         limits are the backstop behind the application-level enforcement in
+         backend/internal/query/bounds.go — a query that escapes the application guard
+         still cannot run unbounded here. -->
+    <profiles>
+        <default>
+            <max_execution_time>10</max_execution_time>
+            <max_result_rows>1000</max_result_rows>
+            <result_overflow_mode>throw</result_overflow_mode>
+            <max_bytes_before_external_group_by>2000000000</max_bytes_before_external_group_by>
+            <max_memory_usage>4000000000</max_memory_usage>
+            <readonly>0</readonly>
+        </default>
+
+        <!-- Pipeline writers need longer-running inserts and no result caps. -->
+        <ingest>
+            <max_execution_time>60</max_execution_time>
+            <max_result_rows>0</max_result_rows>
+            <async_insert>1</async_insert>
+            <wait_for_async_insert>1</wait_for_async_insert>
+            <async_insert_busy_timeout_ms>200</async_insert_busy_timeout_ms>
+        </ingest>
+    </profiles>
+
+    <merge_tree>
+        <!-- Day partitions across several tables; the default 100 is too tight. -->
+        <max_partitions_to_read>400</max_partitions_to_read>
+    </merge_tree>
+</clickhouse>

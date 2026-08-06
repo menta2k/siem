@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+// Shared vocabulary for the SIEM frontend-facing API.
+//
+// These protos are the single authoring source: `make api` generates both the Kratos
+// HTTP handlers and the OpenAPI v3 document the Vue client is built from, so the REST
+// surface and the published contract cannot drift apart (Constitution Principle I).
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------- enums
+
+// Vendor identifies which product observed an event.
+enum Vendor {
+  VENDOR_UNSPECIFIED = 0;
+  VENDOR_CLOUDFLARE = 1;
+  VENDOR_F5 = 2;
+  VENDOR_DATADOME = 3;
+}
+
+// Verdict is the normalized decision a vendor reached about a request.
+//
+// VERDICT_MONITORED is deliberately distinct from VERDICT_ALLOWED: a vendor in
+// monitoring mode did not choose to allow the request, and conflating the two would
+// manufacture false disagreements against a vendor that genuinely blocked.
+enum Verdict {
+  VERDICT_UNSPECIFIED = 0;
+  VERDICT_ALLOWED = 1;
+  VERDICT_BLOCKED = 2;
+  VERDICT_CHALLENGED = 3;
+  VERDICT_RATE_LIMITED = 4;
+  VERDICT_MONITORED = 5;
+  VERDICT_UNKNOWN = 6;
+}
+
+// Confidence expresses how much trust the platform places in a cross-vendor join.
+// An ambiguous join is published as ambiguous rather than asserted as fact (FR-015).
+enum Confidence {
+  CONFIDENCE_UNSPECIFIED = 0;
+  CONFIDENCE_HIGH = 1;    // tier 1: vendors shared an exact request identifier
+  CONFIDENCE_MEDIUM = 2;  // tier 2: unambiguous heuristic match
+  CONFIDENCE_LOW = 3;     // tier 2 with a shared client IP or multiple candidates
+}
+
+// DisagreementKind classifies conflicting verdicts across vendors (FR-017).
+enum DisagreementKind {
+  DISAGREEMENT_KIND_UNSPECIFIED = 0;
+  DISAGREEMENT_KIND_NONE = 1;
+  DISAGREEMENT_KIND_ALLOW_VS_BLOCK = 2;
+  DISAGREEMENT_KIND_ALLOW_VS_CHALLENGE = 3;
+  DISAGREEMENT_KIND_SCORE_CONFLICT = 4;
+}
+
+// JoinSignal records which evidence produced a correlation.
+enum JoinSignal {
+  JOIN_SIGNAL_UNSPECIFIED = 0;
+  JOIN_SIGNAL_VENDOR_REQUEST_ID = 1;
+  JOIN_SIGNAL_IP_HOST_PATH_METHOD = 2;
+  JOIN_SIGNAL_TIME_WINDOW = 3;
+}
+
+// ---------------------------------------------------------------- paging
+
+// TimeRange bounds a query. Both ends are REQUIRED on every event-data read:
+// unbounded scans are rejected, not queued (Constitution Principle V).
+message TimeRange {
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+}
+
+// PageRequest carries cursor-based paging. Offsets are never used — they skip and
+// repeat rows when data arrives mid-pagination, which this system does constantly.
+message PageRequest {
+  // Opaque cursor from a previous PageResponse. Empty requests the first page.
+  string cursor = 1;
+  // Server caps this at QUERY_MAX_RESULT_ROWS regardless of what is requested.
+  int32 limit = 2;
+}
+
+message PageResponse {
+  // Empty when there are no further pages.
+  string next_cursor = 1;
+  // Approximate match count. Exact counts over hundreds of millions of rows cannot
+  // meet the latency budget, so the API states when a count is an estimate rather
+  // than implying precision it does not have.
+  int64 total = 2;
+  bool total_is_estimate = 3;
+}
+
+// ---------------------------------------------------------------- errors
+
+// ErrorDetail names the specific field that failed validation.
+message ErrorDetail {
+  string field = 1;
+  string issue = 2;
+}
+
+// Error is the envelope for every non-2xx response.
+//
+// `code` is stable and machine-readable; `message` is safe to show a user and never
+// leaks internals. The full context is logged server-side against `trace_id`.
+message Error {
+  string code = 1;
+  string message = 2;
+  repeated ErrorDetail details = 3;
+  string trace_id = 4;
+}
+
+// ---------------------------------------------------------------- shared views
+
+// VendorVerdict is one vendor's contribution to a correlated request.
+message VendorVerdict {
+  Vendor vendor = 1;
+  Verdict verdict = 2;
+  string verdict_reason = 3;
+  string rule_id = 4;
+  repeated string rule_ids = 5;
+  // Absent when the vendor does not score requests.
+  optional float score = 6;
+  string score_kind = 7;
+  string event_id = 8;
+  google.protobuf.Timestamp event_time = 9;
+}
+
+// ClientInfo describes the requesting client as normalized across vendors.
+message ClientInfo {
+  string ip = 1;
+  // True when the address looks like NAT, a proxy chain, or a carrier range. This
+  // downgrades join confidence rather than silently weakening the match.
+  bool ip_shared = 2;
+  uint32 asn = 3;
+  string country = 4;
+  string user_agent = 5;
+}
+
+// RequestInfo describes the HTTP request as normalized across vendors.
+message RequestInfo {
+  string host = 1;
+  string path = 2;
+  string query = 3;
+  string method = 4;
+  uint32 status = 5;
+}
