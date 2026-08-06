@@ -74,10 +74,10 @@ services:
   # ---------------------------------------------------------------- services
   siem-api:
     <<: *restart
-    # image: is what a deployment actually runs. build: stays so the stack can still be
-    # rebuilt in place, but `up` uses the tagged image when it is already present —
-    # which is how a pre-built image is deployed to a host too small to compile on.
-    image: siem/siem-api:${APP_VERSION:-dev}
+    # Pulled, not built. build: stays so the stack can still be rebuilt in place, but a
+    # deployment uses the image CI published — this host has one core, and compiling
+    # here would also mean pulling the whole Go and Node toolchain to do it.
+    image: ${REGISTRY:-ghcr.io/menta2k/siem}/siem-api:${APP_VERSION:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.backend
@@ -98,10 +98,10 @@ services:
 
   siem-ingest:
     <<: *restart
-    # image: is what a deployment actually runs. build: stays so the stack can still be
-    # rebuilt in place, but `up` uses the tagged image when it is already present —
-    # which is how a pre-built image is deployed to a host too small to compile on.
-    image: siem/siem-ingest:${APP_VERSION:-dev}
+    # Pulled, not built. build: stays so the stack can still be rebuilt in place, but a
+    # deployment uses the image CI published — this host has one core, and compiling
+    # here would also mean pulling the whole Go and Node toolchain to do it.
+    image: ${REGISTRY:-ghcr.io/menta2k/siem}/siem-ingest:${APP_VERSION:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.backend
@@ -118,10 +118,10 @@ services:
 
   siem-processor:
     <<: *restart
-    # image: is what a deployment actually runs. build: stays so the stack can still be
-    # rebuilt in place, but `up` uses the tagged image when it is already present —
-    # which is how a pre-built image is deployed to a host too small to compile on.
-    image: siem/siem-processor:${APP_VERSION:-dev}
+    # Pulled, not built. build: stays so the stack can still be rebuilt in place, but a
+    # deployment uses the image CI published — this host has one core, and compiling
+    # here would also mean pulling the whole Go and Node toolchain to do it.
+    image: ${REGISTRY:-ghcr.io/menta2k/siem}/siem-processor:${APP_VERSION:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.backend
@@ -136,7 +136,7 @@ services:
   # ---------------------------------------------------------------- web
   frontend:
     <<: *restart
-    image: siem/siem-frontend:${APP_VERSION:-dev}
+    image: ${REGISTRY:-ghcr.io/menta2k/siem}/siem-frontend:${APP_VERSION:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.frontend
