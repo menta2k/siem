@@ -221,30 +221,48 @@ GROUP BY tenant_id, bucket, disagreement_kind;
 -- other way would leave a gap for whatever arrived in between.
 --
 -- Safe on an empty database: each is a no-op when the source table has no rows.
+--
+-- EVERY ONE SPILLS TO DISK RATHER THAN SIZING ITSELF AGAINST AVAILABLE RAM. These group
+-- the whole source table at once, so their peak memory scales with retained history and
+-- distinct-key count, neither of which a migration can predict. The first run of this
+-- file died on exactly that -- the top-sources backfill asked for 6.12 GiB against a
+-- 4 GiB server limit, halfway through, leaving the migration dirty.
+--
+-- max_bytes_before_external_group_by makes the aggregation spill once it passes the
+-- threshold instead of failing, so the backfill completes on a small server and merely
+-- takes longer. The threshold sits well under max_memory_usage because the query needs
+-- headroom above it to merge the spilled buckets back together.
 
 INSERT INTO rollup_vendor_volume_5m
 SELECT tenant_id, toStartOfFiveMinute(event_time) AS bucket, vendor,
        uniqCombinedState(12)(event_id), toUInt64(0)
-FROM normalized_events GROUP BY tenant_id, bucket, vendor;
+FROM normalized_events GROUP BY tenant_id, bucket, vendor
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;
 
 INSERT INTO rollup_verdict_mix_5m
 SELECT tenant_id, toStartOfFiveMinute(event_time) AS bucket, vendor, verdict,
        uniqCombinedState(12)(event_id)
-FROM normalized_events GROUP BY tenant_id, bucket, vendor, verdict;
+FROM normalized_events GROUP BY tenant_id, bucket, vendor, verdict
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;
 
 INSERT INTO rollup_top_rules_1h
 SELECT tenant_id, toStartOfHour(event_time) AS bucket, vendor, rule_id,
        uniqCombinedState(12)(event_id)
-FROM normalized_events WHERE rule_id != '' GROUP BY tenant_id, bucket, vendor, rule_id;
+FROM normalized_events WHERE rule_id != '' GROUP BY tenant_id, bucket, vendor, rule_id
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;
 
+-- The heaviest of the five: hourly buckets keyed by client address, so the group count
+-- grows with the number of distinct clients seen rather than with any fixed dimension.
 INSERT INTO rollup_top_sources_1h
 SELECT tenant_id, toStartOfHour(event_time) AS bucket, client_ip, client_country,
        client_asn, uniqCombinedState(12)(event_id),
        uniqCombinedStateIf(12)(event_id, verdict IN ('blocked', 'rate_limited'))
-FROM normalized_events GROUP BY tenant_id, bucket, client_ip, client_country, client_asn;
+FROM normalized_events GROUP BY tenant_id, bucket, client_ip, client_country, client_asn
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;
 
 INSERT INTO rollup_disagreement_5m
 SELECT tenant_id, toStartOfFiveMinute(window_start) AS bucket, disagreement_kind,
        uniqCombinedStateIf(12)(toString(correlation_id), has_disagreement),
        uniqCombinedState(12)(toString(correlation_id))
-FROM correlated_requests GROUP BY tenant_id, bucket, disagreement_kind;
+FROM correlated_requests GROUP BY tenant_id, bucket, disagreement_kind
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;

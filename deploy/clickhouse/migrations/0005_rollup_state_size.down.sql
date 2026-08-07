@@ -166,30 +166,39 @@ FROM correlated_requests
 GROUP BY tenant_id, bucket, disagreement_kind;
 
 -- ---------------------------------------------------------------- backfill
+--
+-- Spilling to disk for the same reason as the up migration: these aggregate the whole
+-- source table, so peak memory scales with retained history rather than with anything a
+-- migration can know in advance. A rollback that dies halfway is worse than a slow one.
 
 INSERT INTO rollup_vendor_volume_5m
 SELECT tenant_id, toStartOfFiveMinute(event_time) AS bucket, vendor,
        uniqState(event_id), toUInt64(0)
-FROM normalized_events GROUP BY tenant_id, bucket, vendor;
+FROM normalized_events GROUP BY tenant_id, bucket, vendor
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;
 
 INSERT INTO rollup_verdict_mix_5m
 SELECT tenant_id, toStartOfFiveMinute(event_time) AS bucket, vendor, verdict,
        uniqState(event_id)
-FROM normalized_events GROUP BY tenant_id, bucket, vendor, verdict;
+FROM normalized_events GROUP BY tenant_id, bucket, vendor, verdict
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;
 
 INSERT INTO rollup_top_rules_1h
 SELECT tenant_id, toStartOfHour(event_time) AS bucket, vendor, rule_id,
        uniqState(event_id)
-FROM normalized_events WHERE rule_id != '' GROUP BY tenant_id, bucket, vendor, rule_id;
+FROM normalized_events WHERE rule_id != '' GROUP BY tenant_id, bucket, vendor, rule_id
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;
 
 INSERT INTO rollup_top_sources_1h
 SELECT tenant_id, toStartOfHour(event_time) AS bucket, client_ip, client_country,
        client_asn, uniqState(event_id),
        uniqStateIf(event_id, verdict IN ('blocked', 'rate_limited'))
-FROM normalized_events GROUP BY tenant_id, bucket, client_ip, client_country, client_asn;
+FROM normalized_events GROUP BY tenant_id, bucket, client_ip, client_country, client_asn
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;
 
 INSERT INTO rollup_disagreement_5m
 SELECT tenant_id, toStartOfFiveMinute(window_start) AS bucket, disagreement_kind,
        uniqStateIf(toString(correlation_id), has_disagreement),
        uniqState(toString(correlation_id))
-FROM correlated_requests GROUP BY tenant_id, bucket, disagreement_kind;
+FROM correlated_requests GROUP BY tenant_id, bucket, disagreement_kind
+SETTINGS max_bytes_before_external_group_by = 1000000000, max_memory_usage = 3000000000;
