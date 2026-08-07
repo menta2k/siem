@@ -229,7 +229,7 @@ func (r *Receiver) readBody(req *http.Request) ([]byte, error) {
 func (r *Receiver) authenticate(
 	ctx context.Context, req *http.Request, feed chdata.Feed, body []byte,
 ) error {
-	token, ok := bearerToken(req.Header.Get("Authorization"))
+	token, ok := credentialFrom(req)
 	if !ok {
 		return mw.FeedCredentialInvalid()
 	}
@@ -259,6 +259,28 @@ func (r *Receiver) authenticate(
 		return mw.FeedCredentialInvalid()
 	}
 	return nil
+}
+
+// credentialFrom reads the feed credential, preferring the Authorization header.
+//
+// The query parameter exists because some vendors' webhook configuration has NO field
+// for a custom header — DataDome's is one: it offers a name, a URL, a payload format and
+// severity filters, and nothing else. Without this those vendors cannot authenticate at
+// all, which is a worse outcome than a credential in a query string.
+//
+// It is a fallback, never the recommendation. A query string is visible to every proxy
+// and reverse proxy on the path and is written to their access logs by default, so a
+// token sent this way should be treated as more exposed than one in a header and rotated
+// more readily. The header is checked first so a vendor that supports both never
+// downgrades itself.
+func credentialFrom(req *http.Request) (string, bool) {
+	if token, ok := bearerToken(req.Header.Get("Authorization")); ok {
+		return token, true
+	}
+	if token := req.URL.Query().Get("token"); token != "" {
+		return token, true
+	}
+	return "", false
 }
 
 // accept parses, deduplicates, quota-checks, and durably commits a delivery.
