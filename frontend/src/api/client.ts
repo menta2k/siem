@@ -83,16 +83,62 @@ export function configureAuth(provider: TokenProvider, handler: UnauthorizedHand
   onUnauthorized = handler
 }
 
+/**
+ * Generates a trace id, without requiring a secure context.
+ *
+ * `crypto.randomUUID` exists ONLY in a secure context — HTTPS, or localhost. Served
+ * over plain HTTP on any other host it is `undefined`, and because this runs in the
+ * request middleware, every single API call throws before it is sent. That includes
+ * the login request, so the whole console is unusable rather than merely untraced.
+ *
+ * `crypto.getRandomValues` carries no such restriction, so the fallback is still a
+ * real random v4 UUID rather than a degraded one. `Math.random` is the last resort for
+ * an environment with no Web Crypto at all; a trace id correlates a request with a log
+ * line and is never a security token, so that is an acceptable floor.
+ */
+function traceId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256)
+  }
+
+  // RFC 4122: version 4 in the high nibble of byte 6, variant 10xx in byte 8. Read into
+  // locals first — under noUncheckedIndexedAccess an indexed read is possibly undefined,
+  // even on a fixed-length Uint8Array the line above just filled.
+  const versionByte = bytes[6] ?? 0
+  const variantByte = bytes[8] ?? 0
+  bytes[6] = (versionByte & 0x0f) | 0x40
+  bytes[8] = (variantByte & 0x3f) | 0x80
+
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join('-')
+}
+
 /** Attaches the bearer token and a trace id to every request. */
 const authMiddleware: Middleware = {
   onRequest({ request }) {
     const token = tokenProvider()
     if (token) request.headers.set('Authorization', `Bearer ${token}`)
     // Correlates this request with its server-side log line.
-    request.headers.set('X-Trace-Id', crypto.randomUUID())
+    request.headers.set('X-Trace-Id', traceId())
     return request
   },
 }
+
+// Exported for tests only; not part of the client's public surface.
+export const __traceId = traceId
 
 /** Converts a non-2xx response into a typed error rather than a silent undefined. */
 const errorMiddleware: Middleware = {
