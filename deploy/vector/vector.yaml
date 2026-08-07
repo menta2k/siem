@@ -34,10 +34,38 @@ transforms:
     # filtered rather than killing the transform and stalling the whole pipeline.
     condition: '(to_string(.message) ?? "") != ""'
 
+  # BIG-IP ASM writes `date_time` in the APPLIANCE'S LOCAL TIME with no offset, so the
+  # value is ambiguous the moment it leaves the box. The platform reads it as UTC, which
+  # on a +03:00 appliance dates every event three hours in the future — past the
+  # future-dating guard, so all of it is rejected as TIMESTAMP_OUT_OF_RANGE.
+  #
+  # The timezone is only knowable here, next to the device, so this is where it is
+  # resolved. Rewriting to UTC makes the stored evidence LESS ambiguous than the wire
+  # format, not more: an offset-less local timestamp cannot be interpreted correctly by
+  # anything downstream that does not already know the appliance's configuration.
+  #
+  # BIGIP_UTC_OFFSET defaults to +0000, so an appliance already logging UTC is untouched.
+  normalize_time:
+    type: remap
+    inputs: [drop_empty]
+    source: |
+      line = to_string(.message) ?? ""
+      matched, err = parse_regex(line, r'date_time="(?P<dt>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"')
+      if err == null {
+        dt = to_string(matched.dt)
+        parsed, perr = parse_timestamp(dt + " ${BIGIP_UTC_OFFSET:-+0000}", "%Y-%m-%d %H:%M:%S %z")
+        if perr == null {
+          utc = format_timestamp(parsed, "%Y-%m-%d %H:%M:%S", timezone: "UTC") ?? ""
+          if utc != "" {
+            .message = replace(line, "date_time=\"" + dt + "\"", "date_time=\"" + utc + "\"")
+          }
+        }
+      }
+
 sinks:
   siem:
     type: http
-    inputs: [drop_empty]
+    inputs: [normalize_time]
     uri: ${SIEM_INGEST_URL:?set SIEM_INGEST_URL}
     method: post
 

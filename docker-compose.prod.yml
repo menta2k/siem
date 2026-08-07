@@ -201,6 +201,8 @@ services:
       # so the container refuses to start rather than silently dropping every delivery.
       SIEM_INGEST_URL: ${F5_INGEST_URL-}
       SIEM_FEED_TOKEN: ${F5_FEED_TOKEN-}
+      # BIG-IP's appliance UTC offset; see deploy/vector/.env.example.
+      BIGIP_UTC_OFFSET: ${BIGIP_UTC_OFFSET:-+0000}
     ports:
       - "${SYSLOG_BIND:-127.0.0.1}:${SYSLOG_PORT:-5514}:5514"
     volumes:
