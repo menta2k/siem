@@ -93,10 +93,18 @@ func New(
 	}
 }
 
-// Handler routes POST /ingest/v1/{vendor}/{feed_id}.
+// Handler routes deliveries to /ingest/v1/{vendor}/{feed_id}.
+//
+// PUT is accepted alongside POST because Cloudflare Logpush VALIDATES a destination
+// before it will save the job, and that validation reuses its object-store upload path
+// — a PUT, not the POST it uses for actual log delivery. Go's ServeMux answers a
+// registered path with an unregistered method as 405, so a POST-only route makes
+// Logpush fail with `error writing object: error uploading to https: status:405` and
+// the job cannot be created at all.
 func (r *Receiver) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /ingest/v1/{vendor}/{feed_id}", r.handleDelivery)
+	mux.HandleFunc("PUT /ingest/v1/{vendor}/{feed_id}", r.handleDelivery)
 	return mux
 }
 
@@ -130,6 +138,14 @@ func (r *Receiver) handleDelivery(w http.ResponseWriter, req *http.Request) {
 			TenantID: feed.TenantID, FeedID: feed.ID, CredentialValid: false,
 		})
 		writeError(w, mw.AsError(err))
+		return
+	}
+
+	// Answered AFTER authentication, so a probe still has to present the feed's
+	// credential — this confirms the endpoint and the token together, which is the
+	// whole point of the vendor validating a destination.
+	if isDestinationProbe(body) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
 
