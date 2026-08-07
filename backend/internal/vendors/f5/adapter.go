@@ -288,8 +288,20 @@ func normalizeLabel(label string) string {
 func decodeSyslogRecord(raw []byte) vendors.RawRecord {
 	record := vendors.RawRecord{Bytes: raw, Format: vendors.FormatSyslog}
 
+	line := string(raw)
+
+	// BIG-IP ASM's Field-Value Pairs format first, CEF's space-separated extension as
+	// the fallback. They are distinguished by `="`, which only the quoted format has.
+	// Reading ASM output with the CEF parser splits every value containing a space —
+	// date_time and violations always do — and the record then fails on an absent
+	// timestamp it plainly contains.
+	parse := parseCEFExtension
+	if strings.Contains(line, `="`) {
+		parse = parseFieldValuePairs
+	}
+
 	fields := map[string]any{}
-	for k, v := range parseCEFExtension(string(raw)) {
+	for k, v := range parse(line) {
 		fields[k] = v
 	}
 	if len(fields) == 0 {

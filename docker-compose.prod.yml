@@ -169,11 +169,47 @@ services:
     profiles: ["tunnel"]
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+      # Plain interpolation for the same reason as the collector below: `:?` is evaluated
+      # for every service at parse time, so requiring it here breaks `compose ps`, `logs`
+      # and `exec` on any host that is not running the tunnel. The profile keeps this out
+      # of a default `up`, and cloudflared exits loudly on an empty token.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN-}
     # Outbound only. Deliberately no ports: publishing one would defeat the point.
     depends_on: [frontend]
+
+  # ---------------------------------------------------------------- BIG-IP collector
+  #
+  # BIG-IP ASM can only ship logs over syslog — a Logging Profile offers TCP, UDP and
+  # TCP-RFC3195, never HTTP — so this translates syslog into authenticated HTTPS.
+  #
+  # It reaches siem-ingest over the COMPOSE NETWORK, not through Cloudflare: once a log
+  # line is on this host there is no reason to send it out to the edge and back.
+  #
+  # The syslog port is the one inbound port on an otherwise closed host, and syslog has
+  # no authentication whatsoever — anything that can reach it can forge WAF events into
+  # the SIEM. Restrict it to BIG-IP's address at the firewall; SYSLOG_BIND alone only
+  # chooses an interface, it does not filter callers.
+  vector:
+    <<: *restart
+    image: timberio/vector:0.44.0-alpine
+    profiles: ["bigip"]
+    environment:
+      # Plain interpolation, NOT `:?`. Compose evaluates `:?` for every service when it
+      # parses the file — including services outside the active profile — so a required
+      # variable here would break `compose ps`, `logs` and `exec` for the whole stack on
+      # any host not running the collector. vector.yaml declares them required instead,
+      # so the container refuses to start rather than silently dropping every delivery.
+      SIEM_INGEST_URL: ${F5_INGEST_URL-}
+      SIEM_FEED_TOKEN: ${F5_FEED_TOKEN-}
+    ports:
+      - "${SYSLOG_BIND:-127.0.0.1}:${SYSLOG_PORT:-5514}:5514"
+    volumes:
+      - ./deploy/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - vector-data:/var/lib/vector
+    depends_on: [siem-ingest]
 
 volumes:
   clickhouse-data:
   redpanda-data:
   redis-data:
+  vector-data:
