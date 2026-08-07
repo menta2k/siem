@@ -16,9 +16,15 @@ import (
 // whole design: a panel that scans raw events looks fine on a demo dataset and becomes
 // unusable at production volume, and the discovery happens in production.
 //
-// The rollups store uniq STATES, so every read applies uniqMerge. Reading the state
-// column directly returns an opaque binary blob rather than a number — a mistake that
-// produces nonsense rather than an error.
+// The rollups store uniqCombined(12) STATES, so every read applies uniqCombinedMerge(12).
+// Reading the state column directly returns an opaque binary blob rather than a number — a
+// mistake that produces nonsense rather than an error.
+//
+// The precision argument is part of the TYPE: uniqCombinedMerge(12) over a
+// uniqCombined(12) state, and a mismatch is rejected by ClickHouse rather than silently
+// misread. These counts carry roughly 1% error by design — the states are capped so that
+// merging them stays cheap (see migration 0005). Anything needing exact figures must read
+// normalized_events directly.
 type DashboardRepo struct {
 	client *Client
 }
@@ -93,7 +99,7 @@ func (r *DashboardRepo) VendorVolume(
 	}
 
 	rows, err := r.client.Query(ctx, fmt.Sprintf(`
-		SELECT %s AS ts, vendor, uniqMerge(events) AS events
+		SELECT %s AS ts, vendor, uniqCombinedMerge(12)(events) AS events
 		FROM rollup_vendor_volume_5m
 		WHERE tenant_id = ? AND bucket >= ? AND bucket < ?
 		GROUP BY ts, vendor
@@ -137,7 +143,7 @@ func (r *DashboardRepo) VerdictMix(
 	}
 
 	rows, err := r.client.Query(ctx, fmt.Sprintf(`
-		SELECT %s AS ts, vendor, verdict, uniqMerge(events) AS events
+		SELECT %s AS ts, vendor, verdict, uniqCombinedMerge(12)(events) AS events
 		FROM rollup_verdict_mix_5m
 		WHERE tenant_id = ? AND bucket >= ? AND bucket < ?
 		GROUP BY ts, vendor, verdict
@@ -176,7 +182,7 @@ func (r *DashboardRepo) TopRules(
 	}
 
 	rows, err := r.client.Query(ctx, `
-		SELECT vendor, rule_id, uniqMerge(events) AS events
+		SELECT vendor, rule_id, uniqCombinedMerge(12)(events) AS events
 		FROM rollup_top_rules_1h
 		WHERE tenant_id = ? AND bucket >= ? AND bucket < ?
 		GROUP BY vendor, rule_id
@@ -219,7 +225,7 @@ func (r *DashboardRepo) TopSources(
 
 	rows, err := r.client.Query(ctx, `
 		SELECT client_ip, client_country, client_asn,
-		       uniqMerge(events) AS events, uniqMerge(blocked) AS blocked
+		       uniqCombinedMerge(12)(events) AS events, uniqCombinedMerge(12)(blocked) AS blocked
 		FROM rollup_top_sources_1h
 		WHERE tenant_id = ? AND bucket >= ? AND bucket < ?
 		GROUP BY client_ip, client_country, client_asn
@@ -272,7 +278,7 @@ func (r *DashboardRepo) Disagreements(
 
 	rows, err := r.client.Query(ctx, fmt.Sprintf(`
 		SELECT %s AS ts, disagreement_kind,
-		       uniqMerge(records) AS records, uniqMerge(total) AS total
+		       uniqCombinedMerge(12)(records) AS records, uniqCombinedMerge(12)(total) AS total
 		FROM rollup_disagreement_5m
 		WHERE tenant_id = ? AND bucket >= ? AND bucket < ?
 		GROUP BY ts, disagreement_kind

@@ -10,6 +10,9 @@ Applied with [golang-migrate](https://github.com/golang-migrate/migrate) via `ma
 - One logical concern per migration; never edit a migration that has been applied anywhere.
 - Statements are separated by `;`. The connection string sets `x-multi-statement=true`, so a single
   file may contain several statements.
+- **Never write `;` inside a comment.** The splitter is textual and does not know it is inside one,
+  so it cuts there and hands ClickHouse a fragment that is nothing but comment — which fails with
+  `code: 62, Empty query` and points at the comment rather than at the real statement.
 - Retention is expressed as `TTL` clauses in the table definitions, not as scheduled deletes, so
   expiry becomes a cheap partition drop rather than a row-level mutation.
 
@@ -21,6 +24,7 @@ Applied with [golang-migrate](https://github.com/golang-migrate/migrate) via `ma
 | `0002_events` | `raw_events`, `normalized_events`, `rejected_events`, `correlated_requests` |
 | `0003_rollups` | dashboard materialized views and their `AggregatingMergeTree` targets |
 | `0004_alerting` | `alert_rules`, `alerts` |
+| `0005_rollup_state_size` | rebuilds the `0003` rollups with `uniqCombined(12)` states |
 
 ## Testing
 
