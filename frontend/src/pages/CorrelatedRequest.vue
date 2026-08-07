@@ -5,6 +5,7 @@ import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
 import ConfidenceChip from '@/components/ConfidenceChip.vue'
 import VendorVerdictBadge from '@/components/VendorVerdictBadge.vue'
+import CorrelationChain from '@/components/CorrelationChain.vue'
 
 type CorrelatedRequest = components['schemas']['CorrelatedRequest']
 type VendorVerdict = components['schemas']['VendorVerdict']
@@ -274,29 +275,19 @@ function vendorOf(v: VendorVerdict): string {
             </v-card-text>
           </v-card>
 
-          <!-- Drill-through to the raw vendor payloads (FR-024). -->
-          <v-card>
-            <v-card-title class="text-subtitle-1">Contributing events</v-card-title>
-            <v-card-text>
-              <v-list density="compact" class="pa-0">
-                <v-list-item
-                  v-for="eventId in record.eventIds ?? []"
-                  :key="eventId"
-                  :to="{ name: 'search', query: { eventId } }"
-                  class="px-0"
-                >
-                  <v-list-item-title class="text-body-2">
-                    <code>{{ eventId }}</code>
-                  </v-list-item-title>
-                </v-list-item>
-              </v-list>
+          <!-- The chain itself: every contributing event in observation order, each
+               expandable to the vendor's own fields and the payload as received
+               (FR-024). A bare list of ids answered "which events" but never "what did
+               they say", which is the question a disagreement actually raises. -->
+          <CorrelationChain
+            :event-ids="record.eventIds ?? []"
+            :conflicting="disagreeingVendors"
+          />
 
-              <div class="mt-3 text-caption text-medium-emphasis">
-                Correlation id <code>{{ record.correlationId }}</code>
-              </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
+          <div class="mt-3 text-caption text-medium-emphasis">
+            Correlation id <code>{{ record.correlationId }}</code>
+          </div>
+</v-col>
       </v-row>
     </template>
 
