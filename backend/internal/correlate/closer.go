@@ -25,7 +25,17 @@ type CorrelatedStore interface {
 }
 
 // DefaultPollInterval is how often the closer looks for windows that have closed.
-const DefaultPollInterval = time.Second
+//
+// It is really the batch-size control. Each tick writes one insert per tenant and each
+// insert becomes a ClickHouse part that is then merged repeatedly, so polling decides how
+// many rows a part carries. At one second the closer wrote whatever had closed in the last
+// second — 58 rows in production — and ClickHouse's own guidance is at least ~1,000.
+//
+// The cost is latency, and it is cheap: a window is emitted only once its deadline has
+// already passed, so this is added to a wait already measured in minutes. It stays well
+// under a minute because it is also the worst case before a closed window becomes visible,
+// and an analyst watching live traffic notices staleness on that scale.
+const DefaultPollInterval = 10 * time.Second
 
 // Closer emits correlated records for windows whose deadline has passed.
 //
@@ -84,23 +94,49 @@ func (c *Closer) Run(ctx context.Context) error {
 // loop forever — the next tick picks up where this one stopped.
 const MaxPassesPerTick = 32
 
-// Tick processes closed windows until the schedule is drained or the pass bound is hit.
+// Tick processes closed windows until the schedule is drained or the pass bound is hit,
+// then writes everything it gathered in ONE insert per tenant.
+//
+// The insert is here rather than in pass() because every insert becomes a ClickHouse
+// PART, and a part is merged repeatedly until it is large enough to stop being merged.
+// Inserting per pass produced a part per 256 windows — measured in production as 3,859
+// parts an hour at 58 rows each, with the disagreement rollup's materialized view turning
+// every one of them into a part holding a single row. Merge load was the largest CPU
+// consumer in the database, and this is what set it.
+//
+// Accumulating first bounds memory at MaxPassesPerTick * batch records, which is small:
+// a correlated record is a handful of fields, and the bound already exists to stop a tick
+// running forever.
 func (c *Closer) Tick(ctx context.Context, now time.Time) error {
 	var failed error
+	byTenant := map[uuid.UUID][]emission{}
 
-	for pass := 0; pass < MaxPassesPerTick; pass++ {
-		drained, err := c.pass(ctx, now)
+	for range MaxPassesPerTick {
+		drained, err := c.pass(ctx, now, byTenant)
 		failed = errors.Join(failed, err)
 		if drained {
 			break
 		}
 	}
+
+	// Windows are claimed off the schedule before this point, so a failed insert is
+	// reported and the tick moves on. Batching widens what one failure drops, which is
+	// why it is reported rather than swallowed: the window state survives in Redis under
+	// the lateness bound, and a late arrival still reopens it.
+	for tenantID, emitted := range byTenant {
+		if err := c.insert(ctx, tenantID, emitted); err != nil {
+			failed = errors.Join(failed, err)
+		}
+	}
 	return failed
 }
 
-// pass claims one batch of closed windows and emits them, reporting whether the
-// schedule had fewer than a full batch left — which is what "drained" means here.
-func (c *Closer) pass(ctx context.Context, now time.Time) (bool, error) {
+// pass claims one batch of closed windows and accumulates their records into byTenant,
+// reporting whether the schedule had fewer than a full batch left — which is what
+// "drained" means here.
+func (c *Closer) pass(
+	ctx context.Context, now time.Time, byTenant map[uuid.UUID][]emission,
+) (bool, error) {
 	due, err := c.windows.Due(ctx, now, c.batch)
 	if err != nil {
 		CloseFailures.WithLabelValues("claim").Inc()
@@ -111,8 +147,6 @@ func (c *Closer) pass(ctx context.Context, now time.Time) (bool, error) {
 	}
 
 	var failed error
-	byTenant := map[uuid.UUID][]emission{}
-
 	for _, scheduled := range due {
 		emitted, err := c.build(ctx, scheduled)
 		if err != nil {
@@ -121,18 +155,6 @@ func (c *Closer) pass(ctx context.Context, now time.Time) (bool, error) {
 			continue
 		}
 		byTenant[scheduled.TenantID] = append(byTenant[scheduled.TenantID], emitted...)
-	}
-
-	// One insert per tenant per tick, not one per window. A correlated record is a
-	// handful of rows, so a per-window insert pays a full ClickHouse round trip —
-	// which, under the ingest profile's wait_for_async_insert, is the entire cost of
-	// closing a window. Windows are claimed off the schedule before this point, so a
-	// failed insert is reported and the tick moves on; the window state survives in
-	// Redis under the lateness bound, and a late arrival still reopens it.
-	for tenantID, emitted := range byTenant {
-		if err := c.insert(ctx, tenantID, emitted); err != nil {
-			failed = errors.Join(failed, err)
-		}
 	}
 	return len(due) < c.batch, failed
 }

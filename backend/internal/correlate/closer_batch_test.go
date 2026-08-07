@@ -2,6 +2,7 @@ package correlate_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -54,7 +55,7 @@ func (s *countingCorrelatedStore) Versions(
 }
 
 func newCloser(
-	windowStore *countingWindowStore, records *countingCorrelatedStore,
+	windowStore *countingWindowStore, records correlate.CorrelatedStore,
 ) *correlate.Closer {
 	return correlate.NewCloser(
 		window.New(windowStore), records,
@@ -211,4 +212,20 @@ func TestAnExistingRecordIsAmendedAtTheNextVersion(t *testing.T) {
 		t.Fatal("no window closed under a previously seen correlation id, so the " +
 			"amendment path was never exercised")
 	}
+}
+
+// failingCorrelatedStore rejects every insert, so the closer's error reporting can be
+// asserted rather than assumed.
+type failingCorrelatedStore struct{}
+
+func (s *failingCorrelatedStore) Insert(
+	_ context.Context, _ []chdata.CorrelatedRequest,
+) error {
+	return errors.New("clickhouse unavailable")
+}
+
+func (s *failingCorrelatedStore) Versions(
+	_ context.Context, _ []uuid.UUID,
+) (map[uuid.UUID]uint64, error) {
+	return map[uuid.UUID]uint64{}, nil
 }
