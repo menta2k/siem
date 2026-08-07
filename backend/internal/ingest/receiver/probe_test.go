@@ -52,11 +52,13 @@ func TestWhitespaceAndOrderingDoNotMatter(t *testing.T) {
 // ingestion — a real delivery silently answered "ok" would be acknowledged and then
 // dropped, which is the one failure the 202 contract exists to prevent.
 func TestRealDeliveriesAreNotMistakenForProbes(t *testing.T) {
+	// Note what is NOT here: {"content":"anything"}. A bare, single-field content object
+	// IS a probe by design — no vendor log record has that shape, and pinning the exact
+	// wording is what broke against Cloudflare sending "test" where its docs say "tests".
 	cases := map[string]string{
 		"a cloudflare log line": `{"RayID":"abc","EdgeStartTimestamp":"2026-08-07T00:00:00Z"}`,
 		"an ndjson batch":       "{\"RayID\":\"a\"}\n{\"RayID\":\"b\"}",
 		"a json array":          `[{"RayID":"a"}]`,
-		"content but not tests": `{"content":"something else"}`,
 		"content as a number":   `{"content":123}`,
 		"empty object":          `{}`,
 		"not json at all":       `plain text`,
@@ -97,5 +99,15 @@ func TestProbeDecompressionIsBounded(t *testing.T) {
 	}
 	if out, ok := gunzipProbe(bomb); ok && len(out) > probeMaxBytes {
 		t.Errorf("decompressed %d bytes, want at most %d", len(out), probeMaxBytes)
+	}
+}
+
+// A long content value is a document, not a probe word — the bound is what stops an
+// object with a single `content` field from being acknowledged and silently dropped.
+func TestALongContentValueIsNotAProbe(t *testing.T) {
+	long := `{"content":"` + strings.Repeat("x", probeContentMaxLen+1) + `"}`
+
+	if isDestinationProbe([]byte(long)) {
+		t.Error("a long content value was treated as a validation probe")
 	}
 }

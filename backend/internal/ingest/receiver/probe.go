@@ -35,16 +35,38 @@ func isDestinationProbe(body []byte) bool {
 		payload = decompressed
 	}
 
-	// Matched on structure rather than on the exact bytes, so whitespace or key ordering
-	// from a future vendor build does not turn a probe back into a rejected event.
-	var probe struct {
-		Content *string `json:"content"`
-	}
-	if err := json.Unmarshal(bytes.TrimSpace(payload), &probe); err != nil {
+	// Matched on SHAPE, not on the literal payload. Cloudflare's documentation gives the
+	// probe as {"content":"tests"} and Cloudflare actually sends {"content":"test"} —
+	// singular. Pinning either spelling means the other one is parsed as a log record,
+	// fails, and answers 207 Multi-Status, which the vendor reads as a broken
+	// destination. Matching the shape survives that disagreement and the next one.
+	//
+	// The shape is specific enough to be safe: an object whose ONLY field is a short
+	// `content` string. No vendor log record looks like that — every one of them carries
+	// a timestamp and a request identifier at minimum.
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(payload), &fields); err != nil {
 		return false
 	}
-	return probe.Content != nil && *probe.Content == "tests"
+	if len(fields) != 1 {
+		return false
+	}
+
+	raw, ok := fields["content"]
+	if !ok {
+		return false
+	}
+
+	var content string
+	if err := json.Unmarshal(raw, &content); err != nil {
+		return false
+	}
+	return len(content) <= probeContentMaxLen
 }
+
+// probeContentMaxLen bounds the probe's content field. A real payload that happened to
+// carry a single `content` key would hold a document, not a word.
+const probeContentMaxLen = 64
 
 // gunzipProbe decompresses a small gzip body, reporting whether it was gzip at all.
 func gunzipProbe(body []byte) ([]byte, bool) {
