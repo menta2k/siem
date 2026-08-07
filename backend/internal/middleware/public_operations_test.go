@@ -27,7 +27,8 @@ func TestEveryPublicOperationNamesARealRPC(t *testing.T) {
 
 	for operation := range publicOperations {
 		if !defined[operation] {
-			t.Errorf("public operation %q matches no RPC — the route is silently still authenticated", operation)
+			t.Errorf("public operation %q matches no RPC — the route is still authenticated",
+				operation)
 		}
 	}
 }
@@ -36,7 +37,7 @@ func TestEveryPublicOperationNamesARealRPC(t *testing.T) {
 // be called without a valid access token.
 func TestRefreshIsReachableWithoutAnAccessToken(t *testing.T) {
 	if !publicOperations[siemv1.OperationAuthRefresh] {
-		t.Error("Refresh requires a bearer token, so a session can never be restored from the cookie alone")
+		t.Error("Refresh requires a bearer token, so no session can be restored from the cookie")
 	}
 }
 

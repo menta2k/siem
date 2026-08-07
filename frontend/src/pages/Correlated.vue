@@ -12,9 +12,10 @@
  * outcome — plenty of hostnames sit behind one vendor — but it is not what anyone opens
  * this page to find.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, toDisplayMessage } from '@/api/client'
+import { debounce } from '@/lib/debounce'
 import type { components } from '@/api/schema'
 import ConfidenceChip from '@/components/ConfidenceChip.vue'
 
@@ -68,6 +69,14 @@ async function load(): Promise<void> {
     loading.value = false
   }
 }
+
+// The text filters used to requery only on Enter or Refresh. Typing an address and
+// reading the unchanged table below it looks exactly like a filter that matched
+// everything — there is nothing on screen to say the value was never applied. Debounced
+// rather than immediate so a half-typed address does not query and read as "no results".
+const reload = debounce(load, 400)
+watch([host, clientIP], () => reload())
+onUnmounted(() => reload.cancel())
 
 onMounted(load)
 

@@ -2,7 +2,6 @@ package f5
 
 import (
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -97,22 +96,6 @@ func parseEventTime(fields map[string]any) (eventTime time.Time, original string
 		return time.Time{}, raw, fmt.Errorf("field date_time: %w", parseErr)
 	}
 	return parsed, raw, nil
-}
-
-// resolveClientIP prefers the true client address over the connecting one.
-//
-// When BIG-IP sits behind another proxy, ip_client is that proxy. The
-// X-Forwarded-For value is the actual client and is what the other two vendors
-// report, so preferring it is what makes cross-vendor correlation line up at all.
-func resolveClientIP(fields map[string]any) net.IP {
-	if xff := vendors.AsString(fields["x_forwarded_for_header_value"]); xff != "" {
-		// XFF may be a chain; the leftmost entry is the original client.
-		first, _, _ := strings.Cut(xff, ",")
-		if ip := vendors.ParseIP(first); ip != nil {
-			return ip
-		}
-	}
-	return vendors.ParseIP(vendors.AsString(firstOf(fields, "ip_client", "src")))
 }
 
 // resolveHost finds the HTTP Host header.

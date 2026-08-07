@@ -76,21 +76,36 @@ export const useSearchStore = defineStore('search', () => {
     nextCursor.value = ''
   }
 
+  /**
+   * Identifies the search a reply belongs to.
+   *
+   * Results are APPENDED, so a reply that arrives after the user has moved on must be
+   * dropped rather than added. Without this, two searches in flight at once each cleared
+   * the list and then each appended, and one matching event rendered as two identical
+   * rows — indistinguishable from duplicate data in storage, though the API had returned
+   * total:1 all along. A late reply for a previous filter is worse still: it shows the
+   * wrong results under the right filter, with nothing on screen to say so.
+   */
+  let generation = 0
+
   /** Runs the search from the first page. */
   async function search(): Promise<void> {
     cursor.value = ''
     items.value = []
-    await fetchPage()
+    await fetchPage(++generation)
   }
 
   /** Appends the next page, leaving what is already shown in place. */
   async function loadMore(): Promise<void> {
     if (!hasMore.value) return
     cursor.value = nextCursor.value
-    await fetchPage()
+    // The SAME generation: a next page belongs to the search that is already displayed,
+    // so it must append. Bumping here would make every page look superseded and paging
+    // would silently stop working.
+    await fetchPage(generation)
   }
 
-  async function fetchPage(): Promise<void> {
+  async function fetchPage(forGeneration: number): Promise<void> {
     loading.value = true
     errorMessage.value = ''
     try {
@@ -101,14 +116,20 @@ export const useSearchStore = defineStore('search', () => {
           page: cursor.value ? { cursor: cursor.value } : {},
         },
       })
+      // Checked AFTER the await: the search may have been replaced while this was in
+      // flight, and the newer one owns the list now.
+      if (forGeneration !== generation) return
       items.value = [...items.value, ...(data?.items ?? [])]
       nextCursor.value = data?.page?.nextCursor ?? ''
       total.value = Number(data?.page?.total ?? 0)
       totalIsEstimate.value = data?.page?.totalIsEstimate ?? false
     } catch (err) {
+      if (forGeneration !== generation) return
       errorMessage.value = toDisplayMessage(err)
     } finally {
-      loading.value = false
+      // Only the current search may clear the spinner, or a superseded reply reports the
+      // newer one as finished while it is still running.
+      if (forGeneration === generation) loading.value = false
     }
   }
 
@@ -138,8 +159,17 @@ export const useSearchStore = defineStore('search', () => {
     to.value = readString('to') ?? new Date().toISOString()
 
     const restored: EventFilters = {}
-    for (const key of ['clientIp', 'requestHost', 'requestPath', 'ruleId', 'country',
-      'userAgent', 'q', 'vendorRequestId', 'requestMethod'] as const) {
+    for (const key of [
+      'clientIp',
+      'requestHost',
+      'requestPath',
+      'ruleId',
+      'country',
+      'userAgent',
+      'q',
+      'vendorRequestId',
+      'requestMethod',
+    ] as const) {
       const value = readString(key)
       if (value) restored[key] = value
     }

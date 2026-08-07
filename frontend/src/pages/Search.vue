@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import { api, toDisplayMessage } from '@/api/client'
 import { RANGE_PRESETS, useSearchStore } from '@/stores/search'
 import { useAuthStore } from '@/stores/auth'
@@ -40,10 +41,35 @@ function applyPreset(minutes: number): void {
   void runSearch()
 }
 
-/** Runs the search and reflects it into the URL so the result is shareable. */
+/**
+ * Reflects the search into the URL, which is what runs it.
+ *
+ * Deliberately does NOT call store.search() as well. Rewriting the query fires the
+ * watcher below, so doing both sent two identical requests for every submission and the
+ * results of the second appended to the first — one matching event rendered as two rows.
+ * The URL is the source of truth for a search; the single path through it is what keeps a
+ * pasted link and a clicked button behaving identically.
+ */
 async function runSearch(): Promise<void> {
-  await router.replace({ name: 'search', query: store.toQuery() })
-  await store.search()
+  const query = store.toQuery()
+  // Navigating to the location already shown is a duplicate navigation: the watcher
+  // never fires, so pressing Search again with nothing changed would do nothing at all.
+  // Re-running directly is the one case that must bypass the URL.
+  if (sameQuery(query, route.query)) {
+    await store.search()
+    return
+  }
+  await router.replace({ name: 'search', query })
+}
+
+/** Compares two query objects by their serialised pairs. */
+function sameQuery(a: LocationQueryRaw, b: LocationQuery): boolean {
+  const flatten = (query: LocationQueryRaw | LocationQuery): string =>
+    Object.entries(query)
+      .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(',') : String(value ?? '')}`)
+      .sort()
+      .join('&')
+  return flatten(a) === flatten(b)
 }
 
 onMounted(async () => {
