@@ -35,6 +35,15 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Search' },
       },
       {
+        // The list, and the reason the detail route below is reachable at all: an
+        // analyst starts from "which requests did the vendors see differently", not
+        // from a correlation id they already know.
+        path: 'correlated',
+        name: 'correlated-list',
+        component: () => import('@/pages/Correlated.vue'),
+        meta: { title: 'Correlated requests' },
+      },
+      {
         path: 'correlated/:id',
         name: 'correlated',
         component: () => import('@/pages/CorrelatedRequest.vue'),

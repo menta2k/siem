@@ -19,6 +19,12 @@ interface NavItem {
 const navItems = computed<NavItem[]>(() => [
   { title: 'Dashboards', icon: 'mdi-view-dashboard', to: '/dashboards', visible: auth.can.search },
   { title: 'Search', icon: 'mdi-magnify', to: '/search', visible: auth.can.search },
+  {
+    title: 'Correlated',
+    icon: 'mdi-vector-link',
+    to: '/correlated',
+    visible: auth.can.search,
+  },
   { title: 'Alerts', icon: 'mdi-bell-alert', to: '/alerts', visible: auth.can.search },
   { title: 'Feeds', icon: 'mdi-import', to: '/feeds', visible: auth.can.search },
   { title: 'Audit', icon: 'mdi-clipboard-text-clock', to: '/audit', visible: auth.can.readAudit },
