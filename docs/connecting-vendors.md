@@ -77,8 +77,10 @@ curl -sS -X POST \
       "field_names": [
         "RayID","EdgeStartTimestamp","ClientIP","ClientRequestHost",
         "ClientRequestPath","ClientRequestMethod","ClientRequestUserAgent",
-        "EdgeResponseStatus","SecurityAction","SecurityRuleID","WAFRuleID",
-        "BotScore","BotScoreSrc","ClientCountry","ClientASN"
+        "EdgeResponseStatus","SecurityAction","SecurityRuleID",
+        "BotScore","BotScoreSrc","BotTags","ClientCountry","ClientASN",
+        "WAFAttackScore","WAFSQLiAttackScore","WAFXSSAttackScore",
+        "JA3Hash","JA4","RequestHeaders"
       ],
       "timestamp_format": "rfc3339",
       "output_type": "ndjson"
@@ -87,24 +89,104 @@ curl -sS -X POST \
   }'
 ```
 
-The `header_Authorization` query parameter is how Logpush sets a custom header — the
-value must be URL-encoded, which is why the space after `Bearer` appears as `%20`.
+Get the URL exactly right — the path is `/ingest/v1/<vendor>/<feed-id>`. A URL missing
+the `/ingest/v1/` prefix lands on the web tier's SPA fallback, which answers a POST with
+**405 Method Not Allowed**, and Logpush reports:
 
-### 2. Fields that matter
+```
+error validating destination: error writing object: error uploading to https: status:405
+```
 
-`RayID` is the important one. It is Cloudflare's per-request identifier, and when
-another vendor reports the same id the platform joins them at **tier 1** — an exact
-match with no false-join risk. Without it, correlation falls back to matching on
-client, host, path, method, and time, which is less certain.
+That message names an upload failure, so it reads like a permissions or transport
+problem. It is a wrong path.
 
-`BotScoreSrc` is worth including: it distinguishes a machine-learning score from a
-heuristic one, which changes how much weight a disagreement deserves.
+`header_Authorization` is how Logpush sets a custom header. The value must be
+URL-encoded, which is why the space after `Bearer` appears as `%20`.
 
-### 3. Verify
+### 2. Custom headers are a SEPARATE configuration
 
-Cloudflare validates the destination when the job is created and pushes a test record.
-The feed should go green within a few minutes. Logpush batches, so expect delivery
-every ~30 seconds rather than per request.
+Listing `RequestHeaders` in `field_names` is not enough on its own. Cloudflare logs
+nothing into it until you also declare **which** headers to capture, and until you do the
+field arrives as an empty object:
+
+```json
+"RequestHeaders": {}
+```
+
+There is no error and no warning — just `{}` on every event.
+
+**Dashboard:** Logpush → **Custom log fields** → **Edit Custom Fields** → **Set new
+Custom Field** → choose *Request Header* and enter the name.
+
+**API**, which does not need a ruleset id — the phase entry point creates one if none
+exists:
+
+```bash
+curl -sS -X PUT \
+  "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/rulesets/phases/http_log_custom_fields/entrypoint" \
+  -H "Authorization: Bearer $CF_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "rules": [{
+      "action": "log_custom_field",
+      "expression": "true",
+      "action_parameters": {
+        "request_fields": [{"name": "x-datadome-isbot"}, {"name": "cf-ray"}],
+        "transformed_request_fields": [{"name": "x-datadome-isbot"}]
+      }
+    }]
+  }'
+```
+
+Three things that silently produce an empty result:
+
+- **Header names must be lower case.** A capitalised name is accepted and logs nothing.
+- **`request_fields` captures the header AS THE CLIENT SENT IT.** A header injected by a
+  Cloudflare Worker — which is how DataDome and similar integrations enrich a request —
+  is not client-sent and appears only in `transformed_request_fields`.
+- **`transformed_request_fields` cannot be set from the dashboard.** The UI writes
+  `request_fields` only; the transformed values are API-only.
+
+Be deliberate about which headers you list. `RequestHeaders` will happily carry session
+cookies and device identifiers into `raw_events`, at whatever rate the zone receives
+traffic and for as long as retention holds.
+
+### 3. Fields that matter
+
+`RayID` is the important one. It is Cloudflare's per-request identifier, and when another
+vendor reports the same id the platform joins them at **tier 1** — an exact match with no
+false-join risk and no dependence on clock agreement between the two systems. Without it,
+correlation falls back to matching on client, host, path, method and time.
+
+If Cloudflare sits in front of a WAF that logs full request headers, this is worth
+knowing: Cloudflare passes the ray id downstream as the `CF-Ray` header, so the WAF's own
+logs carry it too. The platform's F5 adapter reads it from there, which is what makes
+Cloudflare↔F5 correlation exact rather than heuristic.
+
+`BotScoreSrc` distinguishes a machine-learning score from a heuristic one, which changes
+how much weight a disagreement deserves. `WAFAttackScore` and its per-category siblings
+(`WAFSQLiAttackScore`, `WAFXSSAttackScore`) give a graded assessment rather than a binary
+verdict, and `JA3Hash` / `JA4` are TLS fingerprints that cluster clients across changing
+addresses.
+
+### 4. Verify
+
+Cloudflare validates the destination before it will save the job. That validation is
+**not** the same request as a log delivery:
+
+- it arrives as a **`PUT`**, reusing Cloudflare's object-store upload path, where actual
+  deliveries are `POST`
+- the body is a gzipped `{"content":"test"}` — Cloudflare's own documentation gives this
+  as `{"content":"tests"}`, and it sends the singular
+
+The platform accepts both methods and recognises either spelling, answering `200` without
+recording the probe as an event. Nothing needs configuring for this; it is described here
+because a bespoke receiver will fail validation on both counts.
+
+Once saved, the feed should go green within a few minutes. Logpush batches, so expect a
+delivery every ~30 seconds rather than one per request, and expect events to arrive
+around a minute after the traffic they describe. That lag is normal and is what the
+correlation lateness bound accommodates.
 
 ---
 
