@@ -148,6 +148,31 @@ services:
       - "${WEB_PUBLISH_ADDR:-0.0.0.0}:${WEB_HTTP_PORT:-80}:8080"
     depends_on: [siem-api, siem-ingest]
 
+  # ---------------------------------------------------------------- edge
+  #
+  # Cloudflare Tunnel. cloudflared dials OUT to Cloudflare and serves the console over
+  # that connection, so the origin needs no inbound port, no public address and no
+  # certificate of its own — and cannot return a 522, because there is nothing for
+  # Cloudflare to fail to reach.
+  #
+  # It is reached at frontend:8080, which already routes /api to the API and /ingest to
+  # the receiver, so ONE public hostname covers the console, the contract surface and
+  # vendor delivery. Configure that in the tunnel's Public Hostname:
+  #
+  #     siem.server-lab.eu  ->  http://frontend:8080
+  #
+  # Enabled with a profile so the stack still starts without a token; a cloudflared with
+  # no credentials would otherwise crash-loop and bury the real logs.
+  cloudflared:
+    <<: *restart
+    image: cloudflare/cloudflared:2026.7.3
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    # Outbound only. Deliberately no ports: publishing one would defeat the point.
+    depends_on: [frontend]
+
 volumes:
   clickhouse-data:
   redpanda-data:
