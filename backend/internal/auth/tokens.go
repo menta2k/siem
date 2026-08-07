@@ -101,7 +101,14 @@ type Identity struct {
 type TokenPair struct {
 	AccessToken  string
 	RefreshToken string
-	ExpiresAt    time.Time
+	// ExpiresAt is the ACCESS token's expiry, which is what a client schedules its
+	// refresh against.
+	ExpiresAt time.Time
+	// RefreshExpiresAt is the refresh token's own, much later, expiry. It is separate
+	// because the two are not interchangeable: a session cookie carrying the refresh
+	// token and dated with the access token's expiry would evict itself within minutes
+	// and log the user out exactly as if no cookie existed.
+	RefreshExpiresAt time.Time
 }
 
 // IssuePair mints an access and refresh token for a fully authenticated identity
@@ -119,9 +126,10 @@ func (ti *TokenIssuer) IssuePair(id Identity) (TokenPair, error) {
 	}
 
 	return TokenPair{
-		AccessToken:  access,
-		RefreshToken: refresh,
-		ExpiresAt:    now.Add(ti.accessTTL),
+		AccessToken:      access,
+		RefreshToken:     refresh,
+		ExpiresAt:        now.Add(ti.accessTTL),
+		RefreshExpiresAt: now.Add(ti.refreshTTL),
 	}, nil
 }
 

@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api, ApiRequestError, configureAuth } from '@/api/client'
+import type { components } from '@/api/schema'
+
+type TokenResponse = components['schemas']['TokenResponse']
 
 export type Role = 'admin' | 'analyst' | 'auditor' | 'ingest_only'
 
@@ -16,10 +19,16 @@ export interface UserProfile {
 /**
  * Authentication state.
  *
- * Tokens live in memory only, never in localStorage: a token in localStorage is
+ * The ACCESS token lives in memory only, never in localStorage: a token there is
  * readable by any script that gets injected, and this console renders attacker-
- * controlled log content. The cost is a re-login on hard refresh, which is the right
- * trade for a security tool.
+ * controlled log content.
+ *
+ * That used to cost a re-login on every hard refresh, because the refresh token was held
+ * the same way and died with the page too. It now lives in an httpOnly cookie the server
+ * sets — out of reach of JavaScript, so the security position is unchanged — and
+ * `restore()` exchanges it for a fresh access token on load. The long-lived credential is
+ * the one that must never be script-readable; keeping it in a cookie is strictly safer
+ * than the localStorage alternative, not a relaxation.
  */
 export const useAuthStore = defineStore('auth', () => {
   const accessToken = ref<string | null>(null)
@@ -49,6 +58,24 @@ export const useAuthStore = defineStore('auth', () => {
     search: role.value !== null && role.value !== 'ingest_only',
   }))
 
+  /**
+   * Narrows the wire profile to the store's shape.
+   *
+   * Every field is optional over the wire — protobuf's JSON mapping omits zero values —
+   * while the store needs them present. Shared by sign-in and session restore so the two
+   * paths cannot disagree about what a user is.
+   */
+  function toProfile(profile: NonNullable<TokenResponse['user']>): UserProfile {
+    return {
+      userId: profile.userId ?? '',
+      email: profile.email ?? '',
+      role: (profile.role ?? 'analyst') as Role,
+      tenantId: profile.tenantId ?? '',
+      tenantName: profile.tenantName ?? '',
+      mfaEnabled: profile.mfaEnabled ?? false,
+    }
+  }
+
   function reset(): void {
     accessToken.value = null
     refreshToken.value = null
@@ -77,14 +104,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     accessToken.value = data.accessToken
     refreshToken.value = data.refreshToken ?? null
-    user.value = {
-      userId: data.user.userId ?? '',
-      email: data.user.email ?? '',
-      role: (data.user.role ?? 'analyst') as Role,
-      tenantId: data.user.tenantId ?? '',
-      tenantName: data.user.tenantName ?? '',
-      mfaEnabled: data.user.mfaEnabled ?? false,
-    }
+    user.value = toProfile(data.user)
     mfaChallengeToken.value = null
     mfaProvisioningUri.value = null
   }
@@ -101,21 +121,53 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /** Exchanges the refresh token. Returns false when the session is truly over. */
+  /**
+   * Exchanges the refresh token. Returns false when the session is truly over.
+   *
+   * Deliberately attempted even with no in-memory refresh token: the server also holds
+   * it in an httpOnly cookie the browser sends automatically, and after a page reload
+   * that cookie is the ONLY surviving credential. Returning early when the ref is empty
+   * is what used to make a refresh look like a signed-out session.
+   */
   async function refresh(): Promise<boolean> {
-    if (!refreshToken.value) return false
     try {
       const { data } = await api.POST('/api/v1/auth/refresh', {
-        body: { refreshToken: refreshToken.value },
+        // Sent when known; the cookie is what carries it after a reload. The server
+        // prefers the cookie and falls back to this.
+        body: refreshToken.value ? { refreshToken: refreshToken.value } : {},
       })
-      if (!data?.accessToken) return false
+      if (!data?.accessToken || !data.user) return false
       accessToken.value = data.accessToken
       refreshToken.value = data.refreshToken ?? null
+      // Re-established from the response, not assumed: after a reload there is no
+      // in-memory profile, and isAuthenticated requires one.
+      user.value = toProfile(data.user)
       return true
     } catch (err) {
       if (err instanceof ApiRequestError && err.isAuthFailure) reset()
       return false
     }
+  }
+
+  /**
+   * Restores a session on page load, once.
+   *
+   * The access token lives in memory and dies with the page, so without this every
+   * browser refresh looked like a sign-out — the single most jarring thing the console
+   * did. The refresh token survives in an httpOnly cookie, so one silent exchange puts
+   * the session back.
+   *
+   * The promise is cached because the router guard and the app shell can both trigger it
+   * on the same load, and two concurrent exchanges would have the second present a token
+   * the first had already revoked by rotation.
+   */
+  let restoring: Promise<boolean> | null = null
+  async function restore(): Promise<boolean> {
+    if (isAuthenticated.value) return true
+    restoring ??= refresh().finally(() => {
+      restoring = null
+    })
+    return restoring
   }
 
   // Wired here rather than in client.ts to keep the module graph acyclic.
@@ -136,6 +188,7 @@ export const useAuthStore = defineStore('auth', () => {
     verifyMfa,
     logout,
     refresh,
+    restore,
     reset,
   }
 })

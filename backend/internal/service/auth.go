@@ -209,6 +209,12 @@ func (s *AuthService) completeLogin(
 	})
 
 	user.LastLoginAt = &loginAt
+
+	// The refresh token goes to an httpOnly cookie as well as the body. The access token
+	// stays in memory in the browser and dies with the page; this is what lets the app
+	// silently re-authenticate after a reload instead of bouncing the analyst to /login.
+	setRefreshCookie(ctx, pair.RefreshToken, pair.RefreshExpiresAt)
+
 	return &pb.TokenResponse{
 		AccessToken:  pair.AccessToken,
 		RefreshToken: pair.RefreshToken,
@@ -222,11 +228,18 @@ func (s *AuthService) completeLogin(
 func (s *AuthService) Refresh(
 	ctx context.Context, req *pb.RefreshRequest,
 ) (*pb.TokenResponse, error) {
-	if req.GetRefreshToken() == "" {
+	// The cookie is preferred over the body. A browser that has one is presenting a
+	// credential JavaScript never touched, which is the whole point; the body remains
+	// accepted for non-browser clients and for the tokens issued before this existed.
+	presented := refreshCookie(ctx)
+	if presented == "" {
+		presented = req.GetRefreshToken()
+	}
+	if presented == "" {
 		return nil, mw.ValidationFailed("a refresh token is required")
 	}
 
-	claims, err := s.tokens.ParseRefresh(ctx, req.GetRefreshToken())
+	claims, err := s.tokens.ParseRefresh(ctx, presented)
 	if err != nil {
 		return nil, mw.Unauthenticated("the session has expired; sign in again").WithCause(err)
 	}
@@ -238,7 +251,7 @@ func (s *AuthService) Refresh(
 
 	// Revoke before reissuing: if issuing then fails, the old token is already dead
 	// and the user re-authenticates. The reverse order would leave two live tokens.
-	if err := s.tokens.Revoke(ctx, req.GetRefreshToken()); err != nil {
+	if err := s.tokens.Revoke(ctx, presented); err != nil {
 		return nil, mw.Internal().WithCause(err)
 	}
 
@@ -249,6 +262,10 @@ func (s *AuthService) Refresh(
 	if err != nil {
 		return nil, mw.Internal().WithCause(err)
 	}
+
+	// Rotated with the token it carries. Leaving the old value in place would have the
+	// browser keep presenting a credential this call just revoked.
+	setRefreshCookie(ctx, pair.RefreshToken, pair.RefreshExpiresAt)
 
 	return &pb.TokenResponse{
 		AccessToken:  pair.AccessToken,
@@ -296,12 +313,20 @@ func (s *AuthService) subjectOf(
 func (s *AuthService) Logout(
 	ctx context.Context, req *pb.LogoutRequest,
 ) (*pb.LogoutResponse, error) {
-	if req.GetRefreshToken() == "" {
+	presented := refreshCookie(ctx)
+	if presented == "" {
+		presented = req.GetRefreshToken()
+	}
+	if presented == "" {
 		return nil, mw.ValidationFailed("a refresh token is required")
 	}
-	if err := s.tokens.Revoke(ctx, req.GetRefreshToken()); err != nil {
+	if err := s.tokens.Revoke(ctx, presented); err != nil {
 		return nil, mw.Internal().WithCause(err)
 	}
+	// Cleared even though the token is already revoked: a browser still holding it would
+	// present a dead credential on every reload, turning sign-out into a slow failure
+	// rather than an immediate one.
+	clearRefreshCookie(ctx)
 	return &pb.LogoutResponse{}, nil
 }
 

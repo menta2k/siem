@@ -96,8 +96,16 @@ export const router = createRouter({
  * underlying API call is independently authorized server-side, so bypassing this guard
  * gains an attacker nothing but an empty page.
  */
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
+
+  // A page reload discards the in-memory access token, so on the first navigation the
+  // store always looks signed out. The refresh token survives in an httpOnly cookie, so
+  // one silent exchange is attempted BEFORE concluding anything — without this, every
+  // browser refresh bounced the user to the login screen.
+  if (!auth.isAuthenticated) {
+    await auth.restore()
+  }
 
   if (to.meta.public) {
     return auth.isAuthenticated ? { name: 'dashboards' } : true
