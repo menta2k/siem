@@ -59,8 +59,7 @@ func (a *Adapter) Normalize(record vendors.RawRecord) (vendors.Event, error) {
 		// host makes every F5 event unjoinable — no other vendor reports that string —
 		// while also making a hostname search silently miss all F5 traffic. It is
 		// recorded as VendorAccount, which is what it actually is.
-		RequestHost: vendors.AsString(
-			firstOf(record.Fields, "host", "http_host", "hostname", "request_host")),
+		RequestHost:  resolveHost(record.Fields),
 		RequestPath:  path,
 		RequestQuery: query,
 		RequestMethod: strings.ToUpper(
@@ -114,6 +113,55 @@ func resolveClientIP(fields map[string]any) net.IP {
 		}
 	}
 	return vendors.ParseIP(vendors.AsString(firstOf(fields, "ip_client", "src")))
+}
+
+// resolveHost finds the HTTP Host header.
+//
+// BIG-IP ASM has no selectable `host` log field — an operator cannot add one, because
+// ASM carries the Host header inside the full `request` field instead. Reading only a
+// dedicated field therefore leaves RequestHost empty for every BIG-IP event, and that
+// single gap defeats the product: hostname is the strongest heuristic join key, so F5
+// events silently never correlate with any other vendor, and a hostname search misses
+// all F5 traffic without saying so.
+//
+// `virtual_server` and `http_class_name` are NOT substitutes. They look like hostnames
+// but are BIG-IP object paths — `/Common/jobs_bg_ASP1` — and joining on them would
+// match nothing while appearing to work.
+func resolveHost(fields map[string]any) string {
+	if host := vendors.AsString(
+		firstOf(fields, "host", "http_host", "hostname", "request_host")); host != "" {
+		return host
+	}
+	return hostFromRequest(vendors.AsString(fields["request"]))
+}
+
+// hostFromRequest extracts the Host header from a raw HTTP request.
+//
+// The line separators arrive BOTH ways: as real CRLF, and as the literal two-character
+// escapes `\r\n` that ASM writes so a request never breaks the single-line log format.
+// Handling only one of them works in a unit test and fails against the appliance.
+func hostFromRequest(request string) string {
+	if request == "" {
+		return ""
+	}
+
+	// Normalise the escaped form first so one scan covers both.
+	normalized := strings.NewReplacer("\\r\\n", "\n", "\\n", "\n", "\r\n", "\n").Replace(request)
+
+	for _, line := range strings.Split(normalized, "\n") {
+		name, value, found := strings.Cut(line, ":")
+		if !found || !strings.EqualFold(strings.TrimSpace(name), "host") {
+			continue
+		}
+		host := strings.TrimSpace(value)
+		// A Host header may carry a port; the join key is the name alone, or an F5
+		// event on :443 would never match the same request seen by a CDN.
+		if trimmed, _, ok := strings.Cut(host, ":"); ok {
+			host = trimmed
+		}
+		return strings.ToLower(strings.TrimSpace(host))
+	}
+	return ""
 }
 
 func resolveURI(fields map[string]any) (path, query string) {
