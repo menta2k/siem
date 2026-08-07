@@ -25,6 +25,9 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine
 # The upstream the /api proxy points at. Overridable so the same image works in Compose,
 # in Kubernetes, and behind an external gateway.
 ENV API_UPSTREAM=http://siem-api:8000
+# Vendor deliveries. Kept on the ingest service rather than the API so a delivery flood
+# cannot contend with the analyst-facing surface.
+ENV INGEST_UPSTREAM=http://siem-ingest:8001
 # Docker's embedded DNS. Override for Kubernetes (kube-dns.kube-system.svc.cluster.local)
 # or any other environment whose resolver is elsewhere.
 ENV DNS_RESOLVER=127.0.0.11

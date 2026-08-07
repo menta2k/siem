@@ -142,10 +142,11 @@ services:
       dockerfile: deploy/Dockerfile.frontend
     environment:
       API_UPSTREAM: http://siem-api:8000
+      INGEST_UPSTREAM: http://siem-ingest:8001
       DNS_RESOLVER: 127.0.0.11
     ports:
       - "${WEB_PUBLISH_ADDR:-0.0.0.0}:${WEB_HTTP_PORT:-80}:8080"
-    depends_on: [siem-api]
+    depends_on: [siem-api, siem-ingest]
 
 volumes:
   clickhouse-data:

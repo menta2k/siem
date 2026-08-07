@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import { copyText } from '@/lib/clipboard'
+import { generateFeedToken } from '@/lib/tokens'
 import FeedHealthChip from '@/components/FeedHealthChip.vue'
 import RejectedEventsDialog from '@/components/RejectedEventsDialog.vue'
 
@@ -102,6 +104,52 @@ async function toggleEnabled(feed: Feed): Promise<void> {
   } catch (err) {
     errorMessage.value = toDisplayMessage(err)
   }
+}
+
+// ---------------------------------------------------------------- credential rotation
+//
+// Two dialogs on purpose. Rotating takes effect immediately, so the vendor's next
+// delivery is rejected until its configuration is updated — that deserves a deliberate
+// confirmation, not a single click in a row of buttons. The second dialog exists because
+// the platform stores only a REFERENCE to the token: this is the one and only time it can
+// be read back, and closing the dialog without copying it means rotating again.
+const rotateTarget = ref<Feed | null>(null)
+const rotating = ref(false)
+const rotatedToken = ref('')
+const rotateError = ref('')
+const copied = ref(false)
+
+async function rotateCredential(): Promise<void> {
+  const feed = rotateTarget.value
+  if (!feed?.feedId) return
+
+  rotating.value = true
+  rotateError.value = ''
+  try {
+    const token = generateFeedToken()
+    await api.PATCH('/api/v1/feeds/{feedId}', {
+      params: { path: { feedId: feed.feedId } },
+      body: { credential: token },
+    })
+    // Only shown after the write succeeds. Displaying it first would hand the operator a
+    // token the platform never stored, and every delivery using it would be rejected.
+    rotatedToken.value = token
+    rotateTarget.value = null
+    await load()
+  } catch (err) {
+    rotateError.value = toDisplayMessage(err)
+  } finally {
+    rotating.value = false
+  }
+}
+
+async function copyToken(): Promise<void> {
+  copied.value = await copyText(rotatedToken.value)
+}
+
+function dismissToken(): void {
+  rotatedToken.value = ''
+  copied.value = false
 }
 
 async function testFeed(feed: Feed): Promise<void> {
@@ -240,6 +288,14 @@ onMounted(load)
           >
             {{ item.enabled ? 'Disable' : 'Enable' }}
           </v-btn>
+          <v-btn
+            v-if="auth.can.manageFeeds"
+            size="small"
+            variant="text"
+            @click="rotateTarget = item"
+          >
+            Rotate token
+          </v-btn>
         </template>
 
         <template #no-data>
@@ -296,6 +352,70 @@ onMounted(load)
           <v-spacer />
           <v-btn variant="text" @click="createDialog = false">Cancel</v-btn>
           <v-btn color="primary" :loading="saving" @click="createFeed">Create</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Rotate: confirm ---------------------------------------------------- -->
+    <v-dialog :model-value="rotateTarget !== null" max-width="560" @update:model-value="rotateTarget = null">
+      <v-card>
+        <v-card-title>Rotate ingest token</v-card-title>
+        <v-card-text>
+          <v-alert type="warning" variant="tonal" density="comfortable" class="mb-4">
+            The new token takes effect immediately. Deliveries from
+            <strong>{{ rotateTarget?.name }}</strong> will be rejected with
+            <code>401</code> until the vendor is reconfigured.
+          </v-alert>
+          <p class="text-body-2 text-medium-emphasis">
+            Rejected deliveries are not lost data — the platform returns a non-2xx and
+            every vendor retries. Update the vendor promptly and the backlog drains on its
+            own.
+          </p>
+          <v-alert v-if="rotateError" type="error" variant="tonal" class="mt-4">
+            {{ rotateError }}
+          </v-alert>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" :disabled="rotating" @click="rotateTarget = null">Cancel</v-btn>
+          <v-btn color="warning" :loading="rotating" @click="rotateCredential">
+            Rotate token
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Rotate: the new token, shown once ----------------------------------- -->
+    <v-dialog :model-value="rotatedToken !== ''" max-width="640" persistent>
+      <v-card>
+        <v-card-title>New ingest token</v-card-title>
+        <v-card-text>
+          <v-alert type="info" variant="tonal" density="comfortable" class="mb-4">
+            This is shown <strong>once</strong>. The platform stores only a reference to
+            it, so it cannot be displayed again — only rotated.
+          </v-alert>
+          <!-- Interpolated, never v-html: this is rendered as text and can never execute. -->
+          <v-textarea
+            :model-value="rotatedToken"
+            readonly
+            rows="2"
+            variant="outlined"
+            class="font-monospace"
+            label="Token"
+          />
+          <v-alert v-if="copied" type="success" variant="tonal" density="compact">
+            Copied to the clipboard.
+          </v-alert>
+          <p v-else class="text-body-2 text-medium-emphasis">
+            Copy it into the vendor's configuration now. If the button does nothing, the
+            browser is blocking clipboard access — select the text above and copy it by
+            hand.
+          </p>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn variant="text" @click="copyToken">Copy</v-btn>
+          <v-spacer />
+          <v-btn color="primary" @click="dismissToken">I have saved it</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
