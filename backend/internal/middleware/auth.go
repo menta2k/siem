@@ -9,6 +9,7 @@ import (
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/google/uuid"
 
+	siemv1 "github.com/menta2k/siem/api/gen/siem/v1"
 	"github.com/menta2k/siem/internal/auth"
 	"github.com/menta2k/siem/internal/tenancy"
 )
@@ -41,10 +42,14 @@ type TenantLoader interface {
 // An explicit set, not a prefix. A prefix rule would silently expose every future
 // route that happened to start with the same path, which is the same deny-by-default
 // property the Casbin policy is written to preserve.
+// The generated constants, not string literals. A hand-written name that matches no RPC
+// fails silently — the route just stays authenticated — and that is precisely what
+// happened here: "/siem.v1.Auth/RefreshToken" named an RPC that does not exist, so Refresh
+// demanded the very access token it exists to reissue.
 var publicOperations = map[string]bool{
-	"/siem.v1.Auth/Login":        true,
-	"/siem.v1.Auth/RefreshToken": true,
-	"/siem.v1.Auth/VerifyMFA":    true,
+	siemv1.OperationAuthLogin:     true,
+	siemv1.OperationAuthRefresh:   true,
+	siemv1.OperationAuthVerifyMFA: true,
 }
 
 // Auth authenticates the caller, scopes the request to their tenant, and enforces the
