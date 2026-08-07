@@ -13,7 +13,22 @@ Every feed follows the same shape:
 
 > **The token is shown once.** It is stored as a reference into the secret manager, not
 > as a value, so it cannot be recovered — only rotated. Put it straight into the
-> vendor's configuration or your secret store.
+> vendor's configuration or your secret store. Rotate it from **Feeds → Rotate token**.
+
+### When a vendor cannot send a header
+
+The credential normally travels as `Authorization: Bearer <token>`. Some vendors'
+delivery configuration has no field for a custom header at all, so the endpoint also
+accepts it as a query parameter:
+
+```
+https://<ingest-host>/ingest/v1/<vendor>/<feed-id>?token=<token>
+```
+
+Use it only where the header is impossible. A query string is visible to every proxy on
+the path and is written to their access logs by default, so a token sent this way is more
+exposed than one in a header and should be rotated more readily. The header always wins
+when both are present, so a vendor that supports headers never downgrades itself.
 
 ---
 
@@ -169,35 +184,56 @@ Also include:
 
 ## DataDome
 
-DataDome delivers via **webhook**.
+DataDome delivers per-request decisions by **pull**, not by webhook.
 
-### 1. Configure the webhook
+### Not the webhook
 
-In the DataDome dashboard: **Settings → Integrations → Webhooks → Add endpoint**
+The webhook under **Integrations** is an *attack notification* mechanism, and it cannot
+feed this platform. Its payload is an attack summary — `THREAT_NAME`, `ENDPOINT_NAME`,
+`ATTACK_DURATION`, `ATTACK_REQUESTS_COUNT`, `IP_COUNT` — with no per-request identifier,
+IP, URI or action. There is nothing in it to correlate against a request another vendor
+saw.
 
-- **URL:** `https://<ingest-host>/ingest/v1/datadome/<feed-id>`
-- **Method:** `POST`
-- **Content type:** `application/json`
-- **Custom header:** `Authorization: Bearer <token>`
-- **Events:** all decisions, not only blocks
+That is also why the dialog has no "send all decisions" setting: its Threats and Attack
+Severity fields choose which *attacks* raise a notification, not which requests are
+logged. No combination of them produces per-request events.
 
-### 2. Send allowed traffic too
+### Pull mode
 
-Sending only blocked requests is the most common mistake here, and it quietly breaks
-the product's main purpose. The disagreement worth seeing is *"DataDome allowed this
-and F5 blocked it"* — and that comparison is impossible if DataDome only ever reports
-its blocks.
+Create the feed with `"deliveryMode":"DELIVERY_MODE_PULL"` and a `pullConfig`:
 
-### 3. Fields that matter
+```json
+{
+  "endpoint": "https://api.datadome.co",
+  "interval_seconds": 60
+}
+```
+
+with a DataDome API key as the credential. The puller walks `/v1/logs/export` in time
+windows and tracks a watermark per feed, so a restart resumes where it stopped rather
+than re-reading the window or skipping it.
+
+Confirm two things with DataDome before configuring: the **API base URL for your
+account**, and that your plan **includes log export** — it is generally a Corporate or
+Enterprise feature. Without it DataDome cannot supply per-request events at all, which is
+worth discovering before the feed is created rather than after.
+
+### Fields that matter
 
 - `requestid` — DataDome's per-request identifier
 - `timestamp`, `ip`, `host`, `uri`, `method`
-- `action` (`ALLOW` / `BLOCK` / `CHALLENGE`) and `score`
-- `useragent`, `country`
+- `action` (`allow` / `block` / `challenge` / `captcha`) and `botscore`
+- `ua`, `country`, `asn`
 
-The `score` is a **bot** score, which the platform treats differently from a WAF threat
+The score is a **bot** score, which the platform treats differently from a WAF threat
 score: a high bot score on an allowed request raises a *score conflict*, whereas a WAF
 threat rating on an allowed request is only a severity hint.
+
+### Send allowed traffic too
+
+Exporting only blocked requests quietly breaks the product's main purpose. The
+disagreement worth seeing is *"DataDome allowed this and F5 blocked it"*, and that
+comparison is impossible if DataDome only ever reports its blocks.
 
 ---
 
