@@ -1,0 +1,28 @@
+<clickhouse>
+    <!--
+      Cache and memory bounds for a shared host.
+
+      ClickHouse sizes its caches from total RAM by default: a 5 GiB mark cache and an
+      8 GiB uncompressed cache. Neither is an allocation up front, so they look harmless
+      — but they are ceilings the server will grow into as the dataset does, on a box it
+      shares with a broker, Redis and four services. Measured here, the mark cache held
+      11 MiB and the uncompressed cache was untouched, so the defaults buy nothing and
+      cost the headroom everything else needs.
+    -->
+    <mark_cache_size>536870912</mark_cache_size>
+
+    <!--
+      Disabled outright. It caches decompressed blocks for repeated point reads, which is
+      a workload this platform does not have: the queries are analytical scans over time
+      ranges, and the correlation closer's lookups are served from Redis, not here.
+    -->
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+
+    <!--
+      A hard ceiling, replacing the default 90%-of-RAM. Resident usage measured at
+      888 MiB under ~650 events/sec, so this leaves substantial room for merges and
+      concurrent queries while guaranteeing ClickHouse can never squeeze the broker or
+      the services out of memory.
+    -->
+    <max_server_memory_usage>4294967296</max_server_memory_usage>
+</clickhouse>

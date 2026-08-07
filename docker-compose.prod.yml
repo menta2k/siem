@@ -44,6 +44,12 @@ services:
     command:
       - redpanda start
       - --smp 1
+      # Seastar pre-allocates a SHARE OF HOST RAM when no limit is given, which on this
+      # box meant 8 GiB reserved for a three-topic, single-partition broker sitting at
+      # under 1% CPU. It is a durability buffer between ingest and the processor, not a
+      # retained store, so it needs a working set rather than half the machine.
+      - --memory 2G
+      - --reserve-memory 0M
       - --overprovisioned
       - --node-id 0
       - --kafka-addr PLAINTEXT://0.0.0.0:9092
