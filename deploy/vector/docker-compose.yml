@@ -1,0 +1,34 @@
+# BIG-IP ASM log collector. Deploy this ON YOUR OWN NETWORK, near BIG-IP — not on the
+# SIEM host, which deliberately has no inbound ports.
+#
+#   cp .env.example .env      # fill in the feed id and token
+#   docker compose up -d
+#
+# Then point the BIG-IP Logging Profile's remote storage at this host on TCP 5514.
+name: siem-bigip-collector
+
+services:
+  vector:
+    image: timberio/vector:0.44.0-alpine
+    restart: unless-stopped
+    environment:
+      # The vendor segment is `f5`; the id is the feed created in the SIEM console.
+      SIEM_INGEST_URL: ${SIEM_INGEST_URL:?set SIEM_INGEST_URL in .env}
+      SIEM_FEED_TOKEN: ${SIEM_FEED_TOKEN:?set SIEM_FEED_TOKEN in .env}
+    ports:
+      # Bound to the LAN address, not 0.0.0.0. Syslog is unauthenticated and cleartext:
+      # anything that can reach this port can forge WAF events into your SIEM. Set
+      # SYSLOG_BIND to the interface BIG-IP reaches this host on.
+      - "${SYSLOG_BIND:-127.0.0.1}:${SYSLOG_PORT:-5514}:5514"
+    volumes:
+      - ./vector.yaml:/etc/vector/vector.yaml:ro
+      - vector-data:/var/lib/vector
+    # Vector's own health surface, for a load balancer or a monitoring check.
+    healthcheck:
+      test: ["CMD", "vector", "top", "--url", "http://127.0.0.1:8686/graphql", "--help"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  vector-data:

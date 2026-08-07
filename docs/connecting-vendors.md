@@ -93,41 +93,65 @@ every ~30 seconds rather than per request.
 
 ---
 
-## F5 (BIG-IP ASM / Advanced WAF)
+## F5
 
-F5 has two workable paths. **Pull is usually easier**, because remote logging on
-BIG-IP is configured per-virtual-server and often already points somewhere else.
+Which path you take depends on **which F5 product you have** — they are completely
+different systems with nothing in common here.
 
-### Option A — pull (recommended)
+### BIG-IP ASM / Advanced WAF (the on-prem appliance)
 
-Create the feed with `"deliveryMode":"DELIVERY_MODE_PULL"` and a `pullConfig`
-describing the BIG-IP endpoint:
+**BIG-IP cannot push to an HTTP endpoint.** A Logging Profile's Remote Storage offers
+only TCP, UDP and TCP-RFC3195, because it speaks *syslog*, not HTTP. There is no
+setting that makes it POST to a URL.
 
-```json
-{
-  "vendor": "VENDOR_F5",
-  "name": "prod bigip",
-  "deliveryMode": "DELIVERY_MODE_PULL",
-  "pullConfig": "{\"baseUrl\":\"https://bigip.internal\",\"partition\":\"Common\"}",
-  "credential": "<bigip-api-token>"
-}
+So a small collector does the HTTPS leg. `deploy/vector/` has a ready-to-run Vector
+config for exactly this:
+
+```
+BIG-IP ──syslog/TCP──> Vector (your network) ──HTTPS──> /ingest/v1/f5/<feed-id>
 ```
 
-The puller tracks a watermark per feed, so a restart resumes where it stopped rather
-than re-reading the window or skipping it.
+Run Vector **on your own network, next to BIG-IP** — not on the SIEM host. Syslog is
+cleartext and unauthenticated, so the syslog hop must stay on the LAN; Vector encrypts
+and authenticates everything that crosses the internet. It also means the SIEM host
+keeps zero inbound ports.
 
-### Option B — push via a logging profile
+```bash
+cd deploy/vector
+cp .env.example .env      # feed id, feed token, and the LAN address to bind
+docker compose up -d
+```
 
-If you can send from BIG-IP directly, configure a **Logging Profile** with an HTTP
-destination:
+Then on BIG-IP:
 
 1. **Security → Event Logs → Logging Profiles → Create**
 2. Enable **Application Security**, set **Request Type** to *All requests* (or
    *Illegal requests only* if volume is a concern).
-3. Under **Remote Storage**, choose *Remote* with **Protocol: HTTPS**, and set the URL
-   to `https://<ingest-host>/ingest/v1/f5/<feed-id>`.
-4. Add the header `Authorization: Bearer <token>`.
+3. Under **Remote Storage**: type **Remote**, protocol **TCP**, and the collector's
+   address and port (`5514` by default).
+4. Set **Storage Format** to *Field-Value Pairs* and include the fields below.
 5. Attach the profile to the virtual servers you want covered.
+
+No transformation is configured in Vector, and none is needed: the platform's F5 adapter
+detects an ASM field-value line by its `support_id=` or `ip_client=` key, and a CEF line
+by its `CEF:` prefix. Vector forwards the raw line, so every field ASM emits arrives —
+including ones this guide has never heard of.
+
+### F5 Distributed Cloud (the SaaS WAF)
+
+Distributed Cloud has a REST API, so the platform polls it directly — no collector.
+Create the feed with `"deliveryMode":"DELIVERY_MODE_PULL"` and:
+
+```json
+{
+  "endpoint": "https://<tenant>.console.ves.volterra.io",
+  "namespace": "<your-namespace>",
+  "interval_seconds": 60
+}
+```
+
+with an XC API token as the credential. The puller tracks a cursor per feed, so a
+restart resumes where it stopped rather than re-reading or skipping.
 
 ### Fields that matter
 
@@ -142,8 +166,6 @@ Also include:
 - `date_time`, `ip_client`, `uri`, `method`, `request_status`
 - `policy_name`, `attack_type`, `violations` — what triggered
 - `response_code`, `geo_location`
-
----
 
 ## DataDome
 

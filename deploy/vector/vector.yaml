@@ -1,0 +1,77 @@
+# Vector: BIG-IP ASM syslog -> SIEM ingest over HTTPS.
+#
+# Runs NEXT TO BIG-IP, on your own network — not on the SIEM host. BIG-IP ASM can only
+# ship logs over syslog (TCP/UDP/TCP-RFC3195; there is no HTTP option in a Logging
+# Profile), and syslog is cleartext with no authentication. Sending it across the public
+# internet would expose every request your WAF sees. Keeping the syslog hop on the LAN
+# and letting Vector do the HTTPS leg means the SIEM host keeps zero inbound ports, and
+# the traffic that does cross the internet is encrypted and authenticated.
+#
+#   BIG-IP ──syslog/TCP──> Vector (your LAN) ──HTTPS──> siem.server-lab.eu
+
+data_dir: /var/lib/vector
+
+sources:
+  bigip_asm:
+    # `socket`, not `syslog`. Vector's syslog source parses RFC3164/5424 and restructures
+    # the event — but the part that matters here is ASM's key=value payload, which the
+    # platform's F5 adapter parses itself. Taking the raw line keeps every field ASM was
+    # configured to emit, including any this config has never heard of.
+    type: socket
+    mode: tcp
+    address: 0.0.0.0:5514
+    # ASM lines are long: a request with many violations and a full user agent runs well
+    # past the 100 KB default on a busy policy.
+    max_length: 1048576
+
+transforms:
+  # A TCP syslog stream carries keepalives and the occasional empty frame. Forwarding
+  # those wastes a delivery and shows up as a rejected event with no cause.
+  drop_empty:
+    type: filter
+    inputs: [bigip_asm]
+    # Infallible on purpose: `to_string ?? ""` cannot abort, so a malformed frame is
+    # filtered rather than killing the transform and stalling the whole pipeline.
+    condition: '(to_string(.message) ?? "") != ""'
+
+sinks:
+  siem:
+    type: http
+    inputs: [drop_empty]
+    uri: ${SIEM_INGEST_URL:?set SIEM_INGEST_URL}
+    method: post
+
+    # Raw lines, newline separated — exactly what the F5 adapter's Detect expects. It
+    # recognises a CEF line by its `CEF:` prefix and an ASM line by `support_id=` or
+    # `ip_client=`, so no transformation is needed or wanted here. NOT compressed: the
+    # adapter sniffs the first bytes to pick a format, and a gzip header defeats that.
+    encoding:
+      codec: text
+    framing:
+      method: newline_delimited
+
+    request:
+      headers:
+        Authorization: Bearer ${SIEM_FEED_TOKEN:?set SIEM_FEED_TOKEN}
+        Content-Type: text/plain
+      # The platform answers 202 only once events are durably committed to the broker,
+      # and 503 when it cannot. Retrying 503 is therefore correct and lossless — it is
+      # the platform explicitly asking to be asked again.
+      retry_attempts: 10
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 60
+
+    batch:
+      # One POST per event would spend the whole budget on TLS handshakes. Five seconds
+      # keeps a quiet policy's events near-real-time without holding them indefinitely.
+      max_events: 500
+      timeout_secs: 5
+
+    buffer:
+      # Disk, not memory: a SIEM restart or a network blip must not lose WAF evidence,
+      # and it has to survive Vector restarting too.
+      type: disk
+      max_size: 536870912 # 512 MiB
+      # Back-pressure rather than discard. Dropping the newest events silently loses the
+      # ones most likely to matter — an attack in progress is exactly when a queue fills.
+      when_full: block
