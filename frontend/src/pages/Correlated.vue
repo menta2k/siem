@@ -27,6 +27,26 @@ const records = ref<CorrelatedRequest[]>([])
 const loading = ref(false)
 const errorMessage = ref('')
 
+// Cursor pagination. The first page was the only page: the API has always returned a
+// next_cursor and a total, and the page discarded both — so anything past the first
+// hundred rows was unreachable, and a busy hour looked like a quiet one.
+const nextCursor = ref('')
+const total = ref(0)
+const totalIsEstimate = ref(false)
+const hasMore = computed(() => nextCursor.value !== '')
+
+// The window is pinned when a search starts and reused for every following page.
+// Recomputing "now" per page would slide the range under the cursor, so rows would be
+// skipped or repeated as the pages advanced.
+const rangeFrom = ref('')
+const rangeTo = ref('')
+
+const PAGE_SIZE = 200
+
+// Cancels the results of a superseded request. Filters are debounced, so a slow first
+// reply can land after a faster second one and append rows that no longer match.
+let generation = 0
+
 const rangeHours = ref(1)
 const onlyMultiVendor = ref(true)
 const onlyDisagreements = ref(false)
@@ -46,16 +66,22 @@ const rangeOptions = [
   { title: 'Last 24 hours', value: 24 },
 ]
 
-async function load(): Promise<void> {
+async function load(append = false): Promise<void> {
+  const mine = ++generation
   loading.value = true
   errorMessage.value = ''
-  try {
-    const to = new Date()
-    const from = new Date(to.getTime() - rangeHours.value * 3_600_000)
 
+  if (!append) {
+    const to = new Date()
+    rangeTo.value = to.toISOString()
+    rangeFrom.value = new Date(to.getTime() - rangeHours.value * 3_600_000).toISOString()
+    nextCursor.value = ''
+  }
+
+  try {
     const { data } = await api.POST('/api/v1/search/correlated', {
       body: {
-        timeRange: { from: from.toISOString(), to: to.toISOString() },
+        timeRange: { from: rangeFrom.value, to: rangeTo.value },
         filters: {
           // Above 1 restricts to genuine cross-vendor joins, which is the whole point
           // of the page; 1 would return every single-vendor record as well.
@@ -65,27 +91,54 @@ async function load(): Promise<void> {
           ...(host.value ? { requestHost: host.value } : {}),
           ...(clientIP.value ? { clientIp: clientIP.value } : {}),
         },
-        page: { limit: 100 },
+        page: append && nextCursor.value
+          ? { cursor: nextCursor.value, limit: PAGE_SIZE }
+          : { limit: PAGE_SIZE },
       },
     })
-    records.value = data?.items ?? []
+
+    if (mine !== generation) return
+
+    const items = data?.items ?? []
+    records.value = append ? [...records.value, ...items] : items
+    nextCursor.value = data?.page?.nextCursor ?? ''
+    total.value = Number(data?.page?.total ?? 0)
+    totalIsEstimate.value = data?.page?.totalIsEstimate ?? false
   } catch (err) {
+    if (mine !== generation) return
     errorMessage.value = toDisplayMessage(err)
-    records.value = []
+    if (!append) records.value = []
   } finally {
-    loading.value = false
+    if (mine === generation) loading.value = false
   }
+}
+
+function loadMore(): void {
+  void load(true)
+}
+
+/**
+ * Starts a fresh search from page one.
+ *
+ * Bound in the template instead of `load` itself: a Vue event handler passes its event
+ * as the first argument, so `@click="load"` would hand a MouseEvent to `append` and a
+ * v-select would hand it the newly selected value. Both are truthy, so changing the
+ * time range would have APPENDED a page of the new range onto the results of the old
+ * one rather than replacing them.
+ */
+function refresh(): void {
+  void load(false)
 }
 
 // The text filters used to requery only on Enter or Refresh. Typing an address and
 // reading the unchanged table below it looks exactly like a filter that matched
 // everything — there is nothing on screen to say the value was never applied. Debounced
 // rather than immediate so a half-typed address does not query and read as "no results".
-const reload = debounce(load, 400)
+const reload = debounce(refresh, 400)
 watch([host, clientIP], () => reload())
 onUnmounted(() => reload.cancel())
 
-onMounted(load)
+onMounted(refresh)
 
 const VENDOR_LABELS: Record<string, string> = {
   VENDOR_CLOUDFLARE: 'Cloudflare',
@@ -149,7 +202,7 @@ const disagreementCount = computed(
         One row per request, with every vendor that saw it
       </span>
       <v-spacer />
-      <v-btn :loading="loading" variant="tonal" @click="load">Refresh</v-btn>
+      <v-btn :loading="loading" variant="tonal" @click="refresh">Refresh</v-btn>
     </div>
 
     <v-card class="mb-4">
@@ -162,7 +215,7 @@ const disagreementCount = computed(
             density="compact"
             hide-details
             style="max-width: 200px"
-            @update:model-value="load"
+            @update:model-value="refresh"
           />
           <v-text-field
             v-model="host"
@@ -171,7 +224,7 @@ const disagreementCount = computed(
             hide-details
             clearable
             style="max-width: 240px"
-            @keyup.enter="load"
+            @keyup.enter="refresh"
           />
           <v-text-field
             v-model="clientIP"
@@ -180,7 +233,7 @@ const disagreementCount = computed(
             hide-details
             clearable
             style="max-width: 200px"
-            @keyup.enter="load"
+            @keyup.enter="refresh"
           />
           <v-switch
             v-model="onlyMultiVendor"
@@ -188,7 +241,7 @@ const disagreementCount = computed(
             density="compact"
             hide-details
             color="primary"
-            @update:model-value="load"
+            @update:model-value="refresh"
           />
           <v-switch
             v-model="onlyDisagreements"
@@ -196,7 +249,7 @@ const disagreementCount = computed(
             density="compact"
             hide-details
             color="warning"
-            @update:model-value="load"
+            @update:model-value="refresh"
           />
           <v-switch
             v-model="onlyBlocked"
@@ -204,7 +257,7 @@ const disagreementCount = computed(
             density="compact"
             hide-details
             color="error"
-            @update:model-value="load"
+            @update:model-value="refresh"
           />
         </div>
       </v-card-text>
@@ -216,7 +269,9 @@ const disagreementCount = computed(
 
     <v-card>
       <v-card-title class="text-subtitle-1 d-flex align-center ga-3">
-        <span>{{ records.length }} requests</span>
+        <span>
+          {{ records.length }} of {{ totalIsEstimate ? '~' : '' }}{{ total }} requests
+        </span>
         <v-chip v-if="disagreementCount" color="warning" size="small" variant="tonal">
           {{ disagreementCount }} with a disagreement
         </v-chip>
@@ -299,6 +354,17 @@ const disagreementCount = computed(
           </div>
         </template>
       </v-data-table>
+
+      <!-- The cursor is the only way past the first page: the result set is ordered by
+           time and offset paging over a moving window would skip or repeat rows. -->
+      <v-card-actions v-if="hasMore" class="justify-center py-4">
+        <v-btn variant="tonal" :loading="loading" @click="loadMore">
+          Load {{ PAGE_SIZE }} more
+        </v-btn>
+      </v-card-actions>
+      <div v-else-if="records.length" class="text-center text-caption text-medium-emphasis pb-4">
+        End of results.
+      </div>
     </v-card>
   </div>
 </template>
