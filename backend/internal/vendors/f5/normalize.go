@@ -43,9 +43,14 @@ func (a *Adapter) Normalize(record vendors.RawRecord) (vendors.Event, error) {
 	path, query := resolveURI(record.Fields)
 
 	event := vendors.Event{
-		Vendor:            vendors.F5,
-		VendorAccount:     vendors.AsString(firstOf(record.Fields, "virtual_server", "http_class_name")),
-		VendorRequestID:   resolveRequestID(record.Fields),
+		Vendor:          vendors.F5,
+		VendorAccount:   vendors.AsString(firstOf(record.Fields, "virtual_server", "http_class_name")),
+		VendorRequestID: resolveRequestID(record.Fields),
+		// Recorded unconditionally, not only when it is also the join key. support_id
+		// is what an operator quotes to F5 support and searches for in the ASM event
+		// log, so it has to be findable on every event — including the ~99% where
+		// CF-Ray wins the join and support_id would otherwise be visible nowhere.
+		VendorEventID:     vendors.AsString(firstOf(record.Fields, "support_id", "cs3")),
 		EventTime:         eventTime,
 		EventTimeOriginal: original,
 
@@ -138,8 +143,8 @@ func resolveHost(fields map[string]any) string {
 // heuristic is not.
 //
 // Falls back to support_id where there is no CF-Ray — a BIG-IP with no CDN in front, or
-// a truncated request. support_id is never lost either way: collectExtra keeps every
-// field, so F5's own support reference stays on the event.
+// a truncated request. support_id is never lost either way: it is recorded on its own
+// VendorEventID field regardless of which identifier wins the join here.
 func resolveRequestID(fields map[string]any) string {
 	if ray := cloudflareRayID(vendors.AsString(fields["request"])); ray != "" {
 		return ray

@@ -70,6 +70,9 @@ message EventFilters {
   string vendor_request_id = 13;
   string request_method = 14;
   optional uint32 http_status = 15;
+  // The vendor's OWN reference for its record, as opposed to vendor_request_id which
+  // is the identifier shared between vendors. F5's support_id.
+  string vendor_event_id = 16;
 }
 
 message SearchEventsRequest {
@@ -90,6 +93,7 @@ message EventSummary {
   Vendor vendor = 3;
   string feed_id = 4;
   string vendor_request_id = 5;
+  string vendor_event_id = 15;
 
   ClientInfo client = 6;
   RequestInfo request = 7;

@@ -260,6 +260,7 @@ func eventConditions(f *pb.EventFilters) (string, []any, error) {
 	b.WhereIfSet("country", query.OpEqual, f.GetCountry())
 	b.WhereIfSet("request_method", query.OpEqual, f.GetRequestMethod())
 	b.WhereIfSet("vendor_request_id", query.OpEqual, f.GetVendorRequestId())
+	b.WhereIfSet("vendor_event_id", query.OpEqual, f.GetVendorEventId())
 
 	if names := vendorNames(f.GetVendor()); len(names) > 0 {
 		b.Where("vendor", query.OpIn, names)
@@ -384,8 +385,8 @@ func disagreementFromProto(kind pb.DisagreementKind) string {
 func toSearchResult(e chdata.NormalizedEvent) chdata.EventSearchResult {
 	return chdata.EventSearchResult{
 		EventID: e.EventID, EventTime: e.EventTime, Vendor: e.Vendor, FeedID: e.FeedID,
-		VendorRequestID: e.VendorRequestID,
-		ClientIP:        e.ClientIP, ClientIPShared: e.ClientIPShared,
+		VendorRequestID: e.VendorRequestID, VendorEventID: e.VendorEventID,
+		ClientIP: e.ClientIP, ClientIPShared: e.ClientIPShared,
 		ClientASN: e.ClientASN, ClientCountry: e.ClientCountry,
 		RequestHost: e.RequestHost, RequestPath: e.RequestPath,
 		RequestQuery: e.RequestQuery, RequestMethod: e.RequestMethod,
@@ -402,6 +403,7 @@ func toEventSummary(e chdata.EventSearchResult) *pb.EventSummary {
 		Vendor:          vendorToProto(e.Vendor),
 		FeedId:          e.FeedID.String(),
 		VendorRequestId: e.VendorRequestID,
+		VendorEventId:   e.VendorEventID,
 		Client: &pb.ClientInfo{
 			IpShared: e.ClientIPShared,
 			Asn:      e.ClientASN,
@@ -440,7 +442,7 @@ func toEventSummary(e chdata.EventSearchResult) *pb.EventSummary {
 // Declared here rather than derived from a map, because a CSV whose columns move
 // between runs cannot be diffed, scripted against, or loaded by a saved import.
 var exportColumns = []string{
-	"event_id", "event_time", "vendor", "vendor_request_id",
+	"event_id", "event_time", "vendor", "vendor_request_id", "vendor_event_id",
 	"client_ip", "client_country", "client_asn",
 	"request_host", "request_path", "request_method", "http_status",
 	"user_agent", "verdict", "verdict_reason", "rule_id", "score", "score_kind",
@@ -569,8 +571,8 @@ func (s *SearchService) collectExportRows(
 func exportRow(e chdata.EventSearchResult) query.ExportRow {
 	row := query.ExportRow{
 		"event_id": e.EventID, "event_time": e.EventTime, "vendor": e.Vendor,
-		"vendor_request_id": e.VendorRequestID,
-		"client_country":    e.ClientCountry, "client_asn": e.ClientASN,
+		"vendor_request_id": e.VendorRequestID, "vendor_event_id": e.VendorEventID,
+		"client_country": e.ClientCountry, "client_asn": e.ClientASN,
 		"request_host": e.RequestHost, "request_path": e.RequestPath,
 		"request_method": e.RequestMethod, "http_status": e.HTTPStatus,
 		"user_agent": e.UserAgent, "verdict": e.Verdict,

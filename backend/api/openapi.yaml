@@ -1596,6 +1596,11 @@ components:
                 httpStatus:
                     type: integer
                     format: uint32
+                vendorEventId:
+                    type: string
+                    description: |-
+                        The vendor's OWN reference for its record, as opposed to vendor_request_id which
+                         is the identifier shared between vendors. F5's support_id.
             description: |-
                 EventFilters are the cross-vendor filters an analyst can apply.
 
@@ -1621,6 +1626,8 @@ components:
                 feedId:
                     type: string
                 vendorRequestId:
+                    type: string
+                vendorEventId:
                     type: string
                 client:
                     $ref: '#/components/schemas/ClientInfo'

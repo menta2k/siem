@@ -34,10 +34,16 @@ type NormalizedEvent struct {
 	EventTimeOriginal string
 	ReceivedAt        time.Time
 
-	Vendor          string
-	FeedID          uuid.UUID
-	VendorAccount   string
+	Vendor        string
+	FeedID        uuid.UUID
+	VendorAccount string
+	// VendorRequestID is the identifier shared BETWEEN vendors — the CF-Ray — and is
+	// what the tier-1 exact join matches on.
 	VendorRequestID string
+	// VendorEventID is the vendor's OWN reference for its record of the request: F5's
+	// support_id, the value quoted to support and searched for in the ASM event log.
+	// Empty for Cloudflare, whose RayID already serves both roles.
+	VendorEventID string
 
 	ClientIP       net.IP
 	ClientIPShared bool
@@ -117,14 +123,15 @@ func (r *EventRepo) InsertNormalized(ctx context.Context, events []NormalizedEve
 		return nil
 	}
 
-	batch, err := r.client.PrepareBatch(ctx, "INSERT INTO normalized_events")
+	batch, err := r.client.PrepareBatch(ctx,
+		"INSERT INTO normalized_events ("+normalizedColumns+")")
 	if err != nil {
 		return err
 	}
 	for _, e := range events {
 		if err := batch.Append(
 			e.TenantID, e.EventID, e.EventTime, e.EventTimeOriginal, e.ReceivedAt,
-			e.Vendor, e.FeedID, e.VendorAccount, e.VendorRequestID,
+			e.Vendor, e.FeedID, e.VendorAccount, e.VendorRequestID, e.VendorEventID,
 			ipOrZero(e.ClientIP), e.ClientIPShared, e.ClientASN, e.ClientCountry,
 			e.RequestHost, e.RequestPath, e.RequestQuery, e.RequestMethod,
 			e.UserAgent, e.HTTPStatus,
@@ -164,8 +171,18 @@ func (r *EventRepo) InsertRejected(ctx context.Context, events []RejectedEvent) 
 	return nil
 }
 
+// normalizedColumns names every column of normalized_events, in the order both the
+// insert binds them and the scan reads them.
+//
+// Naming them on the INSERT is not style. PrepareBatch with a bare table name binds
+// POSITIONALLY against whatever columns the table currently has, so a schema change
+// silently shifts every value after it and the insert fails with "expected N arguments,
+// got M" — which is exactly what migration 0006 did in production, crash-looping the
+// normalizer until the binary caught up. With the columns named, schema and binary can
+// be deployed in either order: an unmigrated database rejects the unknown column
+// outright, and a migrated one defaults it.
 const normalizedColumns = `tenant_id, event_id, event_time, event_time_original, received_at,
-	vendor, feed_id, vendor_account, vendor_request_id,
+	vendor, feed_id, vendor_account, vendor_request_id, vendor_event_id,
 	client_ip, client_ip_shared, client_asn, client_country,
 	request_host, request_path, request_query, request_method, user_agent, http_status,
 	verdict, verdict_reason, rule_id, rule_ids, score, score_kind, ingest_version`
@@ -298,7 +315,7 @@ func scanNormalized(row rowScanner) (NormalizedEvent, error) {
 	var e NormalizedEvent
 	err := row.Scan(
 		&e.TenantID, &e.EventID, &e.EventTime, &e.EventTimeOriginal, &e.ReceivedAt,
-		&e.Vendor, &e.FeedID, &e.VendorAccount, &e.VendorRequestID,
+		&e.Vendor, &e.FeedID, &e.VendorAccount, &e.VendorRequestID, &e.VendorEventID,
 		&e.ClientIP, &e.ClientIPShared, &e.ClientASN, &e.ClientCountry,
 		&e.RequestHost, &e.RequestPath, &e.RequestQuery, &e.RequestMethod,
 		&e.UserAgent, &e.HTTPStatus,

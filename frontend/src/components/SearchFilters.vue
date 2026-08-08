@@ -185,6 +185,19 @@ function numberOrUndefined(value: string): number | undefined {
           class="mb-3"
         />
 
+        <!-- The vendor's own reference, as opposed to the shared one above. F5 records
+             the support_id an operator quotes to support and searches for in ASM. -->
+        <v-text-field
+          v-model="draft.vendorEventId"
+          label="Support ID (F5)"
+          hint="F5's own reference for its record"
+          persistent-hint
+          density="compact"
+          variant="outlined"
+          clearable
+          class="mb-3"
+        />
+
         <v-text-field
           v-model="draft.userAgent"
           label="User agent"

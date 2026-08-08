@@ -916,6 +916,11 @@ export interface components {
             requestMethod?: string;
             /** Format: uint32 */
             httpStatus?: number;
+            /**
+             * @description The vendor's OWN reference for its record, as opposed to vendor_request_id which
+             *      is the identifier shared between vendors. F5's support_id.
+             */
+            vendorEventId?: string;
         };
         /**
          * @description EventSummary is one search hit.
@@ -935,6 +940,7 @@ export interface components {
             vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME";
             feedId?: string;
             vendorRequestId?: string;
+            vendorEventId?: string;
             client?: components["schemas"]["ClientInfo"];
             request?: components["schemas"]["RequestInfo"];
             /**

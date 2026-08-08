@@ -70,9 +70,12 @@ type RawRecord struct {
 
 // Event is the common model: three vendor vocabularies under one set of names.
 type Event struct {
-	Vendor            string
-	VendorAccount     string
-	VendorRequestID   string
+	Vendor          string
+	VendorAccount   string
+	VendorRequestID string
+	// VendorEventID is the vendor's own reference for its record of the request,
+	// distinct from the identifier shared between vendors. F5's support_id.
+	VendorEventID     string
 	EventTime         time.Time
 	EventTimeOriginal string
 

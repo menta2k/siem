@@ -105,8 +105,11 @@ type EventFilters struct {
 	VendorRequestId string  `protobuf:"bytes,13,opt,name=vendor_request_id,json=vendorRequestId,proto3" json:"vendor_request_id,omitempty"`
 	RequestMethod   string  `protobuf:"bytes,14,opt,name=request_method,json=requestMethod,proto3" json:"request_method,omitempty"`
 	HttpStatus      *uint32 `protobuf:"varint,15,opt,name=http_status,json=httpStatus,proto3,oneof" json:"http_status,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The vendor's OWN reference for its record, as opposed to vendor_request_id which
+	// is the identifier shared between vendors. F5's support_id.
+	VendorEventId string `protobuf:"bytes,16,opt,name=vendor_event_id,json=vendorEventId,proto3" json:"vendor_event_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *EventFilters) Reset() {
@@ -244,6 +247,13 @@ func (x *EventFilters) GetHttpStatus() uint32 {
 	return 0
 }
 
+func (x *EventFilters) GetVendorEventId() string {
+	if x != nil {
+		return x.VendorEventId
+	}
+	return ""
+}
+
 type SearchEventsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Required. An unbounded scan is rejected, not queued.
@@ -317,6 +327,7 @@ type EventSummary struct {
 	Vendor          Vendor                 `protobuf:"varint,3,opt,name=vendor,proto3,enum=siem.v1.Vendor" json:"vendor,omitempty"`
 	FeedId          string                 `protobuf:"bytes,4,opt,name=feed_id,json=feedId,proto3" json:"feed_id,omitempty"`
 	VendorRequestId string                 `protobuf:"bytes,5,opt,name=vendor_request_id,json=vendorRequestId,proto3" json:"vendor_request_id,omitempty"`
+	VendorEventId   string                 `protobuf:"bytes,15,opt,name=vendor_event_id,json=vendorEventId,proto3" json:"vendor_event_id,omitempty"`
 	Client          *ClientInfo            `protobuf:"bytes,6,opt,name=client,proto3" json:"client,omitempty"`
 	Request         *RequestInfo           `protobuf:"bytes,7,opt,name=request,proto3" json:"request,omitempty"`
 	Verdict         Verdict                `protobuf:"varint,8,opt,name=verdict,proto3,enum=siem.v1.Verdict" json:"verdict,omitempty"`
@@ -390,6 +401,13 @@ func (x *EventSummary) GetFeedId() string {
 func (x *EventSummary) GetVendorRequestId() string {
 	if x != nil {
 		return x.VendorRequestId
+	}
+	return ""
+}
+
+func (x *EventSummary) GetVendorEventId() string {
+	if x != nil {
+		return x.VendorEventId
 	}
 	return ""
 }
@@ -1029,7 +1047,7 @@ var File_siem_v1_search_proto protoreflect.FileDescriptor
 
 const file_siem_v1_search_proto_rawDesc = "" +
 	"\n" +
-	"\x14siem/v1/search.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x14siem/v1/common.proto\x1a\x19siem/v1/correlation.proto\"\xae\x04\n" +
+	"\x14siem/v1/search.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x14siem/v1/common.proto\x1a\x19siem/v1/correlation.proto\"\xd6\x04\n" +
 	"\fEventFilters\x12\x1b\n" +
 	"\tclient_ip\x18\x01 \x01(\tR\bclientIp\x12!\n" +
 	"\frequest_host\x18\x02 \x01(\tR\vrequestHost\x12!\n" +
@@ -1048,7 +1066,8 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\x11vendor_request_id\x18\r \x01(\tR\x0fvendorRequestId\x12%\n" +
 	"\x0erequest_method\x18\x0e \x01(\tR\rrequestMethod\x12$\n" +
 	"\vhttp_status\x18\x0f \x01(\rH\x03R\n" +
-	"httpStatus\x88\x01\x01B\f\n" +
+	"httpStatus\x88\x01\x01\x12&\n" +
+	"\x0fvendor_event_id\x18\x10 \x01(\tR\rvendorEventIdB\f\n" +
 	"\n" +
 	"_min_scoreB\f\n" +
 	"\n" +
@@ -1059,14 +1078,15 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12/\n" +
 	"\afilters\x18\x02 \x01(\v2\x15.siem.v1.EventFiltersR\afilters\x12(\n" +
-	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\x80\x04\n" +
+	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\xa8\x04\n" +
 	"\fEventSummary\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x129\n" +
 	"\n" +
 	"event_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\teventTime\x12'\n" +
 	"\x06vendor\x18\x03 \x01(\x0e2\x0f.siem.v1.VendorR\x06vendor\x12\x17\n" +
 	"\afeed_id\x18\x04 \x01(\tR\x06feedId\x12*\n" +
-	"\x11vendor_request_id\x18\x05 \x01(\tR\x0fvendorRequestId\x12+\n" +
+	"\x11vendor_request_id\x18\x05 \x01(\tR\x0fvendorRequestId\x12&\n" +
+	"\x0fvendor_event_id\x18\x0f \x01(\tR\rvendorEventId\x12+\n" +
 	"\x06client\x18\x06 \x01(\v2\x13.siem.v1.ClientInfoR\x06client\x12.\n" +
 	"\arequest\x18\a \x01(\v2\x14.siem.v1.RequestInfoR\arequest\x12*\n" +
 	"\averdict\x18\b \x01(\x0e2\x10.siem.v1.VerdictR\averdict\x12%\n" +

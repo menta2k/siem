@@ -229,6 +229,12 @@ function extraEntries(link: Link): [string, string][] {
               <template v-if="link.detail?.summary?.vendorRequestId">
                 · vendor id <code>{{ link.detail?.summary?.vendorRequestId }}</code>
               </template>
+              <!-- Shown separately from the vendor id because they are different
+                   things: the vendor id is the identifier SHARED between vendors and
+                   is why these events joined, while this is F5's own reference. -->
+              <template v-if="link.detail?.summary?.vendorEventId">
+                · support id <code>{{ link.detail?.summary?.vendorEventId }}</code>
+              </template>
             </div>
 
             <v-btn

@@ -69,6 +69,7 @@ func paginate[T any](items []T, pageSize int32, cursorOf func(T) query.Cursor) P
 }
 
 const eventSearchColumns = `event_id, event_time, vendor, feed_id, vendor_request_id,
+	vendor_event_id,
 	client_ip, client_ip_shared, client_asn, client_country, request_host, request_path,
 	request_query, request_method, user_agent, http_status, verdict, verdict_reason,
 	rule_id, rule_ids, score, score_kind`
@@ -86,10 +87,12 @@ type EventSearchResult struct {
 	FeedID    uuid.UUID
 
 	VendorRequestID string
-	ClientIP        net.IP
-	ClientIPShared  bool
-	ClientASN       uint32
-	ClientCountry   string
+	// VendorEventID is F5's support_id: the vendor's own reference for its record.
+	VendorEventID  string
+	ClientIP       net.IP
+	ClientIPShared bool
+	ClientASN      uint32
+	ClientCountry  string
 
 	RequestHost   string
 	RequestPath   string
@@ -174,7 +177,8 @@ func scanEventSearchResult(row rowScanner) (EventSearchResult, error) {
 	)
 	if err := row.Scan(
 		&result.EventID, &result.EventTime, &result.Vendor, &result.FeedID,
-		&result.VendorRequestID, &clientIP, &result.ClientIPShared, &result.ClientASN,
+		&result.VendorRequestID, &result.VendorEventID,
+		&clientIP, &result.ClientIPShared, &result.ClientASN,
 		&result.ClientCountry, &result.RequestHost, &result.RequestPath,
 		&result.RequestQuery, &result.RequestMethod, &result.UserAgent,
 		&result.HTTPStatus, &result.Verdict, &result.VerdictReason, &result.RuleID,

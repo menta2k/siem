@@ -168,6 +168,7 @@ export const useSearchStore = defineStore('search', () => {
       'userAgent',
       'q',
       'vendorRequestId',
+      'vendorEventId',
       'requestMethod',
     ] as const) {
       const value = readString(key)
