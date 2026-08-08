@@ -59,6 +59,15 @@ type Store interface {
 	LRange(ctx context.Context, key string) ([]string, error)
 	SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error)
 	Get(ctx context.Context, key string) (string, error)
+	// Lookup reads a key, reporting found=false when it is ABSENT rather than
+	// returning an error.
+	//
+	// Get cannot serve this. Redis reports a missing key as an error, which is right
+	// for callers that know the key exists — but the identity lookup asks about
+	// identifiers that have usually never been claimed, so absence is its normal
+	// result. Treating it as a failure took down every close pass and stopped
+	// correlation outright.
+	Lookup(ctx context.Context, key string) (string, bool, error)
 	ZAdd(ctx context.Context, key, member string, score float64, ttl time.Duration) error
 	ZPopDue(ctx context.Context, key string, max float64, limit int64) ([]string, error)
 }
@@ -307,11 +316,11 @@ func (w *Windows) existingIdentity(
 	ctx context.Context, tenantID uuid.UUID, identifiers []string,
 ) (uuid.UUID, error) {
 	for _, identifier := range identifiers {
-		existing, err := w.store.Get(ctx, identityKey(tenantID, identifier))
+		existing, found, err := w.store.Lookup(ctx, identityKey(tenantID, identifier))
 		if err != nil {
 			return uuid.Nil, err
 		}
-		if existing == "" {
+		if !found || existing == "" {
 			continue
 		}
 		parsed, err := uuid.Parse(existing)

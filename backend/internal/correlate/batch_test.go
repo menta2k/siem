@@ -108,6 +108,10 @@ func (s *countingWindowStore) Get(context.Context, string) (string, error) {
 	return "", nil
 }
 
+func (s *countingWindowStore) Lookup(context.Context, string) (string, bool, error) {
+	return "", false, nil
+}
+
 // ZPopDue pops due members for real, so the closer tests exercise the same claim
 // loop the running closer does rather than a stub that always looks drained.
 func (s *countingWindowStore) ZPopDue(

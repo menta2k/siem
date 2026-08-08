@@ -86,6 +86,23 @@ func (c *Client) SetNX(ctx context.Context, key, value string, ttl time.Duration
 	return ok, nil
 }
 
+// Lookup reads a key, reporting whether it exists instead of failing when it does not.
+//
+// Get treats absence as an error, which suits callers that already know a key is there.
+// The correlation identity lookup is the opposite case: it asks about identifiers that
+// have usually never been claimed, so a missing key is the expected answer rather than
+// a fault.
+func (c *Client) Lookup(ctx context.Context, key string) (string, bool, error) {
+	value, err := c.Get(ctx, key)
+	if errors.Is(err, ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return value, true, nil
+}
+
 // Get reads a key, returning ErrNotFound when absent.
 func (c *Client) Get(ctx context.Context, key string) (string, error) {
 	v, err := c.rdb.Get(ctx, key).Result()

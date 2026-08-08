@@ -49,6 +49,15 @@ func (s *identityStore) Get(_ context.Context, key string) (string, error) {
 	return s.values[key], nil
 }
 
+// Lookup mirrors the real client, where an ABSENT key is reported as not-found rather
+// than raised as an error. The first version of this fix used Get, whose Redis
+// implementation errors on a missing key — and since the stub returned an empty string
+// instead, the tests passed while production failed every close pass.
+func (s *identityStore) Lookup(_ context.Context, key string) (string, bool, error) {
+	value, found := s.values[key]
+	return value, found, nil
+}
+
 // The four rows a Worker-protected request produces, split by ARRIVAL time rather than
 // by event time — which is the whole point. F5 and nginx ship in real time; Cloudflare
 // Logpush lags roughly thirty seconds and only its origin-fetch row carries the bridge.

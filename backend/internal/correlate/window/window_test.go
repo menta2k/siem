@@ -87,6 +87,20 @@ func (f *fakeStore) SetNX(_ context.Context, key, value string, ttl time.Duratio
 	return true, nil
 }
 
+// Lookup mirrors the real client: an ABSENT key is reported as not-found rather than
+// raised. A stub that gets this wrong is exactly how the identity fix reached
+// production and failed every close pass.
+func (f *fakeStore) Lookup(ctx context.Context, key string) (string, bool, error) {
+	value, err := f.Get(ctx, key)
+	if err != nil {
+		return "", false, err
+	}
+	if value == "" {
+		return "", false, nil
+	}
+	return value, true, nil
+}
+
 func (f *fakeStore) Get(_ context.Context, key string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
