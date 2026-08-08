@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import type { components } from '@/api/schema'
+import IngestFilterRules from '@/components/IngestFilterRules.vue'
+import { cleanRules, type IngestFilterRule } from '@/lib/ingest-filters'
 
 type UserProfile = components['schemas']['UserProfile']
 type TenantSettings = components['schemas']['TenantSettings']
@@ -37,6 +39,9 @@ const retentionForm = ref({
 const correlationForm = ref({ correlationWindowMs: 5000, latenessBoundMs: 900_000 })
 const savingSettings = ref(false)
 
+const ingestFilters = ref<IngestFilterRule[]>([])
+const savingFilters = ref(false)
+
 const redactableFields = [
   'user_agent',
   'request_query',
@@ -66,6 +71,10 @@ async function load(): Promise<void> {
         redactedFields: t.data.redactedFields ?? [],
         scoreConflictThreshold: t.data.scoreConflictThreshold ?? 0.8,
       }
+      ingestFilters.value = (t.data.ingestFilters ?? []).map((rule) => ({
+        ...rule,
+        values: [...(rule.values ?? [])],
+      }))
     }
     if (c.data) {
       correlationForm.value = {
@@ -112,6 +121,31 @@ async function updateUser(user: UserProfile, changes: Record<string, unknown>): 
     await load()
   } catch (err) {
     errorMessage.value = toDisplayMessage(err)
+  }
+}
+
+/**
+ * Saves the filter rules alone.
+ *
+ * Sent as its own request rather than folded into the retention form: a PATCH omitting a
+ * field leaves it untouched server-side, so keeping them separate means saving filters can
+ * never disturb a redaction policy the operator was not editing.
+ */
+async function saveFilters(): Promise<void> {
+  savingFilters.value = true
+  errorMessage.value = ''
+  notice.value = ''
+  try {
+    const cleaned = cleanRules(ingestFilters.value)
+    await api.PATCH('/api/v1/admin/tenant', { body: { ingestFilters: cleaned } })
+    notice.value = cleaned.length
+      ? `Saved ${cleaned.length} ingest ${cleaned.length === 1 ? 'filter' : 'filters'}. Matching events will no longer be stored.`
+      : 'Ingest filters cleared. Every event will be stored.'
+    await load()
+  } catch (err) {
+    errorMessage.value = toDisplayMessage(err)
+  } finally {
+    savingFilters.value = false
   }
 }
 
@@ -177,6 +211,7 @@ const canManage = computed(() => auth.can.manageUsers)
       <v-tab value="users">Users</v-tab>
       <v-tab value="retention">Retention &amp; redaction</v-tab>
       <v-tab value="correlation">Correlation</v-tab>
+      <v-tab value="filters">Ingest filters</v-tab>
     </v-tabs>
 
     <v-window v-model="tab">
@@ -408,6 +443,15 @@ const canManage = computed(() => auth.can.manageUsers)
             </v-btn>
           </v-card-text>
         </v-card>
+      </v-window-item>
+
+      <v-window-item value="filters">
+        <IngestFilterRules
+          v-model="ingestFilters"
+          :saving="savingFilters"
+          :disabled="!canManage"
+          @save="saveFilters"
+        />
       </v-window-item>
     </v-window>
   </div>

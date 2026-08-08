@@ -1038,6 +1038,26 @@ export interface components {
         FeedHealthPanel: {
             feeds?: components["schemas"]["FeedHealth"][];
         };
+        /**
+         * @description IngestFilterRule excludes matching events from ingestion entirely.
+         *
+         *      A matched event is stored NOWHERE — no raw payload, no normalized row, no rejection —
+         *      so the only trace it leaves is the filtered counter on feed health. That is why the
+         *      vocabulary is closed and literal rather than a regular expression: a rule an operator
+         *      can misread is a rule that silently deletes the traffic they needed, and unlike every
+         *      other loss in this system there is no copy to recover from.
+         */
+        IngestFilterRule: {
+            /** @description One of: request_host, request_path. */
+            field?: string;
+            /**
+             * @description One of: equals, suffix, prefix, contains. Matching ignores case, because hostnames
+             *      are case-insensitive and extensions arrive in both cases from real traffic.
+             */
+            op?: string;
+            /** @description Any value matching drops the event, as does any rule — the whole set is an OR. */
+            values?: string[];
+        };
         ListAlertRulesResponse: {
             rules?: components["schemas"]["AlertRule"][];
         };
@@ -1306,6 +1326,8 @@ export interface components {
             redactedFields?: string[];
             /** Format: float */
             scoreConflictThreshold?: number;
+            /** @description Events matching any of these are never ingested at all. */
+            ingestFilters?: components["schemas"]["IngestFilterRule"][];
         };
         TestFeedRequest: {
             feedId?: string;
@@ -1375,6 +1397,12 @@ export interface components {
             redactedFields?: string[];
             /** Format: float */
             scoreConflictThreshold?: number;
+            /**
+             * @description Replaces the whole rule set rather than merging: a partial update has no obvious
+             *      meaning for a list, and "remove this one rule" must not require knowing which
+             *      position it occupies.
+             */
+            ingestFilters?: components["schemas"]["IngestFilterRule"][];
         };
         UpdateUserRequest: {
             userId?: string;
