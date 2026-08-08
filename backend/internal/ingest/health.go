@@ -53,6 +53,7 @@ type FeedHealthRow struct {
 	Minute               time.Time
 	EventsReceived       uint64
 	EventsRejected       uint64
+	EventsFiltered       uint64
 	DuplicatesSuppressed uint64
 	BytesReceived        uint64
 	MaxIngestLagMS       uint32
@@ -105,6 +106,7 @@ func (a *HealthAggregator) Record(_ context.Context, sample HealthSample) {
 
 	row.EventsReceived += uint64(max(sample.EventsReceived, 0))             //nolint:gosec // clamped
 	row.EventsRejected += uint64(max(sample.EventsRejected, 0))             //nolint:gosec // clamped
+	row.EventsFiltered += uint64(max(sample.EventsFiltered, 0))             //nolint:gosec // clamped
 	row.DuplicatesSuppressed += uint64(max(sample.DuplicatesSuppressed, 0)) //nolint:gosec // clamped
 	row.UnknownFieldEvents += uint64(max(sample.UnknownFieldEvents, 0))     //nolint:gosec // clamped
 	if sample.BytesReceived > 0 {

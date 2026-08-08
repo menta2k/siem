@@ -91,7 +91,8 @@ func New(
 	}
 	return &Receiver{
 		feeds: feeds, secrets: secrets, registry: registry, publisher: publisher,
-		deduper: deduper, quotas: quotas, health: health, log: log, opts: opts,
+		deduper: deduper, quotas: quotas, filters: filters,
+		health: health, log: log, opts: opts,
 	}
 }
 

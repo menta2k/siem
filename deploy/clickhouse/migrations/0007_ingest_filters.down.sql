@@ -6,3 +6,5 @@
 -- it is worth knowing before rather than after.
 
 ALTER TABLE tenants DROP COLUMN IF EXISTS ingest_filters;
+
+ALTER TABLE feed_health DROP COLUMN IF EXISTS events_filtered;

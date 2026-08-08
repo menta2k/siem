@@ -18,3 +18,12 @@
 
 ALTER TABLE tenants
     ADD COLUMN IF NOT EXISTS ingest_filters String DEFAULT '[]';
+
+-- The filtered counter has nowhere else to live.
+--
+-- A filtered event leaves no payload, no row and no rejection, so this column is the only
+-- evidence that a rule is working -- and the only warning when it is working far too well.
+-- Without it a filtered event is indistinguishable from a lost one, which is precisely the
+-- confusion this feature must not create.
+ALTER TABLE feed_health
+    ADD COLUMN IF NOT EXISTS events_filtered UInt64 DEFAULT 0;

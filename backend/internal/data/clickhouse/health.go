@@ -31,7 +31,14 @@ func (r *HealthRepo) InsertFeedHealth(ctx context.Context, rows []ingest.FeedHea
 		return nil
 	}
 
-	batch, err := r.client.PrepareBatch(ctx, "INSERT INTO feed_health")
+	// Columns are NAMED. A bare INSERT binds positionally against the table's physical
+	// column order, so adding one breaks every running build until code and schema are
+	// redeployed together — and this row gained a column for exactly that reason.
+	const feedHealthColumns = `tenant_id, feed_id, minute, events_received, events_rejected,
+		events_filtered, duplicates_suppressed, bytes_received, max_ingest_lag_ms,
+		unknown_field_events, credential_valid`
+
+	batch, err := r.client.PrepareBatch(ctx, "INSERT INTO feed_health ("+feedHealthColumns+")")
 	if err != nil {
 		return err
 	}
@@ -42,7 +49,7 @@ func (r *HealthRepo) InsertFeedHealth(ctx context.Context, rows []ingest.FeedHea
 		}
 		if err := batch.Append(
 			row.TenantID, row.FeedID, row.Minute,
-			row.EventsReceived, row.EventsRejected, row.DuplicatesSuppressed,
+			row.EventsReceived, row.EventsRejected, row.EventsFiltered, row.DuplicatesSuppressed,
 			row.BytesReceived, row.MaxIngestLagMS, row.UnknownFieldEvents, credentialValid,
 		); err != nil {
 			return fmt.Errorf("append feed health for %s: %w", row.FeedID, err)
