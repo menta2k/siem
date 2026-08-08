@@ -68,6 +68,10 @@ You will need:
 - `SIEM_INGEST_URL` — `https://<ingest-host>/ingest/v1/nginx/<feed-id>`
 - `SIEM_FEED_TOKEN` — the token from feed creation
 
+The feed id is shown under the feed's name on **Administration → Feeds**, and
+**Copy ingest URL** on that row puts the whole `SIEM_INGEST_URL` on the clipboard —
+correct hostname and vendor segment included, so there is nothing to assemble by hand.
+
 ---
 
 ## Step 1 — the nginx log format

@@ -178,6 +178,44 @@ function resetForm(): void {
   formError.value = ''
 }
 
+/**
+ * The path segment the ingest endpoint expects for each vendor.
+ *
+ * Derived from the enum rather than typed out again: a mismatch here produces a URL
+ * that authenticates fine and then 404s, which reads as "the collector is broken"
+ * rather than "the URL is wrong".
+ */
+function vendorSlug(vendor: Vendor | undefined): string {
+  return (vendor ?? '').replace(/^VENDOR_/, '').toLowerCase()
+}
+
+/**
+ * The full delivery URL for a feed.
+ *
+ * Built here because the feed id was previously visible NOWHERE in the console — a
+ * collector could not be configured without opening devtools or curling the API to
+ * recover a value the platform already knew.
+ *
+ * Uses the browser's own origin, so it is correct behind whatever hostname the console
+ * is actually served from rather than a value someone has to remember to update.
+ */
+function ingestURL(feed: Feed): string {
+  return `${window.location.origin}/ingest/v1/${vendorSlug(feed.vendor)}/${feed.feedId ?? ''}`
+}
+
+const copiedFeedId = ref('')
+
+async function copyIngestURL(feed: Feed): Promise<void> {
+  if (await copyText(ingestURL(feed))) {
+    copiedFeedId.value = feed.feedId ?? ''
+    // Cleared so the confirmation does not stay on screen indefinitely and get read as
+    // the state of a later copy.
+    window.setTimeout(() => {
+      if (copiedFeedId.value === feed.feedId) copiedFeedId.value = ''
+    }, 2000)
+  }
+}
+
 function vendorLabel(vendor: Vendor | undefined): string {
   return vendorOptions.find((v) => v.value === vendor)?.title ?? 'Unknown'
 }
@@ -254,6 +292,11 @@ onMounted(load)
           <!-- Server-supplied text, interpolated so it can never execute. -->
           <span class="font-weight-medium">{{ item.name }}</span>
           <v-chip v-if="!item.enabled" size="x-small" class="ml-2" variant="tonal">disabled</v-chip>
+          <!-- The feed id is half of the delivery URL, so it belongs where the feed is,
+               not only in an API response. -->
+          <div class="text-caption text-medium-emphasis font-monospace">
+            {{ item.feedId }}
+          </div>
         </template>
 
         <template #item.deliveryMode="{ item }">
@@ -275,6 +318,17 @@ onMounted(load)
         </template>
 
         <template #item.actions="{ item }">
+          <!-- Only for push feeds: a pull feed is polled by the platform and has no
+               delivery URL for anyone to send to. -->
+          <v-btn
+            v-if="item.deliveryMode !== 'DELIVERY_MODE_PULL'"
+            size="small"
+            variant="text"
+            :color="copiedFeedId === item.feedId ? 'success' : undefined"
+            @click="copyIngestURL(item)"
+          >
+            {{ copiedFeedId === item.feedId ? 'Copied' : 'Copy ingest URL' }}
+          </v-btn>
           <v-btn size="small" variant="text" @click="rejectsFeedId = item.feedId ?? null">
             Rejects
           </v-btn>
