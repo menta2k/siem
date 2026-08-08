@@ -84,6 +84,25 @@ func writeField(h interface{ Write([]byte) (int, error) }, value string) {
 func BatchID() uuid.UUID { return uuid.New() }
 
 // EventIDFor is a convenience wrapper deriving the identity from a normalized event.
+//
+// The VENDOR is part of the identity, and leaving it out caused real data loss in
+// production. A vendor request id identifies a REQUEST, not a record of one, so the
+// moment a single feed can produce events for more than one vendor — which the
+// DataDome-from-Cloudflare derivation introduced — two genuinely different records
+// legitimately share it. Their ids then collided, the ingest deduper read the second
+// as a redelivery, and roughly a quarter of all received events were silently
+// discarded: 0 suppressed duplicates per minute before the change, 2,300-4,900 after.
+//
+// Identity therefore has to be per (feed, vendor, request id). It reads as belt and
+// braces only while one feed means one vendor, and that is exactly the assumption that
+// stopped being true.
 func EventIDFor(feedID uuid.UUID, event vendors.Event, rawBytes []byte) string {
-	return EventID(feedID, event.VendorRequestID, rawBytes)
+	requestID := strings.TrimSpace(event.VendorRequestID)
+	if requestID == "" {
+		// Left empty so EventID still falls through to hashing the raw bytes. Passing
+		// the vendor alone here would make every id-less event of one vendor share a
+		// single identity — a far worse version of the bug being fixed.
+		return EventID(feedID, "", rawBytes)
+	}
+	return EventID(feedID, event.Vendor+"|"+requestID, rawBytes)
 }
