@@ -77,20 +77,17 @@ func run(ctx context.Context, deps *server.Deps) error {
 	deps.AddCloser(func(context.Context) error { return chClient.Close() })
 	deps.Health.Register("clickhouse", chClient)
 
-	rx, err := buildReceiver(cfg, deps, chClient, redisClient, producer)
+	rx, health, err := buildReceiver(cfg, deps, chClient, redisClient, producer)
 	if err != nil {
 		return err
 	}
 
+	startHealthAggregator(ctx, deps, health)
+
 	opsAddr := fmt.Sprintf("%s:%d", cfg.Server.MetricsBind, cfg.Server.IngestPort)
 	ops := server.OperationalServer(opsAddr, deps.Health, rx.Handler())
 
-	go func() {
-		deps.Log.Info(ctx, "operational endpoints listening", "addr", opsAddr)
-		if err := ops.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			deps.Log.Error(ctx, "operational server stopped", "cause", err.Error())
-		}
-	}()
+	serve(ctx, deps, ops, opsAddr)
 
 	deps.Log.Info(ctx, "service started", "service", serviceName, "port", cfg.Server.IngestPort)
 
@@ -109,11 +106,16 @@ func run(ctx context.Context, deps *server.Deps) error {
 func buildReceiver(
 	cfg *conf.Config, deps *server.Deps, chClient *clickhouse.Client,
 	redisClient *redis.Client, producer *stream.Producer,
-) (*receiver.Receiver, error) {
+) (*receiver.Receiver, *ingest.HealthAggregator, error) {
 	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New())
 	if err != nil {
-		return nil, fmt.Errorf("build vendor registry: %w", err)
+		return nil, nil, fmt.Errorf("build vendor registry: %w", err)
 	}
+
+	// Returned alongside the receiver, not hidden inside it: this aggregator only
+	// persists anything while its own loop is running, and the caller is the only place
+	// that can start it.
+	health := ingest.NewHealthAggregator(clickhouse.NewHealthRepo(chClient))
 
 	return receiver.New(
 		clickhouse.NewFeedRepo(chClient, clickhouse.NewLocker(redisClient)),
@@ -123,11 +125,41 @@ func buildReceiver(
 		dedup.New(redisClient, dedup.DefaultWindow),
 		ingest.NewQuotaEnforcer(redisClient),
 		filter.NewCache(clickhouse.NewTenantRepo(chClient, nil), filter.DefaultCacheTTL),
-		ingest.NewHealthAggregator(clickhouse.NewHealthRepo(chClient)),
+		health,
 		deps.Log,
 		receiver.Options{
 			MaxBodyBytes:   cfg.Limits.IngestMaxBodyBytes,
 			MaxBatchEvents: cfg.Limits.IngestMaxBatchEvents,
 		},
-	), nil
+	), health, nil
+}
+
+// startHealthAggregator runs the per-minute feed-health flush loop.
+//
+// The aggregator buffers counters IN MEMORY and only writes them when this loop ticks, so
+// constructing it without running it discards everything the receiver records — silently,
+// because recording a sample cannot fail. That is exactly what happened: feed_health held
+// no rows at all while ingestion itself looked perfectly healthy. buildReceiver returns
+// the aggregator rather than hiding it so it cannot be built without a caller deciding
+// what starts it.
+func startHealthAggregator(
+	ctx context.Context, deps *server.Deps, health *ingest.HealthAggregator,
+) {
+	go func() {
+		// Health is observability, not customer data: a failed write is reported and
+		// the service keeps ingesting.
+		if err := health.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			deps.Log.Error(ctx, "feed health aggregator stopped", "cause", err.Error())
+		}
+	}()
+}
+
+// serve starts the ingest and operational listener in the background.
+func serve(ctx context.Context, deps *server.Deps, ops *http.Server, addr string) {
+	go func() {
+		deps.Log.Info(ctx, "operational endpoints listening", "addr", addr)
+		if err := ops.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			deps.Log.Error(ctx, "operational server stopped", "cause", err.Error())
+		}
+	}()
 }

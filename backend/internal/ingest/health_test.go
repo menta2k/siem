@@ -299,3 +299,50 @@ func TestAggregatorName(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", got, "feed-health")
 	}
 }
+
+// THE PRODUCTION FAILURE THIS GUARDS. Counters accumulate IN MEMORY and reach ClickHouse
+// only when this loop writes them, so an aggregator that is constructed but never run
+// discards everything it is given — silently, because recording a sample cannot fail.
+// siem-ingest did exactly that, and feed_health held no rows at all: the filtered counter,
+// the credential status and the received volume for every push feed were all missing while
+// ingestion itself looked perfectly healthy.
+//
+// Asserted through shutdown rather than the tick, because the interval is a minute and a
+// test that waits for it would be a minute of nothing.
+func TestRunPersistsWhatWasRecorded(t *testing.T) {
+	store := &fakeHealthStore{}
+	aggregator := newTestAggregator(store, nil)
+
+	aggregator.Record(context.Background(), HealthSample{
+		TenantID: uuid.New(), FeedID: uuid.New(),
+		EventsReceived: 7, EventsFiltered: 3, CredentialValid: true,
+	})
+
+	if len(store.snapshot()) != 0 {
+		t.Fatal("a sample reached storage before any flush, so this test proves nothing")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- aggregator.Run(ctx) }()
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after its context was cancelled")
+	}
+
+	rows := store.snapshot()
+	if len(rows) != 1 {
+		t.Fatalf("%d rows persisted, want 1 — a running aggregator must not lose "+
+			"what it accumulated", len(rows))
+	}
+	if rows[0].EventsReceived != 7 || rows[0].EventsFiltered != 3 {
+		t.Errorf("persisted received=%d filtered=%d, want 7 and 3",
+			rows[0].EventsReceived, rows[0].EventsFiltered)
+	}
+}
