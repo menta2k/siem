@@ -144,6 +144,7 @@ const VENDOR_LABELS: Record<string, string> = {
   VENDOR_CLOUDFLARE: 'Cloudflare',
   VENDOR_F5: 'F5',
   VENDOR_DATADOME: 'DataDome',
+  VENDOR_NGINX: 'nginx',
 }
 
 const VERDICT_LABELS: Record<string, string> = {

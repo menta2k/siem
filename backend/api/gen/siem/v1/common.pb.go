@@ -36,6 +36,8 @@ const (
 	Vendor_VENDOR_CLOUDFLARE  Vendor = 1
 	Vendor_VENDOR_F5          Vendor = 2
 	Vendor_VENDOR_DATADOME    Vendor = 3
+	// The origin behind the security vendors, not a decision point of its own.
+	Vendor_VENDOR_NGINX Vendor = 4
 )
 
 // Enum value maps for Vendor.
@@ -45,12 +47,14 @@ var (
 		1: "VENDOR_CLOUDFLARE",
 		2: "VENDOR_F5",
 		3: "VENDOR_DATADOME",
+		4: "VENDOR_NGINX",
 	}
 	Vendor_value = map[string]int32{
 		"VENDOR_UNSPECIFIED": 0,
 		"VENDOR_CLOUDFLARE":  1,
 		"VENDOR_F5":          2,
 		"VENDOR_DATADOME":    3,
+		"VENDOR_NGINX":       4,
 	}
 )
 
@@ -925,12 +929,13 @@ const file_siem_v1_common_proto_rawDesc = "" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x14\n" +
 	"\x05query\x18\x03 \x01(\tR\x05query\x12\x16\n" +
 	"\x06method\x18\x04 \x01(\tR\x06method\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\rR\x06status*[\n" +
+	"\x06status\x18\x05 \x01(\rR\x06status*m\n" +
 	"\x06Vendor\x12\x16\n" +
 	"\x12VENDOR_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11VENDOR_CLOUDFLARE\x10\x01\x12\r\n" +
 	"\tVENDOR_F5\x10\x02\x12\x13\n" +
-	"\x0fVENDOR_DATADOME\x10\x03*\xaa\x01\n" +
+	"\x0fVENDOR_DATADOME\x10\x03\x12\x10\n" +
+	"\fVENDOR_NGINX\x10\x04*\xaa\x01\n" +
 	"\aVerdict\x12\x17\n" +
 	"\x13VERDICT_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fVERDICT_ALLOWED\x10\x01\x12\x13\n" +

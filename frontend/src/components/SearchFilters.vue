@@ -33,6 +33,7 @@ const vendorOptions: Array<{ title: string; value: Vendor }> = [
   { title: 'Cloudflare', value: 'VENDOR_CLOUDFLARE' },
   { title: 'F5', value: 'VENDOR_F5' },
   { title: 'DataDome', value: 'VENDOR_DATADOME' },
+  { title: 'nginx (origin)', value: 'VENDOR_NGINX' },
 ]
 
 const verdictOptions: Array<{ title: string; value: Verdict }> = [

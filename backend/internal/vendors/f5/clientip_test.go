@@ -1,6 +1,10 @@
 package f5
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/menta2k/siem/internal/vendors"
+)
 
 // THE BUG THIS FIXES. X-Forwarded-For is APPEND-ONLY: every proxy adds the address it
 // received the request from, and whatever the client sent arrives untouched at the front.
@@ -79,7 +83,7 @@ func TestUnroutableAddressesAreRejected(t *testing.T) {
 		"ipv6 unassigned": "100::1",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if routableClientIP(value) != nil {
+			if vendors.RoutableClientIP(value) != nil {
 				t.Errorf("%q was accepted as a client address", value)
 			}
 		})

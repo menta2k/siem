@@ -44,6 +44,7 @@ const vendorOptions: { title: string; value: Vendor }[] = [
   { title: 'Cloudflare', value: 'VENDOR_CLOUDFLARE' },
   { title: 'F5', value: 'VENDOR_F5' },
   { title: 'DataDome', value: 'VENDOR_DATADOME' },
+  { title: 'nginx (origin)', value: 'VENDOR_NGINX' },
 ]
 
 const deliveryOptions: { title: string; value: Delivery }[] = [

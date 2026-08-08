@@ -809,7 +809,7 @@ export interface components {
              * Format: enum
              * @enum {string}
              */
-            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME";
+            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             name?: string;
             /**
              * Format: enum
@@ -895,7 +895,7 @@ export interface components {
             clientIp?: string;
             requestHost?: string;
             requestPath?: string;
-            vendor?: ("VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME")[];
+            vendor?: ("VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX")[];
             verdict?: ("VERDICT_UNSPECIFIED" | "VERDICT_ALLOWED" | "VERDICT_BLOCKED" | "VERDICT_CHALLENGED" | "VERDICT_RATE_LIMITED" | "VERDICT_MONITORED" | "VERDICT_UNKNOWN")[];
             ruleId?: string;
             /** Format: float */
@@ -937,7 +937,7 @@ export interface components {
              * Format: enum
              * @enum {string}
              */
-            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME";
+            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             feedId?: string;
             vendorRequestId?: string;
             vendorEventId?: string;
@@ -994,7 +994,7 @@ export interface components {
              * Format: enum
              * @enum {string}
              */
-            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME";
+            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             name?: string;
             /**
              * Format: enum
@@ -1203,7 +1203,7 @@ export interface components {
              * Format: enum
              * @enum {string}
              */
-            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME";
+            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             reasonCode?: string;
             reasonDetail?: string;
             /**
@@ -1272,7 +1272,7 @@ export interface components {
              * Format: enum
              * @enum {string}
              */
-            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME";
+            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             ruleId?: string;
             events?: string;
         };
@@ -1434,7 +1434,7 @@ export interface components {
              * Format: enum
              * @enum {string}
              */
-            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME";
+            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             /**
              * Format: enum
              * @enum {string}
@@ -1461,7 +1461,7 @@ export interface components {
              * Format: enum
              * @enum {string}
              */
-            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME";
+            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             /**
              * Format: enum
              * @enum {string}
@@ -1481,7 +1481,7 @@ export interface components {
              * Format: enum
              * @enum {string}
              */
-            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME";
+            vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             events?: string;
         };
     };

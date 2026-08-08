@@ -1424,6 +1424,7 @@ components:
                         - VENDOR_CLOUDFLARE
                         - VENDOR_F5
                         - VENDOR_DATADOME
+                        - VENDOR_NGINX
                     type: string
                     format: enum
                 name:
@@ -1553,6 +1554,7 @@ components:
                             - VENDOR_CLOUDFLARE
                             - VENDOR_F5
                             - VENDOR_DATADOME
+                            - VENDOR_NGINX
                         type: string
                         format: enum
                 verdict:
@@ -1621,6 +1623,7 @@ components:
                         - VENDOR_CLOUDFLARE
                         - VENDOR_F5
                         - VENDOR_DATADOME
+                        - VENDOR_NGINX
                     type: string
                     format: enum
                 feedId:
@@ -1713,6 +1716,7 @@ components:
                         - VENDOR_CLOUDFLARE
                         - VENDOR_F5
                         - VENDOR_DATADOME
+                        - VENDOR_NGINX
                     type: string
                     format: enum
                 name:
@@ -2044,6 +2048,7 @@ components:
                         - VENDOR_CLOUDFLARE
                         - VENDOR_F5
                         - VENDOR_DATADOME
+                        - VENDOR_NGINX
                     type: string
                     format: enum
                 reasonCode:
@@ -2143,6 +2148,7 @@ components:
                         - VENDOR_CLOUDFLARE
                         - VENDOR_F5
                         - VENDOR_DATADOME
+                        - VENDOR_NGINX
                     type: string
                     format: enum
                 ruleId:
@@ -2424,6 +2430,7 @@ components:
                         - VENDOR_CLOUDFLARE
                         - VENDOR_F5
                         - VENDOR_DATADOME
+                        - VENDOR_NGINX
                     type: string
                     format: enum
                 verdict:
@@ -2469,6 +2476,7 @@ components:
                         - VENDOR_CLOUDFLARE
                         - VENDOR_F5
                         - VENDOR_DATADOME
+                        - VENDOR_NGINX
                     type: string
                     format: enum
                 verdict:
@@ -2504,6 +2512,7 @@ components:
                         - VENDOR_CLOUDFLARE
                         - VENDOR_F5
                         - VENDOR_DATADOME
+                        - VENDOR_NGINX
                     type: string
                     format: enum
                 events:

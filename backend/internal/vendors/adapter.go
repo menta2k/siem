@@ -30,6 +30,10 @@ const (
 	Cloudflare = "cloudflare"
 	F5         = "f5"
 	DataDome   = "datadome"
+	// Nginx is the ORIGIN rather than a security vendor: it does not decide whether a
+	// request may proceed, it is what the request proceeds to. Its events complete the
+	// path the other three describe.
+	Nginx = "nginx"
 )
 
 // Verdict values, matching the normalized `verdict` column.

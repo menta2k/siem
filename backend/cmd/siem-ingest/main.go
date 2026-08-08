@@ -25,6 +25,7 @@ import (
 	"github.com/menta2k/siem/internal/vendors/cloudflare"
 	"github.com/menta2k/siem/internal/vendors/datadome"
 	"github.com/menta2k/siem/internal/vendors/f5"
+	"github.com/menta2k/siem/internal/vendors/nginx"
 )
 
 const serviceName = "siem-ingest"
@@ -107,7 +108,7 @@ func buildReceiver(
 	cfg *conf.Config, deps *server.Deps, chClient *clickhouse.Client,
 	redisClient *redis.Client, producer *stream.Producer,
 ) (*receiver.Receiver, *ingest.HealthAggregator, error) {
-	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New())
+	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New(), nginx.New())
 	if err != nil {
 		return nil, nil, fmt.Errorf("build vendor registry: %w", err)
 	}

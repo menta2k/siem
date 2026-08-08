@@ -34,6 +34,7 @@ import (
 	"github.com/menta2k/siem/internal/vendors/cloudflare"
 	"github.com/menta2k/siem/internal/vendors/datadome"
 	"github.com/menta2k/siem/internal/vendors/f5"
+	"github.com/menta2k/siem/internal/vendors/nginx"
 )
 
 // consumerWorker adapts a stream consumer to the Worker interface.
@@ -157,7 +158,7 @@ func buildWorkers(
 	tenants := clickhouse.NewTenantRepo(chClient, locker)
 	feeds := clickhouse.NewFeedRepo(chClient, locker)
 
-	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New())
+	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New(), nginx.New())
 	if err != nil {
 		return nil, fmt.Errorf("build vendor registry: %w", err)
 	}

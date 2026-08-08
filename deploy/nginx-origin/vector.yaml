@@ -1,0 +1,81 @@
+# Vector: nginx access log -> SIEM ingest over HTTPS.
+#
+# Runs ON THE NGINX HOST, tailing the file the `siem` log_format writes.
+#
+#   nginx ──file──> Vector (origin host) ──HTTPS──> siem.server-lab.eu
+#
+# WHY NOT FILEBEAT
+#
+# Filebeat has no generic HTTP output. Its outputs are Elasticsearch, Logstash, Kafka,
+# Redis, file and console — none of which the ingest endpoint speaks, and the endpoint
+# is a plain authenticated POST. Filebeat therefore cannot deliver to this platform
+# without Logstash in between, which is a second JVM service to run and monitor for a
+# job Vector already does in one binary.
+#
+# Vector is also what the BIG-IP feed already uses, so this is the same shipper, the
+# same auth model and the same disk-buffer behaviour rather than a second thing to
+# reason about at three in the morning. If Filebeat is required for fleet-management
+# reasons, the supported bridge is Filebeat -> Logstash -> http output pointed at the
+# same URL with the same bearer token.
+
+data_dir: /var/lib/vector
+
+sources:
+  nginx_access:
+    type: file
+    include:
+      - /var/log/nginx/siem.log
+    # Read from the end on a first start. Replaying a rotated week of logs on install
+    # would flood the correlator with events whose partners have long since expired
+    # from the window state, so they would all land as single-vendor records.
+    ignore_older_secs: 600
+    # nginx rewrites the inode on rotation; Vector follows it by fingerprint.
+    fingerprint:
+      strategy: checksum
+
+transforms:
+  # A partially written line during rotation, or a blank flush, is not an event.
+  drop_empty:
+    type: filter
+    inputs: [nginx_access]
+    condition: '(to_string(.message) ?? "") != ""'
+
+sinks:
+  siem:
+    type: http
+    inputs: [drop_empty]
+    uri: ${SIEM_INGEST_URL:?set SIEM_INGEST_URL}
+    method: post
+
+    # The file source puts the log line in `.message`; the platform wants the line
+    # itself, one per row, exactly as nginx wrote it.
+    encoding:
+      codec: text
+      only_fields: [message]
+    framing:
+      method: newline_delimited
+
+    request:
+      headers:
+        Authorization: Bearer ${SIEM_FEED_TOKEN:?set SIEM_FEED_TOKEN}
+        Content-Type: application/x-ndjson
+      # The platform answers 202 only once events are durably committed to the broker,
+      # and 503 when it cannot. Retrying 503 is therefore correct and lossless.
+      retry_attempts: 10
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 60
+
+    batch:
+      # An origin serves far more requests than a WAF logs, so batches fill on size long
+      # before the timeout. The timeout is what keeps a quiet host near-real-time.
+      max_events: 1000
+      timeout_secs: 5
+
+    buffer:
+      # Disk, not memory: a SIEM restart or a network blip must not lose the evidence
+      # that a request reached the origin, and it has to survive Vector restarting too.
+      type: disk
+      max_size: 536870912 # 512 MiB
+      # Back-pressure rather than discard. Dropping the newest events silently loses the
+      # ones most likely to matter.
+      when_full: block

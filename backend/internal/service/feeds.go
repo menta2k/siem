@@ -490,6 +490,8 @@ func vendorFromProto(v pb.Vendor) string {
 		return vendors.F5
 	case pb.Vendor_VENDOR_DATADOME:
 		return vendors.DataDome
+	case pb.Vendor_VENDOR_NGINX:
+		return vendors.Nginx
 	case pb.Vendor_VENDOR_UNSPECIFIED:
 		return ""
 	default:
@@ -505,6 +507,8 @@ func vendorToProto(name string) pb.Vendor {
 		return pb.Vendor_VENDOR_F5
 	case vendors.DataDome:
 		return pb.Vendor_VENDOR_DATADOME
+	case vendors.Nginx:
+		return pb.Vendor_VENDOR_NGINX
 	default:
 		return pb.Vendor_VENDOR_UNSPECIFIED
 	}

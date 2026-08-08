@@ -19,6 +19,8 @@ enum Vendor {
   VENDOR_CLOUDFLARE = 1;
   VENDOR_F5 = 2;
   VENDOR_DATADOME = 3;
+  // The origin behind the security vendors, not a decision point of its own.
+  VENDOR_NGINX = 4;
 }
 
 // Verdict is the normalized decision a vendor reached about a request.

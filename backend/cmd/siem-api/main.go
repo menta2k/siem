@@ -31,6 +31,7 @@ import (
 	"github.com/menta2k/siem/internal/vendors/cloudflare"
 	"github.com/menta2k/siem/internal/vendors/datadome"
 	"github.com/menta2k/siem/internal/vendors/f5"
+	"github.com/menta2k/siem/internal/vendors/nginx"
 )
 
 const serviceName = "siem-api"
@@ -140,7 +141,7 @@ func buildServices(
 	correlated := clickhouse.NewCorrelatedRepo(ch)
 	panels := clickhouse.NewDashboardRepo(ch)
 
-	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New())
+	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New(), nginx.New())
 	if err != nil {
 		// The registry is built from compile-time constants; a failure here is a
 		// programming error, not a runtime condition.

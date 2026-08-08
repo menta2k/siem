@@ -28,6 +28,8 @@ const vendorLabel = computed(() => {
       return 'F5'
     case 'VENDOR_DATADOME':
       return 'DataDome'
+    case 'VENDOR_NGINX':
+      return 'nginx'
     default:
       return 'Unknown vendor'
   }
