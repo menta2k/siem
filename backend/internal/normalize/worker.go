@@ -241,6 +241,7 @@ func toRow(envelope ingest.Envelope, event vendors.Event) chdata.NormalizedEvent
 		VendorAccount:   event.VendorAccount,
 		VendorRequestID: event.VendorRequestID,
 		VendorEventID:   event.VendorEventID,
+		LinkedRequestID: event.LinkedRequestID,
 
 		ClientIP:       event.ClientIP,
 		ClientIPShared: event.ClientIPShared,

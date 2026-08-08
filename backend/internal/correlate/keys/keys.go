@@ -79,6 +79,41 @@ func DefaultSettings() Settings {
 	return Settings{Window: 5 * time.Second, LatenessBound: 15 * time.Minute}
 }
 
+// Linked builds the tier-1 key for an event's SECOND identifier.
+//
+// Cloudflare logs one row per hop of a Worker-protected request, each with its own
+// ray, and no single identifier reaches every vendor: F5 receives the origin fetch's
+// ray while DataDome's verdict is only reachable through the client-facing one. The
+// parent ray recorded on each subrequest is the bridge, and treating it as a second
+// exact key is what lets one record hold all three verdicts instead of two disjoint
+// records holding two each.
+func Linked(event chdata.NormalizedEvent) (Key, bool) {
+	linked := strings.TrimSpace(event.LinkedRequestID)
+	if linked == "" {
+		return Key{}, false
+	}
+	return Key{
+		Value:   ExactKeyValue(event.TenantID, linked),
+		Tier:    TierExact,
+		Signals: []Signal{SignalVendorRequestID},
+	}, true
+}
+
+// Identifiers returns every exact key value an event is known by, in a stable order.
+//
+// An event with two identifiers has to be filed under BOTH, because either one may be
+// how a partner finds it.
+func Identifiers(event chdata.NormalizedEvent) []string {
+	out := make([]string, 0, 2)
+	if exact, ok := exactKey(event); ok {
+		out = append(out, exact.Value)
+	}
+	if linked, ok := Linked(event); ok && (len(out) == 0 || linked.Value != out[0]) {
+		out = append(out, linked.Value)
+	}
+	return out
+}
+
 // Candidates holds BOTH keys an event can be joined on.
 //
 // Returning both is not redundancy — it is the correction to an assumption that looks

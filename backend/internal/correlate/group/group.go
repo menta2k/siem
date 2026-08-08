@@ -70,7 +70,7 @@ func (g Group) Vendors() []string {
 func Batch(events []Event, settings keys.Settings) []Group {
 	ordered := sortEvents(events)
 
-	confirmed, exactOf := confirmExact(ordered, settings)
+	confirmed, exactOf := confirmExact(ordered)
 	groups := groupsFromExact(ordered, confirmed, exactOf)
 	groups = append(groups, groupsFromHeuristic(ordered, confirmed, exactOf, settings)...)
 
@@ -93,34 +93,96 @@ func sortEvents(events []Event) []Event {
 	return ordered
 }
 
-// confirmExact finds the exact keys that MORE THAN ONE VENDOR reported.
+// confirmExact finds the exact identities that MORE THAN ONE VENDOR reported.
 //
 // The distinct-vendor test is the whole point. Counting events instead would confirm
-// a key that one vendor happened to emit twice — a retry or a duplicate delivery —
-// and a "cross-vendor" record containing one vendor twice is worse than no record.
-func confirmExact(events []Event, settings keys.Settings) (map[string]bool, map[int]keys.Key) {
-	vendorsPerKey := map[string]map[string]bool{}
-	exactOf := make(map[int]keys.Key, len(events))
+// an identity that one vendor happened to emit twice — a retry or a duplicate delivery
+// — and a "cross-vendor" record containing one vendor twice is worse than no record.
+//
+// Events are grouped by CONNECTED COMPONENT over their identifiers, not by a single
+// key. A Worker-protected request is logged by Cloudflare three times under three
+// different rays, and no one identifier reaches every vendor: F5 sees the origin
+// fetch's ray, DataDome is reachable only through the client-facing one, and the origin
+// fetch carries both. Keying on one identifier each puts those events in two separate
+// groups holding two verdicts apiece, which is exactly the "never three verdicts"
+// symptom this resolves.
+func confirmExact(events []Event) (map[string]bool, map[int]keys.Key) {
+	union := newUnionFind()
+	identifiersOf := make(map[int][]string, len(events))
 
 	for i, event := range events {
-		candidates := keys.Derive(event.Row, settings)
-		if !candidates.HasExact() {
+		ids := keys.Identifiers(event.Row)
+		if len(ids) == 0 {
 			continue
 		}
-		exactOf[i] = candidates.Exact
-		if vendorsPerKey[candidates.Exact.Value] == nil {
-			vendorsPerKey[candidates.Exact.Value] = map[string]bool{}
+		identifiersOf[i] = ids
+		for _, id := range ids[1:] {
+			union.link(ids[0], id)
 		}
-		vendorsPerKey[candidates.Exact.Value][event.Row.Vendor] = true
+	}
+
+	// The component's canonical identifier is its SMALLEST, chosen so the same set of
+	// events always yields the same correlation id however they were discovered.
+	vendorsPerRoot := map[string]map[string]bool{}
+	exactOf := make(map[int]keys.Key, len(events))
+	for i, ids := range identifiersOf {
+		root := union.find(ids[0])
+		exactOf[i] = keys.Key{
+			Value:   root,
+			Tier:    keys.TierExact,
+			Signals: []keys.Signal{keys.SignalVendorRequestID},
+		}
+		if vendorsPerRoot[root] == nil {
+			vendorsPerRoot[root] = map[string]bool{}
+		}
+		vendorsPerRoot[root][events[i].Row.Vendor] = true
 	}
 
 	confirmed := map[string]bool{}
-	for value, vendors := range vendorsPerKey {
-		if len(vendors) > 1 {
+	for value, seen := range vendorsPerRoot {
+		if len(seen) > 1 {
 			confirmed[value] = true
 		}
 	}
 	return confirmed, exactOf
+}
+
+// unionFind groups identifiers that belong to the same request.
+//
+// The canonical representative is always the lexicographically smallest identifier in
+// the component, which makes the resulting group key a pure function of its membership
+// rather than of the order events happened to arrive in. Determinism matters here for
+// the same reason it does everywhere else in correlation: a late arrival recomputes the
+// key to find the record it amends, and a key that shifted would create a second record
+// instead.
+type unionFind struct{ parent map[string]string }
+
+func newUnionFind() *unionFind { return &unionFind{parent: map[string]string{}} }
+
+func (u *unionFind) find(value string) string {
+	root, seen := u.parent[value]
+	if !seen {
+		u.parent[value] = value
+		return value
+	}
+	if root == value {
+		return value
+	}
+	resolved := u.find(root)
+	u.parent[value] = resolved // path compression
+	return resolved
+}
+
+func (u *unionFind) link(a, b string) {
+	rootA, rootB := u.find(a), u.find(b)
+	if rootA == rootB {
+		return
+	}
+	// Smaller value wins, so the representative never depends on link order.
+	if rootB < rootA {
+		rootA, rootB = rootB, rootA
+	}
+	u.parent[rootB] = rootA
 }
 
 // groupsFromExact builds the tier-1 groups.

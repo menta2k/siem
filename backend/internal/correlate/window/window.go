@@ -79,6 +79,9 @@ type Member struct {
 	EventTime time.Time `json:"event_time"`
 
 	VendorRequestID string `json:"vendor_request_id,omitempty"`
+	// LinkedRequestID is the second identifier this request is known by, carried so a
+	// window that closes can follow it to partners filed under the other id.
+	LinkedRequestID string `json:"linked_request_id,omitempty"`
 
 	ClientIP       string `json:"client_ip,omitempty"`
 	ClientIPShared bool   `json:"client_ip_shared,omitempty"`

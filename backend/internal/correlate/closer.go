@@ -305,33 +305,70 @@ func (c *Closer) build(
 // This is the case tier 1 exists for. Two vendors report the same request with clocks
 // far enough apart that they fall into different time windows; only the shared
 // identifier can reunite them, and it can only do so by looking outside this window.
+// The traversal is TRANSITIVE, and it has to be. A Worker-protected request produces
+// three Cloudflare rows with three different rays: the client-facing one, the call to
+// DataDome, and the fetch to the origin. F5 sees only the origin fetch's ray, and the
+// DataDome verdict is reachable only through the client-facing one, so the origin
+// fetch — which carries both — is the sole bridge between them. Following one level
+// from the starting members finds that bridge from one side but not the other, and
+// which side a request landed on would decide whether it got two verdicts or three.
+//
+// The closure is small and self-limiting: each member contributes at most two
+// identifiers and every bucket is visited once.
 func (c *Closer) withExactPartners(
 	ctx context.Context, tenantID uuid.UUID, members []window.Member,
 ) ([]window.Member, error) {
 	seen := make(map[string]bool, len(members))
-	for _, m := range members {
-		seen[m.EventID] = true
-	}
+	out := make([]window.Member, 0, len(members))
+	queue := make([]window.Member, 0, len(members))
 
-	out := members
 	for _, m := range members {
-		if m.VendorRequestID == "" {
+		if seen[m.EventID] {
 			continue
 		}
-		key := keys.ExactKeyValue(tenantID, m.VendorRequestID)
-		partners, err := c.windows.Members(ctx, tenantID, key)
-		if err != nil {
-			return nil, fmt.Errorf("read exact bucket for %s: %w", m.EventID, err)
-		}
-		for _, partner := range partners {
-			if seen[partner.EventID] {
+		seen[m.EventID] = true
+		out = append(out, m)
+		queue = append(queue, m)
+	}
+
+	visited := map[string]bool{}
+	for len(queue) > 0 {
+		member := queue[0]
+		queue = queue[1:]
+
+		for _, identifier := range identifiersOf(tenantID, member) {
+			if visited[identifier] {
 				continue
 			}
-			seen[partner.EventID] = true
-			out = append(out, partner)
+			visited[identifier] = true
+
+			partners, err := c.windows.Members(ctx, tenantID, identifier)
+			if err != nil {
+				return nil, fmt.Errorf("read exact bucket for %s: %w", member.EventID, err)
+			}
+			for _, partner := range partners {
+				if seen[partner.EventID] {
+					continue
+				}
+				seen[partner.EventID] = true
+				out = append(out, partner)
+				queue = append(queue, partner)
+			}
 		}
 	}
 	return out, nil
+}
+
+// identifiersOf returns the exact bucket keys a member is reachable through.
+func identifiersOf(tenantID uuid.UUID, m window.Member) []string {
+	out := make([]string, 0, 2)
+	for _, id := range []string{m.VendorRequestID, m.LinkedRequestID} {
+		if id == "" {
+			continue
+		}
+		out = append(out, keys.ExactKeyValue(tenantID, id))
+	}
+	return out
 }
 
 // materialize assigns a record its stable identity and its version.

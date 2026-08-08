@@ -212,9 +212,14 @@ func normalizeRequest(fields map[string]any) (vendors.Event, error) {
 	clientIP := vendors.ParseIP(vendors.AsString(record.Fields["ClientIP"]))
 
 	event := vendors.Event{
-		Vendor:            vendors.Cloudflare,
-		VendorAccount:     vendors.AsString(record.Fields["ZoneName"]),
-		VendorRequestID:   vendors.AsString(record.Fields["RayID"]),
+		Vendor:          vendors.Cloudflare,
+		VendorAccount:   vendors.AsString(record.Fields["ZoneName"]),
+		VendorRequestID: vendors.AsString(record.Fields["RayID"]),
+		// A Worker subrequest is a second Cloudflare row for the SAME user request,
+		// and it is the only place the hops are tied together: F5 receives this row's
+		// own ray, while DataDome's verdict is reachable only through the parent's.
+		// Recording both is what lets one correlated record hold all three verdicts.
+		LinkedRequestID:   parentRay(record.Fields),
 		EventTime:         eventTime,
 		EventTimeOriginal: original,
 

@@ -75,7 +75,15 @@ type Event struct {
 	VendorRequestID string
 	// VendorEventID is the vendor's own reference for its record of the request,
 	// distinct from the identifier shared between vendors. F5's support_id.
-	VendorEventID     string
+	VendorEventID string
+	// LinkedRequestID is a SECOND identifier the same request is known by.
+	//
+	// Cloudflare logs one row per hop, each with its own ray: the client-facing
+	// request, the Worker's call to DataDome, and the fetch to the origin. F5 only
+	// ever sees the origin fetch's ray, and the DataDome verdict only knows the
+	// client-facing one, so no single identifier reaches all three vendors. The
+	// parent ray carried on each subrequest is the bridge between them.
+	LinkedRequestID   string
 	EventTime         time.Time
 	EventTimeOriginal string
 

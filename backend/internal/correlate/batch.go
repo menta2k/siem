@@ -81,13 +81,18 @@ func (w *Worker) writesFor(ctx context.Context, event chdata.NormalizedEvent) []
 	settings := w.settings.For(ctx, event.TenantID).Keys
 	candidates := keys.Derive(event, settings)
 
-	writes := make([]window.Write, 0, 2)
+	writes := make([]window.Write, 0, 3)
 
-	// The exact bucket is a LOOKUP, not a window: the closer consults it to find a
-	// partner that landed elsewhere. It carries no ScheduleAt, so it never emits.
-	if candidates.HasExact() {
+	// The exact buckets are LOOKUPS, not windows: the closer consults them to find a
+	// partner that landed elsewhere. They carry no ScheduleAt, so they never emit.
+	//
+	// An event is filed under EVERY identifier it is known by, not just its own. A
+	// Cloudflare Worker subrequest carries its parent's ray as well, and that second
+	// bucket is the only thing tying F5 — which sees the subrequest's ray — to the
+	// DataDome verdict, which is only reachable through the parent's.
+	for _, identifier := range keys.Identifiers(event) {
 		writes = append(writes, window.Write{
-			TenantID: event.TenantID, Key: candidates.Exact.Value,
+			TenantID: event.TenantID, Key: identifier,
 			Member: member, Settings: settings,
 		})
 	}

@@ -51,18 +51,34 @@ func dataDomeVerdict(status uint16) string {
 	}
 }
 
+// noParentRay is what Cloudflare writes in ParentRayID when a request is NOT a
+// subrequest. It is a literal "00", not an empty string — treating it as a real ray
+// would key every top-level request in the tenant onto one shared identifier and merge
+// unrelated requests into a single correlated record.
+const noParentRay = "00"
+
+// parentRay returns the ray of the request this one was made while handling, or empty
+// when it is a top-level request.
+func parentRay(fields map[string]any) string {
+	parent := strings.TrimSpace(vendors.AsString(fields["ParentRayID"]))
+	if parent == noParentRay {
+		return ""
+	}
+	return parent
+}
+
 // isDataDomeCall reports whether a record is the Worker's call to DataDome rather than
 // a request from a real client.
 //
 // Both conditions are required. The hostname alone would also match a genuine visitor
-// browsing that domain, and ParentRayID is only ever set on a subrequest — so together
-// they identify exactly "a call made while handling some other request".
+// browsing that domain, and a parent ray is only ever present on a subrequest — so
+// together they identify exactly "a call made while handling some other request".
 func isDataDomeCall(fields map[string]any) bool {
 	host := strings.ToLower(strings.TrimSpace(vendors.AsString(fields["ClientRequestHost"])))
 	if host != dataDomeHost {
 		return false
 	}
-	return strings.TrimSpace(vendors.AsString(fields["ParentRayID"])) != ""
+	return parentRay(fields) != ""
 }
 
 // normalizeDataDomeCall turns the Worker's subrequest into DataDome's verdict on the
@@ -94,7 +110,7 @@ func normalizeDataDomeCall(fields map[string]any) (vendors.Event, error) {
 		// dataset. An analyst reading "datadome" on a record has to be able to tell
 		// which of the two sources it came from.
 		VendorAccount:   "cloudflare-worker-integration",
-		VendorRequestID: strings.TrimSpace(vendors.AsString(fields["ParentRayID"])),
+		VendorRequestID: parentRay(fields),
 		// The subrequest's own ray, kept so this row can be traced back to the exact
 		// Cloudflare log line it was derived from.
 		VendorEventID:     strings.TrimSpace(vendors.AsString(fields["RayID"])),
