@@ -170,6 +170,21 @@ function numberOrUndefined(value: string): number | undefined {
           class="mb-3"
         />
 
+        <!-- The one identifier that is definitive. Two vendors reporting the same
+             request id are describing the same request whatever their clocks say, so
+             this is the fastest way from "one vendor saw this" to "what did the others
+             see". Cloudflare stamps its ray here; F5 records the ray it received. -->
+        <v-text-field
+          v-model="draft.vendorRequestId"
+          label="Request ID (CF-Ray)"
+          hint="Exact match across every vendor that saw the request"
+          persistent-hint
+          density="compact"
+          variant="outlined"
+          clearable
+          class="mb-3"
+        />
+
         <v-text-field
           v-model="draft.userAgent"
           label="User agent"

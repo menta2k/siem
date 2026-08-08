@@ -30,6 +30,12 @@ const errorMessage = ref('')
 const rangeHours = ref(1)
 const onlyMultiVendor = ref(true)
 const onlyDisagreements = ref(false)
+// "Blocked at any provider" is exactly combined_outcome == blocked: the combined
+// outcome is the MOST RESTRICTIVE verdict any vendor reached, and blocked outranks
+// every other verdict. Filtering the per-vendor verdict map instead would ask the
+// database to scan a Map column for the same answer a LowCardinality column already
+// holds.
+const onlyBlocked = ref(false)
 const host = ref('')
 const clientIP = ref('')
 
@@ -55,6 +61,7 @@ async function load(): Promise<void> {
           // of the page; 1 would return every single-vendor record as well.
           ...(onlyMultiVendor.value ? { minVendorCount: 2 } : {}),
           ...(onlyDisagreements.value ? { onlyDisagreements: true } : {}),
+          ...(onlyBlocked.value ? { combinedOutcome: 'VERDICT_BLOCKED' as const } : {}),
           ...(host.value ? { requestHost: host.value } : {}),
           ...(clientIP.value ? { clientIp: clientIP.value } : {}),
         },
@@ -189,6 +196,14 @@ const disagreementCount = computed(
             density="compact"
             hide-details
             color="warning"
+            @update:model-value="load"
+          />
+          <v-switch
+            v-model="onlyBlocked"
+            label="Blocked at any provider"
+            density="compact"
+            hide-details
+            color="error"
             @update:model-value="load"
           />
         </div>
