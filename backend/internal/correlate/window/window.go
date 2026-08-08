@@ -135,28 +135,36 @@ type Windows struct {
 
 // DefaultGrace is how long a window waits past its end before closing.
 //
-// It has to exceed the SLOWEST vendor's delivery lag, and Cloudflare Logpush sets that:
-// roughly 34 seconds plus its own batching, against F5 and nginx which ship in real
-// time. At 30 seconds a window closed at event_time+35s, right on that boundary — so
-// whether Cloudflare's rows had arrived was close to a coin flip.
+// It has to outlast the SLOWEST vendor's delivery, and Cloudflare Logpush sets that.
+// Measured over 90,909 events: p50 91s, p90 129s, p99 150s, max 178s. DataDome is
+// derived from the same delivery so it tracks it exactly; F5 arrives in about 17s and
+// nginx in 3.
 //
-// Losing that coin cost more than a late amendment. F5 and nginx would close alone and
-// claim a correlation id under the origin fetch's ray, Cloudflare and DataDome would
-// close and claim a DIFFERENT id under the client-facing ray, and by the time the
-// origin-fetch row revealed the two were one request both ids were already published.
-// The schema cannot supersede a row, so one of them was orphaned permanently. That was
-// 92.7% of f5+nginx records before the identity fix and ~7% after it — the residue the
-// identity fix cannot reach, because nothing was wrong at the moment either id was
-// claimed.
+// Two earlier values were set on a number that was never the right one. 34 seconds came
+// from a single max(event_time) reading — which reports the FRESHEST row in the newest
+// batch, the best case rather than the typical one — and produced first a 30s grace and
+// then a 90s one. Ninety seconds landed almost exactly on Cloudflare's median, so
+// whether its rows had arrived stayed close to a coin flip and roughly 50 records a
+// minute were still being orphaned.
 //
-// Ninety seconds puts the first close comfortably past Logpush, so a request is
-// normally emitted once, complete, and never needs the amendment path at all.
+// Losing that coin costs more than a late amendment. F5 and nginx close alone and claim
+// a correlation id under the origin fetch's ray, Cloudflare and DataDome close and claim
+// a DIFFERENT id under the client-facing ray, and by the time the origin-fetch row
+// reveals the two are one request both ids are published. Nothing was wrong at the
+// moment either was claimed, so no lookup can reconcile them, and the schema cannot
+// supersede a row — one record is orphaned for the whole retention period.
 //
-// The cost is freshness: a correlated record appears about 95 seconds after the
-// request rather than 35. Most of that wait already existed — Logpush imposes ~34s of
-// it — and a record that is complete when it appears is worth more than one that is
-// briefly wrong.
-const DefaultGrace = 90 * time.Second
+// 210 seconds clears the observed worst case of 178s with room for Logpush's batching
+// on top, so a request is normally emitted once, complete, and never needs the
+// amendment path at all.
+//
+// The cost is freshness, and it is substantial: a correlated record appears about three
+// and a half minutes after the request. That is a deliberate trade. Most of the wait is
+// Cloudflare's — its 91s median is the floor on any record involving it, whatever this
+// constant says — and the Correlated page is for investigating what happened rather
+// than watching traffic arrive. Search and the dashboards are unaffected; only
+// correlated records wait.
+const DefaultGrace = 210 * time.Second
 
 // New builds a window tracker.
 func New(store Store) *Windows {

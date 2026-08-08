@@ -311,8 +311,10 @@ func TestDueClaimsWindowsPastTheirDeadline(t *testing.T) {
 		t.Errorf("%d windows claimed before their deadline", len(early))
 	}
 
-	// After the window plus its grace period.
-	late, err := windows.Due(ctx, winBase.Add(2*time.Minute), 10)
+	// After the window plus its grace period. Derived from the constants rather than
+	// hardcoded, so raising the grace does not silently turn this into a test that
+	// claims nothing and asserts the wrong thing.
+	late, err := windows.Due(ctx, winBase.Add(pastDeadline), 10)
 	if err != nil {
 		t.Fatalf("Due: %v", err)
 	}
@@ -336,11 +338,11 @@ func TestDueClaimsEachWindowOnce(t *testing.T) {
 		t.Fatalf("Schedule: %v", err)
 	}
 
-	first, err := windows.Due(ctx, winBase.Add(2*time.Minute), 10)
+	first, err := windows.Due(ctx, winBase.Add(pastDeadline), 10)
 	if err != nil {
 		t.Fatalf("Due: %v", err)
 	}
-	second, err := windows.Due(ctx, winBase.Add(2*time.Minute), 10)
+	second, err := windows.Due(ctx, winBase.Add(pastDeadline), 10)
 	if err != nil {
 		t.Fatalf("Due: %v", err)
 	}
@@ -411,43 +413,60 @@ func (f *fakeStore) ZAddMany(ctx context.Context, entries []window.ScoreEntry) e
 	return nil
 }
 
-// SlowestVendorLag is Cloudflare Logpush's observed delivery delay: about 34 seconds
-// before a request's rows reach the platform, against F5 and nginx which ship in real
-// time.
-const SlowestVendorLag = 34 * time.Second
+// pastDeadline is comfortably after a window's close, expressed in terms of the
+// settings that decide it. A literal here silently becomes wrong the moment the grace
+// moves, and the failure mode is a test that claims nothing while appearing to pass on
+// the assertion it actually cares about.
+var pastDeadline = keys.DefaultSettings().Window + window.DefaultGrace + time.Minute
+
+// SlowestVendorLag is Cloudflare Logpush's observed p99 delivery delay, from 90,909
+// events: p50 91s, p90 129s, p99 150s, max 178s. F5 arrives in about 17s and nginx in 3.
+//
+// The p99 rather than the median, because the median is what two earlier versions of
+// this constant were set against and both left records orphaned. A grace that covers
+// only half the deliveries is a coin flip, not a bound.
+const SlowestVendorLag = 150 * time.Second
+
+// SlowestVendorObserved is the worst delivery seen. The grace must clear it outright:
+// the tail is what produces orphans, and the tail is the entire point of the wait.
+const SlowestVendorObserved = 178 * time.Second
 
 // THE INVARIANT THE GRACE EXISTS FOR. A window must not close before the slowest vendor
-// has had a chance to deliver, or the events of one request are split across two close
-// passes — and each pass claims its own correlation id under whichever identifier it
-// happens to know. Both ids get published, nothing was wrong at the moment either was
-// claimed, and the schema cannot supersede a row, so one record is orphaned forever.
+// has delivered, or the events of one request are split across two close passes — and
+// each pass claims its own correlation id under whichever identifier it happens to
+// know. Both ids get published, nothing was wrong at the moment either was claimed, and
+// the schema cannot supersede a row, so one record is orphaned for the whole retention
+// period.
 //
-// At 30 seconds the window closed at event_time+35s, essentially level with Logpush, and
-// that coin flip orphaned ~7% of records even after identity lookup was fixed.
-//
-// The margin is deliberate rather than tight: Logpush batches on top of its base lag, so
-// matching it exactly would put the boundary back where it was.
+// This has been got wrong twice by measuring the lag as max(event_time), which reports
+// the freshest row in the newest batch — the best case. Both resulting values sat at or
+// below Cloudflare's median.
 func TestTheGraceOutlastsTheSlowestVendor(t *testing.T) {
-	if window.DefaultGrace <= SlowestVendorLag {
-		t.Fatalf("grace %v does not outlast the slowest vendor's %v delivery lag — "+
-			"windows will close before its events arrive and one request will be "+
-			"written as two permanently separate records",
-			window.DefaultGrace, SlowestVendorLag)
+	if window.DefaultGrace <= SlowestVendorObserved {
+		t.Fatalf("grace %v does not clear the worst observed delivery of %v — windows "+
+			"will close before those events arrive and one request will be written as "+
+			"two permanently separate records",
+			window.DefaultGrace, SlowestVendorObserved)
 	}
 
 	margin := window.DefaultGrace - SlowestVendorLag
 	if margin < 30*time.Second {
-		t.Errorf("only %v of margin over the %v delivery lag — Logpush batches on top "+
-			"of its base lag, so this leaves the boundary where it caused splits",
+		t.Errorf("only %v of margin over the p99 delivery lag of %v — Logpush batches "+
+			"on top of its base lag, so this leaves the boundary where it caused splits",
 			margin, SlowestVendorLag)
 	}
 }
 
-// Freshness is the price, and it should stay visible. A record appears roughly a window
-// plus the grace after the request, and beyond a couple of minutes an analyst watching
-// live traffic reads the delay as the platform being broken.
+// Freshness is the price and it should stay visible, so the bound is asserted rather
+// than left to drift upward one change at a time.
+//
+// Four minutes, not the two this once allowed. Cloudflare's 91-second median is the
+// floor on any correlated record involving it whatever this constant says, so a tighter
+// bound would not buy freshness — it would only force the grace back under the delivery
+// tail and start orphaning records again. The Correlated page is for investigating what
+// happened; Search and the dashboards are unaffected by this wait.
 func TestTheGraceDoesNotMakeRecordsStale(t *testing.T) {
-	const tolerable = 2 * time.Minute
+	const tolerable = 4 * time.Minute
 
 	settled := keys.DefaultSettings().Window + window.DefaultGrace
 	if settled > tolerable {
