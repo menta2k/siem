@@ -410,3 +410,48 @@ func (f *fakeStore) ZAddMany(ctx context.Context, entries []window.ScoreEntry) e
 	}
 	return nil
 }
+
+// SlowestVendorLag is Cloudflare Logpush's observed delivery delay: about 34 seconds
+// before a request's rows reach the platform, against F5 and nginx which ship in real
+// time.
+const SlowestVendorLag = 34 * time.Second
+
+// THE INVARIANT THE GRACE EXISTS FOR. A window must not close before the slowest vendor
+// has had a chance to deliver, or the events of one request are split across two close
+// passes — and each pass claims its own correlation id under whichever identifier it
+// happens to know. Both ids get published, nothing was wrong at the moment either was
+// claimed, and the schema cannot supersede a row, so one record is orphaned forever.
+//
+// At 30 seconds the window closed at event_time+35s, essentially level with Logpush, and
+// that coin flip orphaned ~7% of records even after identity lookup was fixed.
+//
+// The margin is deliberate rather than tight: Logpush batches on top of its base lag, so
+// matching it exactly would put the boundary back where it was.
+func TestTheGraceOutlastsTheSlowestVendor(t *testing.T) {
+	if window.DefaultGrace <= SlowestVendorLag {
+		t.Fatalf("grace %v does not outlast the slowest vendor's %v delivery lag — "+
+			"windows will close before its events arrive and one request will be "+
+			"written as two permanently separate records",
+			window.DefaultGrace, SlowestVendorLag)
+	}
+
+	margin := window.DefaultGrace - SlowestVendorLag
+	if margin < 30*time.Second {
+		t.Errorf("only %v of margin over the %v delivery lag — Logpush batches on top "+
+			"of its base lag, so this leaves the boundary where it caused splits",
+			margin, SlowestVendorLag)
+	}
+}
+
+// Freshness is the price, and it should stay visible. A record appears roughly a window
+// plus the grace after the request, and beyond a couple of minutes an analyst watching
+// live traffic reads the delay as the platform being broken.
+func TestTheGraceDoesNotMakeRecordsStale(t *testing.T) {
+	const tolerable = 2 * time.Minute
+
+	settled := keys.DefaultSettings().Window + window.DefaultGrace
+	if settled > tolerable {
+		t.Errorf("a record takes %v to appear, over the %v an analyst will tolerate",
+			settled, tolerable)
+	}
+}
