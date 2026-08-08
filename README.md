@@ -145,6 +145,8 @@ first line of its log:
   contracts, the common event model
 - [Connecting vendors](docs/connecting-vendors.md) — step-by-step for Cloudflare, F5,
   and DataDome
+- [Connecting the nginx origin](docs/nginx-origin-deployment.md) — shipping origin
+  access logs so a correlated record shows the whole path
 - [Quickstart](docs/quickstart.md) — validation scenarios V1–V6
 - [Validation results](specs/001-waf-bot-log-correlation/validation-results.md) — what
   passed on a clean stack, and the twelve defects the runs found
