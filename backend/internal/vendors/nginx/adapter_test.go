@@ -74,24 +74,53 @@ func TestTheLoadBalancerIsNeverTheClient(t *testing.T) {
 	}
 }
 
-// X-Forwarded-For is append-only, so its LEFTMOST entry is attacker-controlled. With
-// CF-Connecting-IP absent the chain must be read from the right, and a forged public
-// address at the front must not win.
-func TestAForgedForwardedForIsNotBelieved(t *testing.T) {
-	line := `{"time_iso8601":"2026-08-08T17:27:08+00:00","remote_addr":"10.1.111.20",` +
-		`"x_forwarded_for":"240.0.0.1, 198.18.5.6, 10.1.111.20",` +
+// CLOUDFLARE'S PSEUDO IPv4, and the bug it caused. When an IPv6 client reaches an IPv4
+// origin Cloudflare synthesises a CF-Connecting-IP in reserved 240.0.0.0/4 — 36% of
+// live requests on this deployment, 2,671 of 7,352 in ten minutes. The genuine IPv6
+// client is in $remote_addr, put there by nginx's realip module.
+//
+// Refusing the pseudo address is right. Falling back to the forwarded chain was not:
+// behind a CDN the rightmost hop is the CDN's own edge, so 708 events were attributed
+// to Cloudflare's 162.158.60.172 instead of the people who made them.
+func TestPseudoIPv4FallsBackToTheRealClient(t *testing.T) {
+	line := `{"time_iso8601":"2026-08-08T17:27:08+00:00",` +
+		`"cf_connecting_ip":"246.214.60.187",` +
+		`"x_forwarded_for":"246.214.60.187, 172.71.148.23",` +
+		`"remote_addr":"2a02:26f7:e180:da13:0:1000:0:f",` +
 		`"cf_ray":"ray1-SOF","host":"www.jobs.bg","request_uri":"/","request_method":"GET",` +
 		`"status":200}`
 
 	event := normalizeOne(t, line)
-	if event.ClientIP != nil && event.ClientIP.String() == "240.0.0.1" {
-		t.Error("a reserved 240.0.0.0/4 address was accepted as the client")
+	if event.ClientIP == nil {
+		t.Fatal("no client resolved — the real IPv6 client was in remote_addr")
+	}
+	if got := event.ClientIP.String(); got != "2a02:26f7:e180:da13:0:1000:0:f" {
+		t.Errorf("ClientIP = %q, want the IPv6 client from remote_addr", got)
 	}
 }
 
-// When there is nothing trustworthy, the event carries NO client rather than the load
-// balancer's address. This is where nginx diverges from F5 on purpose: there the peer
-// may genuinely be the client, here it is always infrastructure.
+// The CDN's edge address must never be recorded as the client, whichever header it
+// appears in. This is the specific regression: X-Forwarded-For's rightmost hop.
+func TestTheCDNEdgeIsNeverTheClient(t *testing.T) {
+	line := `{"time_iso8601":"2026-08-08T17:27:08+00:00",` +
+		`"cf_connecting_ip":"246.214.60.187",` +
+		`"x_forwarded_for":"246.214.60.187, 162.158.60.172",` +
+		`"remote_addr":"10.1.111.20",` +
+		`"cf_ray":"ray1","host":"www.jobs.bg","request_uri":"/","request_method":"GET",` +
+		`"status":200}`
+
+	got := normalizeOne(t, line).ClientIP
+	if got != nil && got.String() == "162.158.60.172" {
+		t.Error("Cloudflare's edge address was recorded as the client")
+	}
+	if got != nil {
+		t.Errorf("ClientIP = %v, want none — nothing here is a client address", got)
+	}
+}
+
+// Where realip is NOT configured, $remote_addr is the load balancer. Requiring the
+// address to be routable is what keeps it out: a LAN address is private and refused,
+// so the event carries no client rather than the infrastructure.
 func TestNoClientIsBetterThanTheProxysAddress(t *testing.T) {
 	line := `{"time_iso8601":"2026-08-08T17:27:08+00:00","remote_addr":"10.1.111.20",` +
 		`"cf_ray":"ray1","host":"www.jobs.bg","request_uri":"/","request_method":"GET",` +

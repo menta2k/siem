@@ -334,18 +334,31 @@ the rule is shaped this way.
 
 ### The client address
 
-`$remote_addr` is the BIG-IP on every request and is **never** used as the client.
-Resolution order, mirroring the F5 adapter so the two agree about who the client is:
+`CF-Connecting-IP` first, then `$remote_addr` when it is a **routable public** address.
 
-1. `CF-Connecting-IP` — Cloudflare *overwrites* this rather than appending, so it is
-   unspoofable behind Cloudflare and matches Cloudflare's own logs by construction.
-2. The `X-Forwarded-For` chain walked from the **right**, stopping at the first routable
-   public address that is not the peer. The header is append-only, so its leftmost entry
-   is attacker-controlled — on live F5 traffic 27.7% of events carried a forged address
-   in reserved `240.0.0.0/4`.
-3. **Nothing.** Unlike F5 there is no peer fallback: there the peer may genuinely be the
-   client, here it is always the load balancer, and recording it would be worse than
-   recording no address at all.
+The second step is not a formality. Cloudflare's **Pseudo IPv4** feature synthesises a
+`CF-Connecting-IP` in reserved `240.0.0.0/4` whenever an IPv6 client reaches an IPv4
+origin — on live traffic here that was **36% of requests**. Those addresses cannot
+belong to any host, so they are refused, and the genuine IPv6 client is the one nginx's
+realip module has already put in `$remote_addr`.
+
+Requiring `$remote_addr` to be routable is what makes it safe where realip is *not*
+configured: it is then the load balancer, whose LAN address is private and therefore
+rejected.
+
+**`X-Forwarded-For` is deliberately not used.** Behind a CDN its rightmost hop is the
+CDN's own edge, so walking the chain from the right returns Cloudflare's address on
+every request — that mistake attributed 708 events to `162.158.60.172`. Reading it from
+the left is worse still: the header is append-only, so its first entry is whatever the
+client typed.
+
+When neither source yields an address the event carries none. The address drives search,
+the top-sources panel and the IP-based heuristic join, so a wrong one is worse than a
+missing one.
+
+> If you would rather see real IPv4 addresses than pseudo ones, Cloudflare's **Network →
+> Pseudo IPv4** setting controls this. Leaving it on is fine — the origin feed resolves
+> around it — but it also affects any other consumer of `CF-Connecting-IP`.
 
 ---
 

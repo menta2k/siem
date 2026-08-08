@@ -9,35 +9,41 @@ import (
 
 // resolveClientIP determines the address the request actually came from.
 //
-// THE TRAP HERE IS remote_addr. nginx sits behind F5, which sits behind Cloudflare, so
-// $remote_addr is the BIG-IP's address on every single request. Logging it as the
-// client would make every nginx event report one of a handful of load-balancer
-// addresses — search for a real client would return nothing, the top-sources panel
-// would show the infrastructure, and the IP-based heuristic join would collapse all
-// traffic onto one apparent source.
+// The order below is not the F5 adapter's, and the difference is deliberate — measured
+// against real traffic from this deployment.
 //
-// Trust decreases down this list, and it mirrors the F5 adapter deliberately: the two
-// sit at different points in the same chain and must agree about who the client is, or
-// the same request is attributed to two different addresses depending on which vendor
-// reported it.
+//  1. CF-Connecting-IP, which Cloudflare OVERWRITES rather than appends, so it cannot
+//     be spoofed and matches Cloudflare's own logs by construction.
 //
-//  1. CF-Connecting-IP, which Cloudflare OVERWRITES rather than appends — unspoofable
-//     behind Cloudflare, and the same value Cloudflare's own logs carry.
-//  2. The forwarded chain walked from the RIGHT, stopping at the first routable public
-//     address that is not the peer.
-//  3. Nothing. The peer is NOT used as a fallback, which is where this diverges from
-//     F5: there the peer may genuinely be the client, whereas here it is always the
-//     load balancer, and recording it would be worse than recording no address at all.
+//  2. $remote_addr, but ONLY when it is a routable public address.
+//
+//     This is the one that matters. Cloudflare's Pseudo IPv4 feature synthesises an
+//     address in reserved 240.0.0.0/4 when an IPv6 client reaches an IPv4 origin, and
+//     on live traffic that was 36% of requests — 2,671 of 7,352 in ten minutes. Those
+//     are correctly refused by step 1 as unroutable, and the real IPv6 client is sitting
+//     in $remote_addr, put there by nginx's realip module.
+//
+//     Requiring it to be ROUTABLE is what makes this safe where realip is not
+//     configured: $remote_addr is then the load balancer, whose LAN address is private
+//     and therefore rejected, so the value is used only when it is plausibly a client.
+//
+// X-Forwarded-For is deliberately NOT consulted. Behind a CDN the rightmost hop is the
+// CDN's own edge — walking the chain from the right returns Cloudflare's address on
+// every request, which is exactly the bug this replaces: 708 events attributed to
+// 162.158.60.172. Reading it from the LEFT is worse, since the header is append-only
+// and its first entry is whatever the client typed.
+//
+// When neither source yields an address the event carries none. That is the honest
+// answer, and far better than recording infrastructure as the client: the address
+// drives search, the top-sources panel and the IP-based heuristic join, so a wrong one
+// is worse than a missing one.
 func resolveClientIP(fields map[string]any) net.IP {
-	if ip := vendors.RoutableClientIP(
-		vendors.AsString(fields["cf_connecting_ip"]),
-	); ip != nil {
-		return ip
+	for _, name := range []string{"cf_connecting_ip", "remote_addr"} {
+		if ip := vendors.RoutableClientIP(vendors.AsString(fields[name])); ip != nil {
+			return ip
+		}
 	}
-
-	forwarded := vendors.AsString(fields["x_forwarded_for"])
-	peer := vendors.AsString(fields["remote_addr"])
-	return vendors.LastUntrustedHop(forwarded, peer)
+	return nil
 }
 
 // cloudflareRayID extracts the join key from the CF-Ray header nginx logged.
