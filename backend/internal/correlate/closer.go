@@ -380,8 +380,25 @@ func (c *Closer) materialize(
 ) (chdata.CorrelatedRequest, error) {
 	record := buildRecord(tenantID, g, settings.ScoreConflictThreshold)
 
-	correlationID, err := c.windows.Identity(
-		ctx, tenantID, g.Key.Value, keys.CorrelationID(g.Key), settings.Keys)
+	// Claimed under every identifier the group carries, not just its key. The key is the
+	// smallest identifier in the component and therefore CHANGES as late events widen
+	// it, which split 92.7% of f5+nginx records off into orphans: the amendment computed
+	// a different id and wrote a second record instead of updating the first.
+	//
+	// A heuristic group returns none of these and falls back to its key, since those
+	// members share no identifier and aliasing on their rays would merge unrelated
+	// requests.
+	identifiers := g.Identifiers()
+	proposed := keys.CorrelationID(g.Key)
+
+	resolve := func() (uuid.UUID, error) {
+		if len(identifiers) == 0 {
+			return c.windows.Identity(ctx, tenantID, g.Key.Value, proposed, settings.Keys)
+		}
+		return c.windows.IdentityForAny(ctx, tenantID, identifiers, proposed, settings.Keys)
+	}
+
+	correlationID, err := resolve()
 	if err != nil {
 		return chdata.CorrelatedRequest{}, fmt.Errorf("resolve correlation id: %w", err)
 	}

@@ -62,6 +62,38 @@ func (g Group) Vendors() []string {
 	return out
 }
 
+// Identifiers returns every exact identifier this group's members are known by, sorted.
+//
+// The correlation id is claimed under ALL of them rather than under the group's key
+// alone. No single identifier appears in every subset of a request's events — F5 and
+// nginx see only the origin fetch's ray, DataDome only the client-facing one — so a key
+// computed from whichever events happen to have arrived changes as the rest turn up,
+// and the amendment lands on a new record instead of the existing one.
+//
+// Empty for a heuristic group on purpose. Those are joined by shape and time, not by a
+// shared identifier, and claiming their members' rays would alias unrelated requests
+// onto one record.
+func (g Group) Identifiers() []string {
+	if g.Key.Tier != keys.TierExact {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	out := make([]string, 0, 2*len(g.Members))
+	for _, m := range g.Members {
+		for _, identifier := range keys.Identifiers(m.Row) {
+			if seen[identifier] {
+				continue
+			}
+			seen[identifier] = true
+			out = append(out, identifier)
+		}
+	}
+	// Sorted so every worker that sees the same members contends on the same key.
+	sort.Strings(out)
+	return out
+}
+
 // Batch groups a set of events that fall inside one correlation horizon.
 //
 // Batch is deterministic: events are ordered by time before any window merging, so

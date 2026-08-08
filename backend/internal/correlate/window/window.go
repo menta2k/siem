@@ -241,6 +241,89 @@ func (w *Windows) Identity(
 	return parsed, nil
 }
 
+// IdentityForAny resolves the correlation id a request is already known by, looking it
+// up under EVERY identifier the request carries and claiming all of them.
+//
+// THE SPLIT-RECORD BUG THIS FIXES. A correlated record's id has to be derivable from
+// any subset of its events, because the events arrive in any order. For a request
+// through a Worker-protected edge no single identifier is present in every subset: F5
+// and nginx only ever see the origin fetch's ray, DataDome is only reachable through
+// the client-facing one, and just the Cloudflare origin-fetch row carries both.
+//
+// Computing the id from the group therefore cannot work, and computing it from the
+// SMALLEST identifier — which is what the grouping does to stay deterministic — changes
+// the answer as the group grows. In production that split 92.7% of f5+nginx records off
+// into orphans: F5 and nginx arrive in real time and get a record keyed on their ray,
+// Cloudflare arrives ~30 seconds later carrying the bridge, the canonical identifier
+// flips to the parent, and the amendment lands on a NEW id instead of the existing one.
+// One request, two records, and the older one is permanent because the schema has no
+// way to supersede a row.
+//
+// So the id is REMEMBERED rather than recomputed. The first writer claims it under all
+// the identifiers it knows, and a later group sharing any one of them finds it and
+// amends the record that already exists.
+//
+// Claiming is SETNX throughout, so a concurrent closer cannot overwrite an id another
+// worker has already published. Two workers that both find nothing can still race to
+// claim different ids for disjoint identifier sets — the window is a single round trip
+// wide, and the outcome is the split that happened before this existed, never worse.
+func (w *Windows) IdentityForAny(
+	ctx context.Context, tenantID uuid.UUID, identifiers []string, proposed uuid.UUID,
+	settings keys.Settings,
+) (uuid.UUID, error) {
+	if len(identifiers) == 0 {
+		return proposed, nil
+	}
+
+	resolved, err := w.existingIdentity(ctx, tenantID, identifiers)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if resolved == uuid.Nil {
+		// Nothing claimed yet. The FIRST identifier is the authority — the caller sorts
+		// them, so two workers seeing the same set contend on the same key and exactly
+		// one wins.
+		resolved, err = w.Identity(ctx, tenantID, identifiers[0], proposed, settings)
+		if err != nil {
+			return uuid.Nil, err
+		}
+	}
+
+	// Publish under every identifier, so a later group arriving through any of them
+	// finds this record rather than minting a second one. SETNX: an identifier already
+	// pointing somewhere is left alone.
+	for _, identifier := range identifiers {
+		_, err := w.store.SetNX(
+			ctx, identityKey(tenantID, identifier), resolved.String(), w.TTL(settings))
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("claim identity for %s: %w", identifier, err)
+		}
+	}
+	return resolved, nil
+}
+
+// existingIdentity returns the id already claimed under any identifier, or Nil.
+func (w *Windows) existingIdentity(
+	ctx context.Context, tenantID uuid.UUID, identifiers []string,
+) (uuid.UUID, error) {
+	for _, identifier := range identifiers {
+		existing, err := w.store.Get(ctx, identityKey(tenantID, identifier))
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if existing == "" {
+			continue
+		}
+		parsed, err := uuid.Parse(existing)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf(
+				"stored correlation id %q for %s: %w", existing, identifier, err)
+		}
+		return parsed, nil
+	}
+	return uuid.Nil, nil
+}
+
 // Schedule marks a key as the window that will emit a record, due once its deadline
 // passes. Calling it repeatedly for the same key simply moves the deadline out, which
 // is exactly what a late arrival should do.
