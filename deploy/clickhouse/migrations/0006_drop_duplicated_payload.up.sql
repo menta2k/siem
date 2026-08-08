@@ -1,0 +1,34 @@
+-- Drop the two columns that restate the raw payload.
+--
+-- normalized_events was 20.15 GiB over 35.9M rows, and two columns were 77% of it:
+--
+--     raw_extra       Map(String,String)   12.79 GiB compressed / 38.86 GiB raw / 3.0x
+--     unknown_fields  Array(String)         2.82 GiB compressed / 13.40 GiB raw / 4.7x
+--
+-- Both are derived from the vendor payload, which raw_events already keeps IN FULL for
+-- 3.08 GiB -- ZSTD(3) at 15.4x, because ClickHouse compresses a column's 8192-row blocks
+-- together and these payloads share their structure. raw_extra reached only 3.0x for the
+-- opposite reason: Map interleaves keys and values per row, so there is far less for the
+-- codec to exploit. Storing a parsed copy therefore cost four times what the original did.
+--
+-- Neither column is lost as information. Both are recomputed on read in GetEvent by
+-- re-parsing raw_events.payload through the same vendor adapter that produced them, with
+-- the tenant's redaction policy re-applied, so a masked field stays masked. That is one
+-- parse for one event on a detail view, against a per-row cost paid by every event ever
+-- ingested.
+--
+-- unknown_fields also came off EVERY SEARCH ROW, where nothing displayed it. Its purpose
+-- is schema drift, and the drift detector already aggregates that per feed into feed
+-- health -- which is where an operator acts on it, rather than one row at a time.
+--
+-- RETENTION MAKES THIS SAFE. raw_events and normalized_events both keep 30 days, so the
+-- payload is present for exactly as long as the row that needs it. If those TTLs are ever
+-- allowed to diverge, an event outliving its payload would return empty raw_extra rather
+-- than the stored copy, and the reconstruction would silently degrade.
+--
+-- ALTER ... DROP COLUMN is metadata-only and then rewrites parts in the background, so the
+-- space returns as the mutation progresses rather than at once. Progress is visible in
+-- system.mutations.
+
+ALTER TABLE normalized_events DROP COLUMN IF EXISTS raw_extra;
+ALTER TABLE normalized_events DROP COLUMN IF EXISTS unknown_fields;

@@ -152,7 +152,7 @@ func buildServices(
 			cfg.Auth.MFAIssuer),
 		Feeds: service.NewFeedsService(feeds, events, health,
 			secrets.NewRedisStore(rdb), auditLog, adapters),
-		Search:      service.NewSearchService(searchRepo, events, auditLog, limits),
+		Search:      service.NewSearchService(searchRepo, events, auditLog, limits, adapters, tenants),
 		Correlation: service.NewCorrelationService(correlated),
 		Dashboards:  service.NewDashboardsService(panels, feeds, health, limits),
 		Admin: service.NewAdminService(users, tenants, auditLog,

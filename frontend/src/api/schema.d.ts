@@ -865,12 +865,24 @@ export interface components {
              */
             rawPayload?: string;
             rawContentType?: string;
-            /** @description Vendor-native fields with no common-model home. */
+            /**
+             * @description Vendor-native fields with no common-model home (FR-012).
+             *
+             *      Reconstructed from raw_payload on read rather than stored: it is a parsed view of
+             *      those same bytes, and keeping both cost 12.79 GiB to say twice what the payload
+             *      already said once. The tenant's redaction policy is re-applied when it is rebuilt,
+             *      so a masked field is masked here exactly as it was when stored.
+             */
             rawExtra?: {
                 [key: string]: string;
             };
             /** @description Set when this event was correlated with others, for drill-through. */
             correlationId?: string;
+            /**
+             * @description Vendor fields the adapter did not recognise, for the event being inspected.
+             *      Reconstructed alongside raw_extra from the same parse.
+             */
+            unknownFields?: string[];
         };
         /**
          * @description EventFilters are the cross-vendor filters an analyst can apply.
@@ -936,8 +948,6 @@ export interface components {
             /** Format: float */
             score?: number;
             scoreKind?: string;
-            /** @description Vendor fields with no common-model home were preserved, not discarded (FR-012). */
-            unknownFields?: string[];
         };
         ExportSearchRequest: {
             timeRange?: components["schemas"]["TimeRange"];

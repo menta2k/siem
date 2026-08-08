@@ -71,7 +71,7 @@ func paginate[T any](items []T, pageSize int32, cursorOf func(T) query.Cursor) P
 const eventSearchColumns = `event_id, event_time, vendor, feed_id, vendor_request_id,
 	client_ip, client_ip_shared, client_asn, client_country, request_host, request_path,
 	request_query, request_method, user_agent, http_status, verdict, verdict_reason,
-	rule_id, rule_ids, score, score_kind, unknown_fields`
+	rule_id, rule_ids, score, score_kind`
 
 // EventSearchResult is one row of an event search.
 //
@@ -104,8 +104,6 @@ type EventSearchResult struct {
 	RuleIDs       []string
 	Score         *float32
 	ScoreKind     string
-
-	UnknownFields []string
 }
 
 // EventQuery is a validated event search.
@@ -180,7 +178,7 @@ func scanEventSearchResult(row rowScanner) (EventSearchResult, error) {
 		&result.ClientCountry, &result.RequestHost, &result.RequestPath,
 		&result.RequestQuery, &result.RequestMethod, &result.UserAgent,
 		&result.HTTPStatus, &result.Verdict, &result.VerdictReason, &result.RuleID,
-		&result.RuleIDs, &result.Score, &result.ScoreKind, &result.UnknownFields,
+		&result.RuleIDs, &result.Score, &result.ScoreKind,
 	); err != nil {
 		return EventSearchResult{}, fmt.Errorf("scan event search result: %w", err)
 	}

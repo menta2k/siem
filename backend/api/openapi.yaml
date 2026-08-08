@@ -1518,10 +1518,23 @@ components:
                     type: object
                     additionalProperties:
                         type: string
-                    description: Vendor-native fields with no common-model home.
+                    description: |-
+                        Vendor-native fields with no common-model home (FR-012).
+
+                         Reconstructed from raw_payload on read rather than stored: it is a parsed view of
+                         those same bytes, and keeping both cost 12.79 GiB to say twice what the payload
+                         already said once. The tenant's redaction policy is re-applied when it is rebuilt,
+                         so a masked field is masked here exactly as it was when stored.
                 correlationId:
                     type: string
                     description: Set when this event was correlated with others, for drill-through.
+                unknownFields:
+                    type: array
+                    items:
+                        type: string
+                    description: |-
+                        Vendor fields the adapter did not recognise, for the event being inspected.
+                         Reconstructed alongside raw_extra from the same parse.
             description: EventDetail is one event with everything the platform holds about it.
         EventFilters:
             type: object
@@ -1637,11 +1650,6 @@ components:
                     format: float
                 scoreKind:
                     type: string
-                unknownFields:
-                    type: array
-                    items:
-                        type: string
-                    description: Vendor fields with no common-model home were preserved, not discarded (FR-012).
             description: |-
                 EventSummary is one search hit.
 

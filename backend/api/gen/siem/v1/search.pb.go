@@ -325,10 +325,8 @@ type EventSummary struct {
 	RuleIds         []string               `protobuf:"bytes,11,rep,name=rule_ids,json=ruleIds,proto3" json:"rule_ids,omitempty"`
 	Score           *float32               `protobuf:"fixed32,12,opt,name=score,proto3,oneof" json:"score,omitempty"`
 	ScoreKind       string                 `protobuf:"bytes,13,opt,name=score_kind,json=scoreKind,proto3" json:"score_kind,omitempty"`
-	// Vendor fields with no common-model home were preserved, not discarded (FR-012).
-	UnknownFields []string `protobuf:"bytes,14,rep,name=unknown_fields,json=unknownFields,proto3" json:"unknown_fields,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *EventSummary) Reset() {
@@ -450,13 +448,6 @@ func (x *EventSummary) GetScoreKind() string {
 		return x.ScoreKind
 	}
 	return ""
-}
-
-func (x *EventSummary) GetUnknownFields() []string {
-	if x != nil {
-		return x.UnknownFields
-	}
-	return nil
 }
 
 type SearchEventsResponse struct {
@@ -946,10 +937,18 @@ type EventDetail struct {
 	// so a parse failure can never cost the original (FR-005).
 	RawPayload     string `protobuf:"bytes,2,opt,name=raw_payload,json=rawPayload,proto3" json:"raw_payload,omitempty"`
 	RawContentType string `protobuf:"bytes,3,opt,name=raw_content_type,json=rawContentType,proto3" json:"raw_content_type,omitempty"`
-	// Vendor-native fields with no common-model home.
+	// Vendor-native fields with no common-model home (FR-012).
+	//
+	// Reconstructed from raw_payload on read rather than stored: it is a parsed view of
+	// those same bytes, and keeping both cost 12.79 GiB to say twice what the payload
+	// already said once. The tenant's redaction policy is re-applied when it is rebuilt,
+	// so a masked field is masked here exactly as it was when stored.
 	RawExtra map[string]string `protobuf:"bytes,4,rep,name=raw_extra,json=rawExtra,proto3" json:"raw_extra,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Set when this event was correlated with others, for drill-through.
 	CorrelationId string `protobuf:"bytes,5,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	// Vendor fields the adapter did not recognise, for the event being inspected.
+	// Reconstructed alongside raw_extra from the same parse.
+	UnknownFields []string `protobuf:"bytes,6,rep,name=unknown_fields,json=unknownFields,proto3" json:"unknown_fields,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1019,6 +1018,13 @@ func (x *EventDetail) GetCorrelationId() string {
 	return ""
 }
 
+func (x *EventDetail) GetUnknownFields() []string {
+	if x != nil {
+		return x.UnknownFields
+	}
+	return nil
+}
+
 var File_siem_v1_search_proto protoreflect.FileDescriptor
 
 const file_siem_v1_search_proto_rawDesc = "" +
@@ -1053,7 +1059,7 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12/\n" +
 	"\afilters\x18\x02 \x01(\v2\x15.siem.v1.EventFiltersR\afilters\x12(\n" +
-	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\xa1\x04\n" +
+	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\x80\x04\n" +
 	"\fEventSummary\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x129\n" +
 	"\n" +
@@ -1070,9 +1076,8 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\brule_ids\x18\v \x03(\tR\aruleIds\x12\x19\n" +
 	"\x05score\x18\f \x01(\x02H\x00R\x05score\x88\x01\x01\x12\x1d\n" +
 	"\n" +
-	"score_kind\x18\r \x01(\tR\tscoreKind\x12%\n" +
-	"\x0eunknown_fields\x18\x0e \x03(\tR\runknownFieldsB\b\n" +
-	"\x06_score\"n\n" +
+	"score_kind\x18\r \x01(\tR\tscoreKindB\b\n" +
+	"\x06_scoreJ\x04\b\x0e\x10\x0f\"n\n" +
 	"\x14SearchEventsResponse\x12+\n" +
 	"\x05items\x18\x01 \x03(\v2\x15.siem.v1.EventSummaryR\x05items\x12)\n" +
 	"\x04page\x18\x02 \x01(\v2\x15.siem.v1.PageResponseR\x04page\"\xdc\x03\n" +
@@ -1113,14 +1118,15 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\trow_count\x18\x04 \x01(\x03R\browCount\x12\x1c\n" +
 	"\ttruncated\x18\x05 \x01(\bR\ttruncated\",\n" +
 	"\x0fGetEventRequest\x12\x19\n" +
-	"\bevent_id\x18\x01 \x01(\tR\aeventId\"\xae\x02\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\"\xd5\x02\n" +
 	"\vEventDetail\x12/\n" +
 	"\asummary\x18\x01 \x01(\v2\x15.siem.v1.EventSummaryR\asummary\x12\x1f\n" +
 	"\vraw_payload\x18\x02 \x01(\tR\n" +
 	"rawPayload\x12(\n" +
 	"\x10raw_content_type\x18\x03 \x01(\tR\x0erawContentType\x12?\n" +
 	"\traw_extra\x18\x04 \x03(\v2\".siem.v1.EventDetail.RawExtraEntryR\brawExtra\x12%\n" +
-	"\x0ecorrelation_id\x18\x05 \x01(\tR\rcorrelationId\x1a;\n" +
+	"\x0ecorrelation_id\x18\x05 \x01(\tR\rcorrelationId\x12%\n" +
+	"\x0eunknown_fields\x18\x06 \x03(\tR\runknownFields\x1a;\n" +
 	"\rRawExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*^\n" +

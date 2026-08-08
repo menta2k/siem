@@ -101,8 +101,12 @@ message EventSummary {
   optional float score = 12;
   string score_kind = 13;
 
-  // Vendor fields with no common-model home were preserved, not discarded (FR-012).
-  repeated string unknown_fields = 14;
+  // Field 14 was unknown_fields, carried on EVERY search row. It is a per-event
+  // schema-drift signal on a list endpoint that never displayed it, and it cost 2.82 GiB
+  // of storage plus a slice on every result. The signal itself is not lost: the drift
+  // detector aggregates it per feed into feed health, which is where an operator acts on
+  // it, and EventDetail reports the per-event list for the one event being inspected.
+  reserved 14;
 }
 
 message SearchEventsResponse {
@@ -178,8 +182,16 @@ message EventDetail {
   // so a parse failure can never cost the original (FR-005).
   string raw_payload = 2;
   string raw_content_type = 3;
-  // Vendor-native fields with no common-model home.
+  // Vendor-native fields with no common-model home (FR-012).
+  //
+  // Reconstructed from raw_payload on read rather than stored: it is a parsed view of
+  // those same bytes, and keeping both cost 12.79 GiB to say twice what the payload
+  // already said once. The tenant's redaction policy is re-applied when it is rebuilt,
+  // so a masked field is masked here exactly as it was when stored.
   map<string, string> raw_extra = 4;
   // Set when this event was correlated with others, for drill-through.
   string correlation_id = 5;
+  // Vendor fields the adapter did not recognise, for the event being inspected.
+  // Reconstructed alongside raw_extra from the same parse.
+  repeated string unknown_fields = 6;
 }

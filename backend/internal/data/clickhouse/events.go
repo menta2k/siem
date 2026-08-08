@@ -58,8 +58,6 @@ type NormalizedEvent struct {
 	Score         *float32
 	ScoreKind     string
 
-	RawExtra      map[string]string
-	UnknownFields []string
 	IngestVersion uint64
 }
 
@@ -131,8 +129,7 @@ func (r *EventRepo) InsertNormalized(ctx context.Context, events []NormalizedEve
 			e.RequestHost, e.RequestPath, e.RequestQuery, e.RequestMethod,
 			e.UserAgent, e.HTTPStatus,
 			e.Verdict, e.VerdictReason, e.RuleID, orEmptySlice(e.RuleIDs),
-			e.Score, e.ScoreKind,
-			orEmptyMap(e.RawExtra), orEmptySlice(e.UnknownFields), e.IngestVersion,
+			e.Score, e.ScoreKind, e.IngestVersion,
 		); err != nil {
 			return fmt.Errorf("append normalized event %s: %w", e.EventID, err)
 		}
@@ -171,8 +168,7 @@ const normalizedColumns = `tenant_id, event_id, event_time, event_time_original,
 	vendor, feed_id, vendor_account, vendor_request_id,
 	client_ip, client_ip_shared, client_asn, client_country,
 	request_host, request_path, request_query, request_method, user_agent, http_status,
-	verdict, verdict_reason, rule_id, rule_ids, score, score_kind,
-	raw_extra, unknown_fields, ingest_version`
+	verdict, verdict_reason, rule_id, rule_ids, score, score_kind, ingest_version`
 
 // GetNormalized loads one normalized event within the context's tenant.
 //
@@ -307,7 +303,7 @@ func scanNormalized(row rowScanner) (NormalizedEvent, error) {
 		&e.RequestHost, &e.RequestPath, &e.RequestQuery, &e.RequestMethod,
 		&e.UserAgent, &e.HTTPStatus,
 		&e.Verdict, &e.VerdictReason, &e.RuleID, &e.RuleIDs, &e.Score, &e.ScoreKind,
-		&e.RawExtra, &e.UnknownFields, &e.IngestVersion,
+		&e.IngestVersion,
 	)
 	if err != nil {
 		return NormalizedEvent{}, fmt.Errorf("scan normalized event: %w", err)

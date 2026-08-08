@@ -260,8 +260,12 @@ func toRow(envelope ingest.Envelope, event vendors.Event) chdata.NormalizedEvent
 		Score:         event.Score,
 		ScoreKind:     event.ScoreKind,
 
-		RawExtra:      event.RawExtra,
-		UnknownFields: event.UnknownFields,
+		// RawExtra and UnknownFields are deliberately NOT stored. They are a parsed view
+		// of the payload raw_events already holds in full, and keeping them cost four
+		// times what the original did. EventDetail rebuilds both from that payload on
+		// read; the drift detector above has already consumed UnknownFields for the
+		// feed-health signal, which is the only thing that needed them eagerly.
+		//
 		// Version 1 on first write. A reprocessing pass increments it, and
 		// ReplacingMergeTree keeps the newest.
 		IngestVersion: uint64(envelope.ReceivedAt.UnixNano()), //nolint:gosec // monotonic

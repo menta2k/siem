@@ -277,11 +277,11 @@ func TestRedactionPolicyIsEnforcedAtStorage(t *testing.T) {
 	if stored.UserAgent == secretUA {
 		t.Error("the redacted user agent was stored in readable form")
 	}
-	for key, value := range stored.RawExtra {
-		if strings.Contains(value, "private-device-fingerprint") {
-			t.Errorf("RawExtra[%q] still carries the redacted value", key)
-		}
-	}
+	// RawExtra is no longer a stored column, so there is nothing here to inspect: it is
+	// rebuilt from the raw payload on read, and the redaction policy is re-applied at
+	// that point. That guarantee is asserted directly in
+	// internal/service.TestTheTenantsRedactionPolicyIsReapplied -- it has to be, because
+	// the raw payload below deliberately still holds the original value.
 
 	// The raw copy deliberately retains the original: redaction governs the derived,
 	// queryable view, and the vendor's evidence expires with the retention policy.

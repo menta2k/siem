@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -16,6 +17,7 @@ import (
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
 	mw "github.com/menta2k/siem/internal/middleware"
 	"github.com/menta2k/siem/internal/query"
+	"github.com/menta2k/siem/internal/tenancy"
 	"github.com/menta2k/siem/internal/vendors"
 )
 
@@ -38,12 +40,22 @@ type EventDetailReader interface {
 	GetRawPayload(ctx context.Context, eventID string) ([]byte, string, error)
 }
 
+// TenantPolicyReader supplies the redaction policy to re-apply when vendor fields are
+// rebuilt from a payload on read.
+type TenantPolicyReader interface {
+	GetByID(ctx context.Context, tenantID uuid.UUID) (chdata.Tenant, error)
+}
+
 // SearchService implements the Search proto service.
 type SearchService struct {
 	search   EventSearcher
 	events   EventDetailReader
 	auditLog AuditWriter
 	limits   query.Limits
+	// adapters and tenants rebuild raw_extra and unknown_fields from the stored payload
+	// rather than reading columns that used to hold a parsed copy of those same bytes.
+	adapters *vendors.Registry
+	tenants  TenantPolicyReader
 	now      func() time.Time
 }
 
@@ -53,11 +65,11 @@ type SearchService struct {
 // that can only be checked against the real clock gets tested loosely or not at all.
 func NewSearchService(
 	search EventSearcher, events EventDetailReader, auditLog AuditWriter,
-	limits query.Limits,
+	limits query.Limits, adapters *vendors.Registry, tenants TenantPolicyReader,
 ) *SearchService {
 	return &SearchService{
 		search: search, events: events, auditLog: auditLog,
-		limits: limits, now: time.Now,
+		limits: limits, adapters: adapters, tenants: tenants, now: time.Now,
 	}
 }
 
@@ -181,10 +193,7 @@ func (s *SearchService) GetEvent(
 		return nil, mw.Internal().WithCause(err)
 	}
 
-	detail := &pb.EventDetail{
-		Summary:  toEventSummary(toSearchResult(event)),
-		RawExtra: event.RawExtra,
-	}
+	detail := &pb.EventDetail{Summary: toEventSummary(toSearchResult(event))}
 
 	// A missing raw payload is not an error worth failing the whole read for: retention
 	// may have expired it while the normalized row survives under a longer TTL, and the
@@ -193,8 +202,29 @@ func (s *SearchService) GetEvent(
 	if err == nil {
 		detail.RawPayload = string(payload)
 		detail.RawContentType = contentType
+		// Rebuilt from those bytes rather than read from a column. Storing the parsed
+		// copy cost four times what the payload itself does, and this is the only view
+		// that ever asked for it.
+		detail.RawExtra, detail.UnknownFields = s.vendorFields(ctx, event.Vendor, payload)
 	}
 	return detail, nil
+}
+
+// vendorFields rebuilds one event's vendor-native fields under the tenant's redaction
+// policy, degrading to nothing rather than failing the read around it.
+func (s *SearchService) vendorFields(
+	ctx context.Context, vendor string, payload []byte,
+) (map[string]string, []string) {
+	var redacted []string
+	if s.tenants != nil {
+		if tenantID, err := tenancy.MustID(ctx); err == nil {
+			if tenant, err := s.tenants.GetByID(ctx, tenantID); err == nil {
+				redacted = tenant.RedactedFields
+			}
+		}
+	}
+
+	return payloadFields(s.adapters, vendor, payload, redacted)
 }
 
 // timeRange validates the mandatory window.
@@ -362,7 +392,6 @@ func toSearchResult(e chdata.NormalizedEvent) chdata.EventSearchResult {
 		UserAgent: e.UserAgent, HTTPStatus: e.HTTPStatus,
 		Verdict: e.Verdict, VerdictReason: e.VerdictReason,
 		RuleID: e.RuleID, RuleIDs: e.RuleIDs, Score: e.Score, ScoreKind: e.ScoreKind,
-		UnknownFields: e.UnknownFields,
 	}
 }
 
@@ -393,7 +422,6 @@ func toEventSummary(e chdata.EventSearchResult) *pb.EventSummary {
 		RuleId:        e.RuleID,
 		RuleIds:       e.RuleIDs,
 		ScoreKind:     e.ScoreKind,
-		UnknownFields: e.UnknownFields,
 	}
 	if e.ClientIP != nil {
 		summary.Client.Ip = e.ClientIP.String()

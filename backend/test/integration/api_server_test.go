@@ -125,7 +125,7 @@ func buildTestServer(
 		Feeds: service.NewFeedsService(feeds, events, health,
 			secrets.NewMemoryStore(), auditLog, adapters),
 		Search: service.NewSearchService(
-			chdata.NewSearchRepo(f.ClickHouse), events, auditLog, limits),
+			chdata.NewSearchRepo(f.ClickHouse), events, auditLog, limits, adapters, tenants),
 		Correlation: service.NewCorrelationService(chdata.NewCorrelatedRepo(f.ClickHouse)),
 		Admin: service.NewAdminService(users, tenants, auditLog,
 			retention.NewWorker(tenants,
