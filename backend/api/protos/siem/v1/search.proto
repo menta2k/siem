@@ -134,6 +134,11 @@ message CorrelatedFilters {
   DisagreementKind disagreement_kind = 8;
   Confidence confidence = 9;
   Verdict combined_outcome = 10;
+  // The identifier SHARED between vendors — Cloudflare's ray. Resolved to the events
+  // carrying it, then matched against the record's event list.
+  string vendor_request_id = 11;
+  // The vendor's OWN reference for its record. F5's support_id.
+  string vendor_event_id = 12;
 }
 
 message SearchCorrelatedRequest {

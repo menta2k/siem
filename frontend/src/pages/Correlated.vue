@@ -13,7 +13,7 @@
  * this page to find.
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api, toDisplayMessage } from '@/api/client'
 import { debounce } from '@/lib/debounce'
 import type { components } from '@/api/schema'
@@ -22,6 +22,7 @@ import ConfidenceChip from '@/components/ConfidenceChip.vue'
 type CorrelatedRequest = components['schemas']['CorrelatedRequest']
 
 const router = useRouter()
+const route = useRoute()
 
 const records = ref<CorrelatedRequest[]>([])
 const loading = ref(false)
@@ -58,6 +59,10 @@ const onlyDisagreements = ref(false)
 const onlyBlocked = ref(false)
 const host = ref('')
 const clientIP = ref('')
+// The two identifiers, resolved server-side to the events carrying them. A ray reaches
+// every vendor that saw the request; a support id reaches F5's record of it.
+const ray = ref('')
+const supportID = ref('')
 
 const rangeOptions = [
   { title: 'Last 15 minutes', value: 0.25 },
@@ -90,6 +95,8 @@ async function load(append = false): Promise<void> {
           ...(onlyBlocked.value ? { combinedOutcome: 'VERDICT_BLOCKED' as const } : {}),
           ...(host.value ? { requestHost: host.value } : {}),
           ...(clientIP.value ? { clientIp: clientIP.value } : {}),
+          ...(ray.value ? { vendorRequestId: ray.value } : {}),
+          ...(supportID.value ? { vendorEventId: supportID.value } : {}),
         },
         page: append && nextCursor.value
           ? { cursor: nextCursor.value, limit: PAGE_SIZE }
@@ -135,10 +142,27 @@ function refresh(): void {
 // everything — there is nothing on screen to say the value was never applied. Debounced
 // rather than immediate so a half-typed address does not query and read as "no results".
 const reload = debounce(refresh, 400)
-watch([host, clientIP], () => reload())
+watch([host, clientIP, ray, supportID], () => reload())
 onUnmounted(() => reload.cancel())
 
-onMounted(refresh)
+/**
+ * Seeded from the URL so a link can land on a specific request.
+ *
+ * Search links here with a ray rather than fetching a correlation id, because an event
+ * does not carry one — the record stores event ids, and resolving the other direction
+ * is the lookup this page already does.
+ */
+onMounted(() => {
+  const q = route.query
+  if (typeof q.ray === 'string') ray.value = q.ray
+  if (typeof q.supportId === 'string') supportID.value = q.supportId
+  if (typeof q.clientIp === 'string') clientIP.value = q.clientIp
+  if (typeof q.host === 'string') host.value = q.host
+  // A link to one request should not also be filtered to cross-vendor records: a
+  // single-vendor result is the honest answer when only one vendor saw it.
+  if (ray.value || supportID.value) onlyMultiVendor.value = false
+  refresh()
+})
 
 const VENDOR_LABELS: Record<string, string> = {
   VENDOR_CLOUDFLARE: 'Cloudflare',
@@ -230,6 +254,24 @@ const disagreementCount = computed(
           <v-text-field
             v-model="clientIP"
             label="Client IP"
+            density="compact"
+            hide-details
+            clearable
+            style="max-width: 200px"
+            @keyup.enter="refresh"
+          />
+          <v-text-field
+            v-model="ray"
+            label="Request ID (CF-Ray)"
+            density="compact"
+            hide-details
+            clearable
+            style="max-width: 220px"
+            @keyup.enter="refresh"
+          />
+          <v-text-field
+            v-model="supportID"
+            label="Support ID (F5)"
             density="compact"
             hide-details
             clearable

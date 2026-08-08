@@ -27,6 +27,8 @@ const (
 	OpIn           Op = "IN"
 	OpContains     Op = "LIKE"
 	OpHasToken     Op = "hasToken"
+	// OpHasAny matches when an ARRAY column contains any of the given values.
+	OpHasAny Op = "hasAny"
 )
 
 // Table names a searchable table and the columns it exposes.
@@ -93,6 +95,8 @@ var CorrelatedTable = Table{
 		"confidence":        "confidence",
 		"combined_outcome":  "combined_outcome",
 		"join_tier":         "join_tier",
+		// Matched with hasAny once an identifier has been resolved to event ids.
+		"event_ids": "event_ids",
 	},
 	Sort:     "last_event_time",
 	Tiebreak: "correlation_id",
@@ -169,11 +173,47 @@ func (b *Builder) WhereIfSet(field string, op Op, value string) *Builder {
 
 func validOp(op Op) bool {
 	switch op {
-	case OpEqual, OpNotEqual, OpGreaterEqual, OpLessEqual, OpIn, OpContains, OpHasToken:
+	case OpEqual, OpNotEqual, OpGreaterEqual, OpLessEqual, OpIn, OpContains, OpHasToken,
+		OpHasAny:
 		return true
 	default:
 		return false
 	}
+}
+
+// inClause renders an IN predicate with one placeholder per value.
+//
+// An empty list is an ERROR rather than an empty IN. `IN ()` matches nothing in SQL,
+// which would silently return zero rows for a filter the analyst believed was
+// inclusive.
+func inClause(f Filter) (string, []any, error) {
+	values, ok := f.Value.([]string)
+	if !ok || len(values) == 0 {
+		return "", nil, mw.ValidationFailed(
+			fmt.Sprintf("filter on %s needs at least one value", f.Column))
+	}
+
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
+	args := make([]any, 0, len(values))
+	for _, v := range values {
+		args = append(args, v)
+	}
+	return fmt.Sprintf("%s IN (%s)", f.Column, placeholders), args, nil
+}
+
+// hasAnyClause renders an array-membership predicate.
+//
+// An empty set is an ERROR rather than a match-nothing clause. Callers resolve an
+// identifier to event ids before reaching here, and "resolved to nothing" has to be
+// answered as an empty result by that caller — arriving here empty means the check was
+// skipped, and silently matching nothing would hide it.
+func hasAnyClause(f Filter) (string, any, error) {
+	values, ok := f.Value.([]string)
+	if !ok || len(values) == 0 {
+		return "", nil, mw.ValidationFailed(
+			fmt.Sprintf("filter on %s needs at least one value", f.Column))
+	}
+	return fmt.Sprintf("hasAny(%s, ?)", f.Column), values, nil
 }
 
 // Conditions renders the accumulated filters.
@@ -193,18 +233,12 @@ func (b *Builder) Conditions() (string, []any, error) {
 	for _, f := range b.filters {
 		switch f.Op {
 		case OpIn:
-			values, ok := f.Value.([]string)
-			if !ok || len(values) == 0 {
-				// An empty IN list matches nothing in SQL, which would silently return
-				// zero rows for a filter the analyst thought was inclusive.
-				return "", nil, mw.ValidationFailed(
-					fmt.Sprintf("filter on %s needs at least one value", f.Column))
+			clause, values, err := inClause(f)
+			if err != nil {
+				return "", nil, err
 			}
-			placeholders := strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
-			clauses = append(clauses, fmt.Sprintf("%s IN (%s)", f.Column, placeholders))
-			for _, v := range values {
-				args = append(args, v)
-			}
+			clauses = append(clauses, clause)
+			args = append(args, values...)
 
 		case OpContains:
 			// The wildcards are added HERE, around a bound parameter, rather than being
@@ -218,6 +252,14 @@ func (b *Builder) Conditions() (string, []any, error) {
 			// cannot: a leading-wildcard LIKE reads every granule.
 			clauses = append(clauses, fmt.Sprintf("hasToken(%s, ?)", f.Column))
 			args = append(args, f.Value)
+
+		case OpHasAny:
+			clause, value, err := hasAnyClause(f)
+			if err != nil {
+				return "", nil, err
+			}
+			clauses = append(clauses, clause)
+			args = append(args, value)
 
 		case OpEqual, OpNotEqual, OpGreaterEqual, OpLessEqual:
 			clauses = append(clauses, fmt.Sprintf("%s %s ?", f.Column, f.Op))

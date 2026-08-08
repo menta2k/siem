@@ -75,6 +75,7 @@ const countLabel = computed(() => {
           <th>Request</th>
           <th>Rule</th>
           <th>Score</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -104,10 +105,25 @@ const countLabel = computed(() => {
           </td>
           <td>{{ item.ruleId || '—' }}</td>
           <td>{{ typeof item.score === 'number' ? item.score.toFixed(2) : '—' }}</td>
+          <!-- Drill-through to the whole request. An event does not carry a correlation
+               id — the record stores event ids, not the reverse — so this links by the
+               RAY, which the correlated page resolves. Stops the row click so opening
+               the request does not also open this single event's detail panel. -->
+          <td class="text-no-wrap">
+            <v-btn
+              v-if="item.vendorRequestId"
+              size="x-small"
+              variant="text"
+              :to="{ name: 'correlated-list', query: { ray: item.vendorRequestId } }"
+              @click.stop
+            >
+              Full request
+            </v-btn>
+          </td>
         </tr>
 
         <tr v-if="!items.length && !loading">
-          <td colspan="7" class="text-center text-medium-emphasis py-8">
+          <td colspan="8" class="text-center text-medium-emphasis py-8">
             No events matched. Widen the time range or clear a filter.
           </td>
         </tr>

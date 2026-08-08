@@ -32,6 +32,10 @@ type CorrelatedPage = chdata.Page[chdata.CorrelatedRequest]
 type EventSearcher interface {
 	SearchEvents(ctx context.Context, q chdata.EventQuery) (EventPage, error)
 	SearchCorrelated(ctx context.Context, q chdata.CorrelatedQuery) (CorrelatedPage, error)
+	// EventIDsFor resolves a vendor identifier to the events carrying it. Correlated
+	// records store event ids rather than identifiers, so searching them by ray or
+	// support id is a two-step lookup.
+	EventIDsFor(ctx context.Context, column, value string, rng query.TimeRange) ([]string, error)
 }
 
 // EventDetailReader fetches one event with its raw payload.
@@ -138,7 +142,21 @@ func (s *SearchService) SearchCorrelated(
 		return nil, err
 	}
 
-	conditions, args, err := correlatedConditions(req.GetFilters())
+	// An identifier filter is resolved to event ids FIRST, because a correlated record
+	// stores the ids and not the identifiers. Resolving to nothing is a real answer —
+	// the identifier matched no event — and must render as an empty page rather than as
+	// an absent filter, which would return everything in the range.
+	eventIDs, matched, err := s.resolveIdentifiers(ctx, req.GetFilters(), rng)
+	if err != nil {
+		return nil, err
+	}
+	if !matched {
+		return &pb.SearchCorrelatedResponse{
+			Items: []*pb.CorrelatedRequest{}, Page: &pb.PageResponse{},
+		}, nil
+	}
+
+	conditions, args, err := correlatedConditions(req.GetFilters(), eventIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +180,11 @@ func (s *SearchService) SearchCorrelated(
 		return nil, query.TranslateError(err)
 	}
 
+	return correlatedResponse(page), nil
+}
+
+// correlatedResponse projects a page onto the wire type.
+func correlatedResponse(page CorrelatedPage) *pb.SearchCorrelatedResponse {
 	out := &pb.SearchCorrelatedResponse{
 		Items: make([]*pb.CorrelatedRequest, 0, len(page.Items)),
 		Page: &pb.PageResponse{
@@ -173,7 +196,7 @@ func (s *SearchService) SearchCorrelated(
 	for _, item := range page.Items {
 		out.Items = append(out.Items, toCorrelatedProto(item))
 	}
-	return out, nil
+	return out
 }
 
 // GetEvent returns one event with the vendor payload exactly as received (FR-005).
@@ -289,10 +312,49 @@ func eventConditions(f *pb.EventFilters) (string, []any, error) {
 	return b.Conditions()
 }
 
-func correlatedConditions(f *pb.CorrelatedFilters) (string, []any, error) {
+// resolveIdentifiers turns a ray or support-id filter into the event ids carrying it.
+//
+// Reports matched=false when a filter was set but resolved to no events, which is the
+// difference between "no such request" and "no filter" — conflating them would answer a
+// specific question with every record in the range.
+func (s *SearchService) resolveIdentifiers(
+	ctx context.Context, f *pb.CorrelatedFilters, rng query.TimeRange,
+) (eventIDs []string, matched bool, err error) {
+	if f == nil {
+		return nil, true, nil
+	}
+
+	lookups := []struct{ column, value string }{
+		{"vendor_request_id", f.GetVendorRequestId()},
+		{"vendor_event_id", f.GetVendorEventId()},
+	}
+
+	for _, lookup := range lookups {
+		if lookup.value == "" {
+			continue
+		}
+		found, err := s.search.EventIDsFor(ctx, lookup.column, lookup.value, rng)
+		if err != nil {
+			return nil, false, query.TranslateError(err)
+		}
+		if len(found) == 0 {
+			return nil, false, nil
+		}
+		eventIDs = append(eventIDs, found...)
+	}
+	return eventIDs, true, nil
+}
+
+func correlatedConditions(f *pb.CorrelatedFilters, eventIDs []string) (string, []any, error) {
 	b := query.NewBuilder(query.CorrelatedTable)
 	if f == nil {
 		return b.Conditions()
+	}
+
+	// The identifiers were resolved to these ids by the caller; the record matches when
+	// its event list contains any of them.
+	if len(eventIDs) > 0 {
+		b.Where("event_ids", query.OpHasAny, eventIDs)
 	}
 
 	b.WhereIfSet("client_ip", query.OpEqual, f.GetClientIp())

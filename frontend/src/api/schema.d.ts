@@ -718,6 +718,13 @@ export interface components {
              * @enum {string}
              */
             combinedOutcome?: "VERDICT_UNSPECIFIED" | "VERDICT_ALLOWED" | "VERDICT_BLOCKED" | "VERDICT_CHALLENGED" | "VERDICT_RATE_LIMITED" | "VERDICT_MONITORED" | "VERDICT_UNKNOWN";
+            /**
+             * @description The identifier SHARED between vendors — Cloudflare's ray. Resolved to the events
+             *      carrying it, then matched against the record's event list.
+             */
+            vendorRequestId?: string;
+            /** @description The vendor's OWN reference for its record. F5's support_id. */
+            vendorEventId?: string;
         };
         /** @description CorrelatedRequest is one request as every vendor that saw it reported it. */
         CorrelatedRequest: {

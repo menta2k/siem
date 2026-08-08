@@ -244,3 +244,56 @@ func (r *SearchRepo) SearchCorrelated(
 		return query.Cursor{EventTime: c.LastEventTime, ID: c.CorrelationID.String()}
 	}), nil
 }
+
+// MaxIdentifierEvents bounds how many events one identifier may resolve to.
+//
+// A CF-Ray reaches at most one row per vendor per hop — five or six in this topology —
+// and an F5 support_id exactly one. The bound is generous against that so a legitimate
+// lookup is never truncated, while still refusing to build an unbounded IN list from a
+// value an analyst pasted in.
+const MaxIdentifierEvents = 100
+
+// EventIDsFor resolves a vendor identifier to the events carrying it.
+//
+// Correlated records store event ids, not identifiers, so searching them by ray or
+// support id is a two-step lookup rather than a column comparison. Both columns carry
+// bloom-filter indexes, so this step is an indexed point lookup and not a scan.
+//
+// Resolving to NOTHING is a real answer — the identifier matched no event — and the
+// caller has to render it as an empty result rather than as an absent filter.
+func (r *SearchRepo) EventIDsFor(
+	ctx context.Context, column, value string, rng query.TimeRange,
+) ([]string, error) {
+	tenantID, err := tenancy.MustID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// The column is chosen from a fixed set by the caller, never taken from input.
+	switch column {
+	case "vendor_request_id", "vendor_event_id", "linked_request_id":
+	default:
+		return nil, fmt.Errorf("event lookup: unsupported identifier column %q", column)
+	}
+
+	sql := fmt.Sprintf(
+		`SELECT DISTINCT event_id FROM normalized_events
+		 WHERE tenant_id = ? AND event_time >= ? AND event_time < ? AND %s = ?
+		 LIMIT %d`, column, MaxIdentifierEvents)
+
+	rows, err := r.client.Query(ctx, sql, tenantID, rng.From, rng.To, value)
+	if err != nil {
+		return nil, fmt.Errorf("resolve identifier: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]string, 0, 8)
+	for rows.Next() {
+		var eventID string
+		if err := rows.Scan(&eventID); err != nil {
+			return nil, fmt.Errorf("scan event id: %w", err)
+		}
+		out = append(out, eventID)
+	}
+	return out, rows.Err()
+}

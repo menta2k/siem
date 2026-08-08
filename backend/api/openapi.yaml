@@ -1278,6 +1278,14 @@ components:
                         - VERDICT_UNKNOWN
                     type: string
                     format: enum
+                vendorRequestId:
+                    type: string
+                    description: |-
+                        The identifier SHARED between vendors — Cloudflare's ray. Resolved to the events
+                         carrying it, then matched against the record's event list.
+                vendorEventId:
+                    type: string
+                    description: The vendor's OWN reference for its record. F5's support_id.
             description: CorrelatedFilters add the join-level facets to the event filters.
         CorrelatedRequest:
             type: object

@@ -537,8 +537,13 @@ type CorrelatedFilters struct {
 	DisagreementKind  DisagreementKind `protobuf:"varint,8,opt,name=disagreement_kind,json=disagreementKind,proto3,enum=siem.v1.DisagreementKind" json:"disagreement_kind,omitempty"`
 	Confidence        Confidence       `protobuf:"varint,9,opt,name=confidence,proto3,enum=siem.v1.Confidence" json:"confidence,omitempty"`
 	CombinedOutcome   Verdict          `protobuf:"varint,10,opt,name=combined_outcome,json=combinedOutcome,proto3,enum=siem.v1.Verdict" json:"combined_outcome,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The identifier SHARED between vendors — Cloudflare's ray. Resolved to the events
+	// carrying it, then matched against the record's event list.
+	VendorRequestId string `protobuf:"bytes,11,opt,name=vendor_request_id,json=vendorRequestId,proto3" json:"vendor_request_id,omitempty"`
+	// The vendor's OWN reference for its record. F5's support_id.
+	VendorEventId string `protobuf:"bytes,12,opt,name=vendor_event_id,json=vendorEventId,proto3" json:"vendor_event_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CorrelatedFilters) Reset() {
@@ -639,6 +644,20 @@ func (x *CorrelatedFilters) GetCombinedOutcome() Verdict {
 		return x.CombinedOutcome
 	}
 	return Verdict_VERDICT_UNSPECIFIED
+}
+
+func (x *CorrelatedFilters) GetVendorRequestId() string {
+	if x != nil {
+		return x.VendorRequestId
+	}
+	return ""
+}
+
+func (x *CorrelatedFilters) GetVendorEventId() string {
+	if x != nil {
+		return x.VendorEventId
+	}
+	return ""
 }
 
 type SearchCorrelatedRequest struct {
@@ -1100,7 +1119,7 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\x06_scoreJ\x04\b\x0e\x10\x0f\"n\n" +
 	"\x14SearchEventsResponse\x12+\n" +
 	"\x05items\x18\x01 \x03(\v2\x15.siem.v1.EventSummaryR\x05items\x12)\n" +
-	"\x04page\x18\x02 \x01(\v2\x15.siem.v1.PageResponseR\x04page\"\xdc\x03\n" +
+	"\x04page\x18\x02 \x01(\v2\x15.siem.v1.PageResponseR\x04page\"\xb0\x04\n" +
 	"\x11CorrelatedFilters\x12\x1b\n" +
 	"\tclient_ip\x18\x01 \x01(\tR\bclientIp\x12!\n" +
 	"\frequest_host\x18\x02 \x01(\tR\vrequestHost\x12!\n" +
@@ -1114,7 +1133,9 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"confidence\x18\t \x01(\x0e2\x13.siem.v1.ConfidenceR\n" +
 	"confidence\x12;\n" +
 	"\x10combined_outcome\x18\n" +
-	" \x01(\x0e2\x10.siem.v1.VerdictR\x0fcombinedOutcomeB\x06\n" +
+	" \x01(\x0e2\x10.siem.v1.VerdictR\x0fcombinedOutcome\x12*\n" +
+	"\x11vendor_request_id\x18\v \x01(\tR\x0fvendorRequestId\x12&\n" +
+	"\x0fvendor_event_id\x18\f \x01(\tR\rvendorEventIdB\x06\n" +
 	"\x04_asnB\x13\n" +
 	"\x11_min_vendor_count\"\xac\x01\n" +
 	"\x17SearchCorrelatedRequest\x121\n" +
