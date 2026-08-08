@@ -160,21 +160,10 @@ func (a *Adapter) Normalize(record vendors.RawRecord) (vendors.Event, error) {
 		UserAgent:     vendors.AsString(record.Fields["user_agent"]),
 		HTTPStatus:    vendors.ToStatus(record.Fields["status"]),
 
-		// THE VERDICT IS ALWAYS ALLOWED, and the reasoning matters.
-		//
-		// An nginx event only EXISTS for a request that every gate in front of it let
-		// through: Cloudflare, DataDome and F5 each terminate a request they refuse, so
-		// it never reaches the origin and no line is written. The presence of this event
-		// is therefore itself the evidence that the request was allowed all the way
-		// through, which is exactly what makes the full path reconstructible.
-		//
-		// The response status is deliberately NOT mapped to a verdict. A 403 from an
-		// application is an authorization decision about a user, a 404 is a missing
-		// page, a 429 may be application rate limiting — none of them are a security
-		// vendor's judgement on the request, and treating them as one would manufacture
-		// disagreements against vendors that correctly allowed it. The status is
-		// recorded on its own field, where it says what it actually means.
-		Verdict:   vendors.VerdictAllowed,
+		// See mapVerdict: nginx is usually the origin, but it can refuse on its own,
+		// and what separates the two is whether the request reached the application —
+		// not the status code, which says what the APPLICATION concluded.
+		Verdict:   mapVerdict(record.Fields),
 		ScoreKind: vendors.ScoreKindNone,
 	}
 

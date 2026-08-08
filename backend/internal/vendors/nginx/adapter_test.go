@@ -102,22 +102,16 @@ func TestNoClientIsBetterThanTheProxysAddress(t *testing.T) {
 	}
 }
 
-// THE VERDICT REASONING. An nginx event only exists for a request every gate let
-// through, so its presence IS the evidence it was allowed. Mapping the response status
-// to a verdict would turn an application's 403 or 404 into a security judgement and
-// manufacture disagreements against vendors that correctly allowed the request.
-func TestTheResponseStatusIsNotAVerdict(t *testing.T) {
+// The observed status is always recorded, whatever the verdict resolves to. It is the
+// origin's answer, and an analyst reading a record needs it even when it carries no
+// security meaning. See verdict_test.go for how the verdict itself is decided.
+func TestTheResponseStatusIsAlwaysRecorded(t *testing.T) {
 	for _, status := range []string{"200", "403", "404", "429", "500"} {
-		line := `{"time_iso8601":"2026-08-08T17:27:08+00:00",` +
+		payload := `{"time_iso8601":"2026-08-08T17:27:08+00:00",` +
 			`"cf_connecting_ip":"203.0.113.10","cf_ray":"ray1","host":"www.jobs.bg",` +
 			`"request_uri":"/","request_method":"GET","status":` + status + `}`
 
-		event := normalizeOne(t, line)
-		if event.Verdict != vendors.VerdictAllowed {
-			t.Errorf("status %s gave verdict %q, want allowed — the origin's response is "+
-				"not a security decision", status, event.Verdict)
-		}
-		if event.HTTPStatus == 0 {
+		if got := normalizeOne(t, payload).HTTPStatus; got == 0 {
 			t.Errorf("status %s was not recorded on the event", status)
 		}
 	}

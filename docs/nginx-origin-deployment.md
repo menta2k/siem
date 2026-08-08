@@ -288,22 +288,45 @@ GROUP BY v ORDER BY n DESC LIMIT 10;
 
 ## How nginx events are interpreted
 
-### The verdict is always `allowed`
+### How the verdict is decided
 
-An nginx event only *exists* for a request every gate let through — Cloudflare, DataDome
-and F5 each terminate a request they refuse, so it never reaches the origin and no line
-is written. **The presence of the event is itself the evidence the request was allowed
-all the way through.**
+**The discriminator is who answered, not the status code.**
 
-The response status is deliberately **not** mapped to a verdict. An application `403` is
-an authorization decision about a user, a `404` is a missing page, a `429` may be
-application rate limiting — none of them is a security vendor's judgement on the
-request, and treating them as one would manufacture disagreements against vendors that
-correctly allowed it. The status is recorded on its own field, where it means what it
-says.
+Most of the time nginx is the origin — the thing a request proceeds *to* once every gate
+in front has let it through — and for those requests the verdict is `allowed`. The
+event's existence is itself the evidence: Cloudflare, DataDome and F5 each terminate a
+request they refuse, so it never reaches the origin and no line is written.
 
-So: **nginx never appears in a disagreement.** If you want to find requests every WAF
-allowed but the app rejected, filter on the status field, not on verdicts.
+But nginx **can** refuse on its own — `deny`, `limit_req`, `limit_conn`, `satisfy` — and
+calling that `allowed` would hide a real block. What separates the two is whether the
+request ever reached the application, which nginx records in `$upstream_addr`.
+
+| nginx answered it itself | status | verdict |
+|---|---|---|
+| yes | 403 | `blocked` — `deny` or an access rule |
+| yes | 429 | `rate_limited` — `limit_req` / `limit_conn` |
+| yes | anything else | `allowed` — a missing static file, a `return` redirect |
+| no (proxied to the app) | **any** | `allowed` |
+
+The last row is the important one. **The status code alone must not decide the verdict.**
+A 302 is a login redirect, a 404 a missing page, a 401 an auth challenge, a 500 an
+application bug — all ordinary outcomes for a request that *was* allowed through.
+Marking them as anything else would have each one disagreeing with three vendors that
+correctly allowed it, across the large share of any site's traffic that is redirects and
+404s.
+
+So the same 403 means opposite things depending on its origin: from the application it
+is an authorization decision about a user, from nginx it is a block. That pair is why
+the rule is shaped this way.
+
+**Two consequences worth knowing:**
+
+- **`limit_req` must be configured `limit_req_status 429`** to be counted. Its default
+  is 503, and "no live upstreams" answers 503 identically — the two are
+  indistinguishable in an access log, and reporting an origin outage as a security
+  decision would be worse than missing a rate limit you can make unambiguous.
+- **To find "allowed by every WAF but rejected by the app"**, filter on the status
+  field, not on verdicts — that case is deliberately `allowed`.
 
 ### The client address
 
