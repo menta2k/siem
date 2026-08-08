@@ -11,6 +11,7 @@ import (
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
 	"github.com/menta2k/siem/internal/ingest"
 	"github.com/menta2k/siem/internal/ingest/dedup"
+	"github.com/menta2k/siem/internal/ingest/filter"
 	mw "github.com/menta2k/siem/internal/middleware"
 	"github.com/menta2k/siem/internal/normalize"
 	"github.com/menta2k/siem/internal/tenancy"
@@ -41,6 +42,7 @@ type Worker struct {
 	publisher Publisher
 	deduper   *dedup.Deduper
 	secrets   SecretResolver
+	filters   *filter.Cache
 	health    HealthRecorder
 	log       mw.Logger
 
@@ -54,12 +56,12 @@ type Worker struct {
 func NewWorker(
 	feeds FeedStore, sources *Registry, adapters *vendors.Registry,
 	publisher Publisher, deduper *dedup.Deduper, secretStore SecretResolver,
-	health HealthRecorder, log mw.Logger,
+	filters *filter.Cache, health HealthRecorder, log mw.Logger,
 ) *Worker {
 	return &Worker{
 		feeds: feeds, sources: sources, adapters: adapters,
 		publisher: publisher, deduper: deduper, secrets: secretStore,
-		health: health, log: log,
+		filters: filters, health: health, log: log,
 		lastPolled: map[uuid.UUID]time.Time{},
 		now:        time.Now,
 	}
@@ -215,12 +217,13 @@ func (w *Worker) commitBatch(
 	}
 
 	receivedAt := w.now().UTC()
-	envelopes, rejections := ingest.BuildEnvelopes(adapter, records, ingest.EnvelopeMeta{
+	envelopes, rejections, filtered := ingest.BuildEnvelopes(adapter, records, ingest.EnvelopeMeta{
 		TenantID: feed.TenantID, FeedID: feed.ID,
 		BatchID: normalize.BatchID(), ReceivedAt: receivedAt,
 		IdentityFor: func(vendorRequestID string, raw []byte) string {
 			return normalize.EventID(feed.ID, vendorRequestID, raw)
 		},
+		Filters: w.filters.For(ctx, feed.TenantID),
 	})
 
 	accepted, duplicates := w.filter(ctx, feed, envelopes, rejections)
@@ -239,6 +242,7 @@ func (w *Worker) commitBatch(
 	w.health.Record(ctx, ingest.HealthSample{
 		TenantID: feed.TenantID, FeedID: feed.ID,
 		EventsReceived: len(accepted), EventsRejected: len(rejections),
+		EventsFiltered:       filtered,
 		DuplicatesSuppressed: duplicates, BytesReceived: int64(len(batch.Payload)),
 		CredentialValid: true,
 	})

@@ -26,10 +26,14 @@ const (
 
 // HealthSample is one delivery's contribution to a feed's health.
 type HealthSample struct {
-	TenantID             uuid.UUID
-	FeedID               uuid.UUID
-	EventsReceived       int
-	EventsRejected       int
+	TenantID       uuid.UUID
+	FeedID         uuid.UUID
+	EventsReceived int
+	EventsRejected int
+	// EventsFiltered counts events excluded by the tenant's ingest filters. A filtered
+	// event leaves no other trace anywhere, so this counter is the only evidence that a
+	// rule is doing something — and the only warning when it is doing too much.
+	EventsFiltered       int
 	DuplicatesSuppressed int
 	BytesReceived        int64
 	UnknownFieldEvents   int

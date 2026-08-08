@@ -19,6 +19,7 @@ import (
 	"github.com/menta2k/siem/internal/data/stream"
 	"github.com/menta2k/siem/internal/ingest"
 	"github.com/menta2k/siem/internal/ingest/dedup"
+	"github.com/menta2k/siem/internal/ingest/filter"
 	"github.com/menta2k/siem/internal/ingest/receiver"
 	mw "github.com/menta2k/siem/internal/middleware"
 	"github.com/menta2k/siem/internal/normalize"
@@ -122,6 +123,7 @@ func newIngestHarness(t *testing.T, quotaEventsPerSec uint32) *ingestHarness {
 		ingest.NewPublisher(broker, topicRaw, topicDLQ),
 		dedup.New(f.Redis, time.Minute),
 		ingest.NewQuotaEnforcer(f.Redis),
+		filter.NewCache(f.Tenants, filter.DefaultCacheTTL),
 		liveHealth{health}, mw.NewLogger("error", "json"),
 		receiver.Options{MaxBodyBytes: 1 << 20, MaxBatchEvents: 1000})
 

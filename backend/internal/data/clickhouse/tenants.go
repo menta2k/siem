@@ -27,6 +27,7 @@ type Tenant struct {
 	CorrelatedRetentionDays uint16
 	AlertRetentionDays      uint16
 	RedactedFields          []string
+	IngestFilters           string
 	CorrelationWindowMS     uint32
 	LatenessBoundMS         uint32
 	ScoreConflictThreshold  float32
@@ -61,7 +62,7 @@ func NewTenantRepo(client *Client, locker Locker) *TenantRepo {
 
 const tenantColumns = `tenant_id, name, status, raw_retention_days, correlated_retention_days,
 	alert_retention_days, redacted_fields, correlation_window_ms, lateness_bound_ms,
-	score_conflict_threshold, created_at, updated_at, version`
+	score_conflict_threshold, created_at, updated_at, version, ingest_filters`
 
 // Get loads the tenant in context. It takes no tenant argument by design: the caller
 // cannot ask for a tenant other than its own.
@@ -99,7 +100,7 @@ func scanTenant(row rowScanner) (Tenant, error) {
 	var t Tenant
 	err := row.Scan(&t.ID, &t.Name, &t.Status, &t.RawRetentionDays, &t.CorrelatedRetentionDays,
 		&t.AlertRetentionDays, &t.RedactedFields, &t.CorrelationWindowMS, &t.LatenessBoundMS,
-		&t.ScoreConflictThreshold, &t.CreatedAt, &t.UpdatedAt, &t.Version)
+		&t.ScoreConflictThreshold, &t.CreatedAt, &t.UpdatedAt, &t.Version, &t.IngestFilters)
 	return t, err
 }
 
@@ -175,7 +176,11 @@ func (r *TenantRepo) Update(ctx context.Context, mutate func(Tenant) Tenant) (Te
 }
 
 func (r *TenantRepo) insert(ctx context.Context, t Tenant) error {
-	batch, err := r.client.PrepareBatch(ctx, "INSERT INTO tenants")
+	// Columns are NAMED. A bare "INSERT INTO tenants" binds positionally against the
+	// table's physical column order, so adding or dropping a column breaks every running
+	// build until the two are redeployed together — there is no ordering that avoids it.
+	// Naming them decouples the two, and this column was added by exactly such a change.
+	batch, err := r.client.PrepareBatch(ctx, "INSERT INTO tenants ("+tenantColumns+")")
 	if err != nil {
 		return err
 	}
@@ -186,7 +191,7 @@ func (r *TenantRepo) insert(ctx context.Context, t Tenant) error {
 	if err := batch.Append(
 		t.ID, t.Name, t.Status, t.RawRetentionDays, t.CorrelatedRetentionDays,
 		t.AlertRetentionDays, t.RedactedFields, t.CorrelationWindowMS, t.LatenessBoundMS,
-		t.ScoreConflictThreshold, t.CreatedAt, t.UpdatedAt, t.Version,
+		t.ScoreConflictThreshold, t.CreatedAt, t.UpdatedAt, t.Version, ingestFilters(t),
 	); err != nil {
 		return fmt.Errorf("append tenant %s: %w", t.ID, err)
 	}
@@ -218,4 +223,42 @@ func (r *TenantRepo) ListAll(ctx context.Context) ([]Tenant, error) {
 		tenants = append(tenants, t)
 	}
 	return tenants, rows.Err()
+}
+
+// ingestFilters defaults the column to an empty rule set.
+//
+// An empty string would decode to "no filters" as well, but "[]" is what the schema
+// default writes, and a tenant row that disagrees with the schema on how "nothing" is
+// spelled invites a reader that handles only one of them.
+func ingestFilters(t Tenant) string {
+	if t.IngestFilters == "" {
+		return "[]"
+	}
+	return t.IngestFilters
+}
+
+// IngestFilters returns one tenant's stored filter rules.
+//
+// Reads the single column rather than the whole row: it is called on the ingest path for
+// every delivery, behind a short cache, and the rest of the tenant is not needed there.
+func (r *TenantRepo) IngestFilters(ctx context.Context, tenantID uuid.UUID) (string, error) {
+	rows, err := r.client.Query(ctx,
+		"SELECT ingest_filters FROM tenants FINAL WHERE tenant_id = ? LIMIT 1", tenantID)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return "", fmt.Errorf("load ingest filters: %w", err)
+		}
+		return "", ErrNotFound
+	}
+
+	var encoded string
+	if err := rows.Scan(&encoded); err != nil {
+		return "", fmt.Errorf("scan ingest filters: %w", err)
+	}
+	return encoded, nil
 }

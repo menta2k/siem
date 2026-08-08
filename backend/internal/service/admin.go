@@ -16,6 +16,7 @@ import (
 	"github.com/menta2k/siem/internal/auth"
 	"github.com/menta2k/siem/internal/correlate"
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
+	"github.com/menta2k/siem/internal/ingest/filter"
 	mw "github.com/menta2k/siem/internal/middleware"
 	"github.com/menta2k/siem/internal/retention"
 )
@@ -270,6 +271,14 @@ func (s *AdminService) UpdateTenantSettings(
 		return nil, mw.Internal().WithCause(err)
 	}
 
+	// Validated and encoded BEFORE the update, so a malformed rule is refused outright
+	// rather than stored. A rule that cannot compile filters nothing at runtime, which
+	// looks identical to a rule that works — right up until someone compares the volume.
+	encodedFilters, err := encodeIngestFilters(req.GetIngestFilters())
+	if err != nil {
+		return nil, err
+	}
+
 	updated, err := s.tenants.Update(ctx, func(current chdata.Tenant) chdata.Tenant {
 		if req.RawRetentionDays != nil {
 			current.RawRetentionDays = clampRetention(req.GetRawRetentionDays())
@@ -285,6 +294,9 @@ func (s *AdminService) UpdateTenantSettings(
 		}
 		if req.ScoreConflictThreshold != nil {
 			current.ScoreConflictThreshold = req.GetScoreConflictThreshold()
+		}
+		if req.IngestFilters != nil {
+			current.IngestFilters = encodedFilters
 		}
 		return current
 	})
@@ -523,7 +535,54 @@ func toTenantSettings(t chdata.Tenant) *pb.TenantSettings {
 		AlertRetentionDays:      uint32(t.AlertRetentionDays),
 		RedactedFields:          t.RedactedFields,
 		ScoreConflictThreshold:  t.ScoreConflictThreshold,
+		IngestFilters:           toIngestFilterRules(t.IngestFilters),
 	}
+}
+
+// encodeIngestFilters validates a rule set and renders it for storage.
+//
+// Compiling here is the validation: it is the same function the ingest path uses, so a
+// rule that is accepted is a rule that will actually be applied.
+func encodeIngestFilters(rules []*pb.IngestFilterRule) (string, error) {
+	if len(rules) == 0 {
+		return "[]", nil
+	}
+
+	converted := make([]filter.Rule, 0, len(rules))
+	for _, rule := range rules {
+		converted = append(converted, filter.Rule{
+			Field: rule.GetField(), Op: rule.GetOp(), Values: rule.GetValues(),
+		})
+	}
+	if _, err := filter.Compile(converted); err != nil {
+		return "", mw.ValidationFailed(err.Error())
+	}
+
+	encoded, err := filter.Encode(converted)
+	if err != nil {
+		return "", mw.Internal().WithCause(err)
+	}
+	return encoded, nil
+}
+
+// toIngestFilterRules renders stored rules for the API.
+//
+// Undecodable content yields an empty list rather than an error: the settings page must
+// still open so the operator can replace whatever is wrong, and the ingest path treats it
+// as "no filters" for the same reason.
+func toIngestFilterRules(encoded string) []*pb.IngestFilterRule {
+	rules, err := filter.Decode(encoded)
+	if err != nil {
+		return nil
+	}
+
+	out := make([]*pb.IngestFilterRule, 0, len(rules))
+	for _, rule := range rules {
+		out = append(out, &pb.IngestFilterRule{
+			Field: rule.Field, Op: rule.Op, Values: rule.Values,
+		})
+	}
+	return out
 }
 
 func toCorrelationSettings(t chdata.Tenant) *pb.CorrelationSettings {

@@ -189,6 +189,7 @@ func newHarness(t *testing.T) *harness {
 		ingest.NewPublisher(producer, "raw", "dlq"),
 		dedup.New(counter, time.Minute),
 		ingest.NewQuotaEnforcer(counter),
+		nil, // no ingest filters configured
 		health, mw.NewLogger("error", "json"),
 		Options{MaxBodyBytes: 1 << 20, MaxBatchEvents: 100},
 	)

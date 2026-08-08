@@ -113,6 +113,25 @@ message TenantSettings {
   // Fields masked at ingest, so they are never stored in readable form.
   repeated string redacted_fields = 7;
   float score_conflict_threshold = 8;
+  // Events matching any of these are never ingested at all.
+  repeated IngestFilterRule ingest_filters = 9;
+}
+
+// IngestFilterRule excludes matching events from ingestion entirely.
+//
+// A matched event is stored NOWHERE — no raw payload, no normalized row, no rejection —
+// so the only trace it leaves is the filtered counter on feed health. That is why the
+// vocabulary is closed and literal rather than a regular expression: a rule an operator
+// can misread is a rule that silently deletes the traffic they needed, and unlike every
+// other loss in this system there is no copy to recover from.
+message IngestFilterRule {
+  // One of: request_host, request_path.
+  string field = 1;
+  // One of: equals, suffix, prefix, contains. Matching ignores case, because hostnames
+  // are case-insensitive and extensions arrive in both cases from real traffic.
+  string op = 2;
+  // Any value matching drops the event, as does any rule — the whole set is an OR.
+  repeated string values = 3;
 }
 
 message UpdateTenantSettingsRequest {
@@ -121,6 +140,10 @@ message UpdateTenantSettingsRequest {
   optional uint32 alert_retention_days = 3;
   repeated string redacted_fields = 4;
   optional float score_conflict_threshold = 5;
+  // Replaces the whole rule set rather than merging: a partial update has no obvious
+  // meaning for a list, and "remove this one rule" must not require knowing which
+  // position it occupies.
+  repeated IngestFilterRule ingest_filters = 6;
 }
 
 message GetCorrelationSettingsRequest {}

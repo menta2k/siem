@@ -30,6 +30,7 @@ import (
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
 	"github.com/menta2k/siem/internal/ingest"
 	"github.com/menta2k/siem/internal/ingest/dedup"
+	"github.com/menta2k/siem/internal/ingest/filter"
 	mw "github.com/menta2k/siem/internal/middleware"
 	"github.com/menta2k/siem/internal/normalize"
 	"github.com/menta2k/siem/internal/vendors"
@@ -70,6 +71,7 @@ type Receiver struct {
 	publisher *ingest.Publisher
 	deduper   *dedup.Deduper
 	quotas    *ingest.QuotaEnforcer
+	filters   *filter.Cache
 	health    HealthRecorder
 	log       mw.Logger
 	opts      Options
@@ -79,7 +81,7 @@ type Receiver struct {
 func New(
 	feeds FeedStore, secrets SecretResolver, registry *vendors.Registry,
 	publisher *ingest.Publisher, deduper *dedup.Deduper, quotas *ingest.QuotaEnforcer,
-	health HealthRecorder, log mw.Logger, opts Options,
+	filters *filter.Cache, health HealthRecorder, log mw.Logger, opts Options,
 ) *Receiver {
 	if opts.MaxBodyBytes <= 0 {
 		opts.MaxBodyBytes = 32 << 20
@@ -308,11 +310,12 @@ func (r *Receiver) accept(
 	}
 
 	batchID := normalize.BatchID()
-	envelopes, rejections := ingest.BuildEnvelopes(adapter, records, ingest.EnvelopeMeta{
+	envelopes, rejections, filtered := ingest.BuildEnvelopes(adapter, records, ingest.EnvelopeMeta{
 		TenantID: feed.TenantID, FeedID: feed.ID, BatchID: batchID, ReceivedAt: receivedAt,
 		IdentityFor: func(vendorRequestID string, raw []byte) string {
 			return normalize.EventID(feed.ID, vendorRequestID, raw)
 		},
+		Filters: r.filters.For(ctx, feed.TenantID),
 	})
 
 	accepted, duplicates := r.partition(ctx, feed, envelopes, rejections)
@@ -325,19 +328,10 @@ func (r *Receiver) accept(
 
 	r.markCommitted(ctx, feed, accepted)
 
-	r.health.Record(ctx, ingest.HealthSample{
-		TenantID: feed.TenantID, FeedID: feed.ID,
-		EventsReceived: len(accepted), EventsRejected: len(rejections),
-		DuplicatesSuppressed: duplicates, BytesReceived: int64(len(body)),
-		CredentialValid: true,
-	})
-
-	return ingest.Outcome{
-		BatchID:              batchID,
-		Accepted:             len(accepted),
-		DuplicatesSuppressed: duplicates,
-		Rejected:             rejections,
-	}, nil
+	return r.report(ctx, feed, delivery{
+		batchID: batchID, accepted: len(accepted), rejections: rejections,
+		duplicates: duplicates, filtered: filtered, bytes: int64(len(body)),
+	}), nil
 }
 
 // commit is the durability boundary. A failure here MUST surface as a retryable
@@ -501,5 +495,41 @@ func retryAfterFor(err *mw.Error) int {
 		return 5
 	default:
 		return 0
+	}
+}
+
+// delivery is the tally of one accepted batch, kept together so the health sample and the
+// response cannot disagree about what happened to it.
+type delivery struct {
+	batchID    uuid.UUID
+	accepted   int
+	rejections []ingest.Rejection
+	duplicates int
+	filtered   int
+	bytes      int64
+}
+
+// report records feed health and returns what the sender is told.
+//
+// Filtered events are counted in BOTH. A filtered event is stored nowhere at all, so
+// without these two numbers neither an operator nor the sending vendor can tell "excluded
+// on purpose" from "silently lost".
+func (r *Receiver) report(
+	ctx context.Context, feed chdata.Feed, d delivery,
+) ingest.Outcome {
+	r.health.Record(ctx, ingest.HealthSample{
+		TenantID: feed.TenantID, FeedID: feed.ID,
+		EventsReceived: d.accepted, EventsRejected: len(d.rejections),
+		EventsFiltered:       d.filtered,
+		DuplicatesSuppressed: d.duplicates, BytesReceived: d.bytes,
+		CredentialValid: true,
+	})
+
+	return ingest.Outcome{
+		BatchID:              d.batchID,
+		Accepted:             d.accepted,
+		DuplicatesSuppressed: d.duplicates,
+		Filtered:             d.filtered,
+		Rejected:             d.rejections,
 	}
 }

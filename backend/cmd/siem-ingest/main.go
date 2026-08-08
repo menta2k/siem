@@ -17,6 +17,7 @@ import (
 	"github.com/menta2k/siem/internal/data/stream"
 	"github.com/menta2k/siem/internal/ingest"
 	"github.com/menta2k/siem/internal/ingest/dedup"
+	"github.com/menta2k/siem/internal/ingest/filter"
 	"github.com/menta2k/siem/internal/ingest/receiver"
 	"github.com/menta2k/siem/internal/secrets"
 	"github.com/menta2k/siem/internal/server"
@@ -121,6 +122,7 @@ func buildReceiver(
 		ingest.NewPublisher(producer, cfg.Redpanda.TopicRaw, cfg.Redpanda.TopicDLQ),
 		dedup.New(redisClient, dedup.DefaultWindow),
 		ingest.NewQuotaEnforcer(redisClient),
+		filter.NewCache(clickhouse.NewTenantRepo(chClient, nil), filter.DefaultCacheTTL),
 		ingest.NewHealthAggregator(clickhouse.NewHealthRepo(chClient)),
 		deps.Log,
 		receiver.Options{

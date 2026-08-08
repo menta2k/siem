@@ -26,6 +26,7 @@ Applied with [golang-migrate](https://github.com/golang-migrate/migrate) via `ma
 | `0004_alerting` | `alert_rules`, `alerts` |
 | `0005_rollup_state_size` | rebuilds the `0003` rollups with `uniqCombined(12)` states |
 | `0006_drop_duplicated_payload` | drops `raw_extra` and `unknown_fields`, rebuilt on read from `raw_events.payload` |
+| `0007_ingest_filters` | per-tenant `ingest_filters` rules, applied before anything is stored |
 
 ## Testing
 

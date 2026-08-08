@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/menta2k/siem/internal/data/stream"
+	"github.com/menta2k/siem/internal/ingest/filter"
 	"github.com/menta2k/siem/internal/vendors"
 )
 
@@ -60,10 +61,14 @@ type Envelope struct {
 // Outcome is the result of accepting one delivery, mirroring the ingest contract's
 // response body.
 type Outcome struct {
-	BatchID              uuid.UUID   `json:"batch_id"`
-	Accepted             int         `json:"accepted"`
-	DuplicatesSuppressed int         `json:"duplicates_suppressed"`
-	Rejected             []Rejection `json:"rejected"`
+	BatchID              uuid.UUID `json:"batch_id"`
+	Accepted             int       `json:"accepted"`
+	DuplicatesSuppressed int       `json:"duplicates_suppressed"`
+	// Filtered is how many events the tenant's ingest filters excluded. Reported back
+	// to the sender because a filtered event is stored nowhere: without this number a
+	// vendor cannot tell "you dropped it on purpose" from "you lost it".
+	Filtered int         `json:"filtered"`
+	Rejected []Rejection `json:"rejected"`
 }
 
 // HasRejections reports whether any event was dead-lettered, which turns a 202 into
@@ -175,11 +180,16 @@ func (p *Publisher) PublishRejections(
 // Normalization runs here only to derive the event identity and to detect records
 // that will never be usable. The full normalized event is produced downstream by the
 // processor, so a change to the common model does not require re-ingesting.
+// The returned `filtered` count is the number of events excluded by the tenant's ingest
+// filters. It is returned rather than logged because a filtered event leaves NO other
+// trace — no payload, no row, no rejection — so this count is the only thing standing
+// between an operator with a slightly too broad rule and traffic that vanishes without
+// explanation.
 func BuildEnvelopes(
 	adapter vendors.Adapter,
 	records []vendors.RawRecord,
 	meta EnvelopeMeta,
-) (envelopes []Envelope, rejections []Rejection) {
+) (envelopes []Envelope, rejections []Rejection, filtered int) {
 	envelopes = make([]Envelope, 0, len(records))
 
 	for i, record := range records {
@@ -201,6 +211,14 @@ func BuildEnvelopes(
 			continue
 		}
 
+		// Applied only to events that NORMALIZED. A parse failure has no host or path
+		// for a rule to test, and dead-lettering it is the right answer — dropping what
+		// we failed to understand would hide parse failures behind a volume feature.
+		if meta.Filters.Drops(event) {
+			filtered++
+			continue
+		}
+
 		envelopes = append(envelopes, Envelope{
 			TenantID: meta.TenantID, FeedID: meta.FeedID, Vendor: adapter.Vendor(),
 			EventID: meta.IdentityFor(event.VendorRequestID, record.Bytes),
@@ -209,7 +227,7 @@ func BuildEnvelopes(
 		})
 	}
 
-	return envelopes, rejections
+	return envelopes, rejections, filtered
 }
 
 // EnvelopeMeta carries the per-delivery context BuildEnvelopes needs.
@@ -221,6 +239,9 @@ type EnvelopeMeta struct {
 	// IdentityFor derives the stable event id. Injected so the identity scheme lives
 	// in one place and this package stays testable without it.
 	IdentityFor func(vendorRequestID string, rawBytes []byte) string
+	// Filters excludes events from ingestion entirely. Compiled once per delivery by
+	// the caller, because the preparation is the same for every event in it.
+	Filters filter.Set
 }
 
 // classify maps a normalization failure to a rejection code, so the dead-letter

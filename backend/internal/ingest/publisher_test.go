@@ -218,7 +218,7 @@ func TestBuildEnvelopesSeparatesUsableFromRejected(t *testing.T) {
 		IdentityFor: func(requestID string, raw []byte) string { return requestID + string(raw[:4]) },
 	}
 
-	envelopes, rejections := BuildEnvelopes(adapter, records, meta)
+	envelopes, rejections, _ := BuildEnvelopes(adapter, records, meta)
 
 	// Every record gets an envelope, including the bad one, so its position is
 	// preserved and the dead-letter copy retains the original bytes.

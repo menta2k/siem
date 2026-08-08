@@ -178,8 +178,9 @@ func newHarness(t *testing.T, batches []Batch) *harness {
 	}
 
 	w := NewWorker(feeds, NewRegistry(source), adapters, publisher,
-		dedup.New(newMemStore(), time.Minute), stubSecrets{}, nopHealth{},
-		mw.NewLogger("error", "json"))
+		dedup.New(newMemStore(), time.Minute), stubSecrets{},
+		nil, // no ingest filters configured
+		nopHealth{}, mw.NewLogger("error", "json"))
 
 	return &harness{w, feeds, source, publisher, feedID}
 }

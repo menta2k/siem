@@ -23,6 +23,7 @@ import (
 	"github.com/menta2k/siem/internal/data/stream"
 	"github.com/menta2k/siem/internal/ingest"
 	"github.com/menta2k/siem/internal/ingest/dedup"
+	"github.com/menta2k/siem/internal/ingest/filter"
 	"github.com/menta2k/siem/internal/ingest/puller"
 	mw "github.com/menta2k/siem/internal/middleware"
 	"github.com/menta2k/siem/internal/normalize"
@@ -185,7 +186,8 @@ func buildWorkers(
 				puller.NewDataDomeSource()),
 			adapters,
 			ingest.NewPublisher(producer, cfg.Redpanda.TopicRaw, cfg.Redpanda.TopicDLQ),
-			deduper, secrets.NewRedisStore(redisClient), healthAggregator, deps.Log),
+			deduper, secrets.NewRedisStore(redisClient),
+			filter.NewCache(tenants, filter.DefaultCacheTTL), healthAggregator, deps.Log),
 
 		// Evaluates alert rules and delivers the alerts they produce.
 		buildAlertingWorker(cfg, deps, chClient, redisClient, locker),
