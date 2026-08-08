@@ -181,6 +181,23 @@ func (a *Adapter) Normalize(record vendors.RawRecord) (vendors.Event, error) {
 		return vendors.Event{}, fmt.Errorf("%w: record is not valid json", vendors.ErrUnparseable)
 	}
 
+	// Checked before anything else: this record is not a request at all, it is the
+	// DataDome Worker's call to its protection API, and the fields below would describe
+	// that call rather than the visitor who caused it.
+	if isDataDomeCall(record.Fields) {
+		event, err := normalizeDataDomeCall(record.Fields)
+		if err != nil {
+			return vendors.Event{}, fmt.Errorf("field EdgeStartTimestamp: %w", err)
+		}
+		return event, nil
+	}
+	return normalizeRequest(record.Fields)
+}
+
+// normalizeRequest maps an ordinary Cloudflare request onto the common model.
+func normalizeRequest(fields map[string]any) (vendors.Event, error) {
+	record := vendors.RawRecord{Fields: fields}
+
 	eventTime, original, err := vendors.ParseTime(record.Fields["EdgeStartTimestamp"])
 	if err != nil {
 		return vendors.Event{}, fmt.Errorf("field EdgeStartTimestamp: %w", err)
