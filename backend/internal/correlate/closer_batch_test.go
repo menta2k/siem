@@ -65,7 +65,7 @@ func newCloser(
 
 // fileAndClose files n events, then closes every window they opened.
 func fileAndClose(
-	t *testing.T, n int, windowStore *countingWindowStore, records *countingCorrelatedStore,
+	t *testing.T, n int, windowStore *countingWindowStore, records correlate.CorrelatedStore,
 ) {
 	t.Helper()
 

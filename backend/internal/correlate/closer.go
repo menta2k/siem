@@ -159,6 +159,38 @@ func (c *Closer) pass(
 	return len(due) < c.batch, failed
 }
 
+// VersionLookupChunk bounds how many ids one version query asks about.
+//
+// The lookup becomes an IN list, and ClickHouse caps a query at 256 KB. A tick gathers up
+// to MaxPassesPerTick*window.DefaultBatch records — over 8,000 — and at ~38 bytes per
+// rendered uuid the whole set overruns that limit, failing the ENTIRE close pass. It did:
+// correlated output on production fell from 5,218 records a minute to 137 before this was
+// bounded. This size leaves an order of magnitude of headroom.
+const VersionLookupChunk = 1000
+
+// versionsOf reads existing versions in bounded batches.
+//
+// Only the READ is split. The insert stays whole because one part per tick is the entire
+// point of batching — it is the read that has a query-size limit, not the write.
+func (c *Closer) versionsOf(
+	ctx context.Context, ids []uuid.UUID,
+) (map[uuid.UUID]uint64, error) {
+	existing := make(map[uuid.UUID]uint64, len(ids))
+
+	for start := 0; start < len(ids); start += VersionLookupChunk {
+		end := min(start+VersionLookupChunk, len(ids))
+
+		found, err := c.store.Versions(ctx, ids[start:end])
+		if err != nil {
+			return nil, err
+		}
+		for id, version := range found {
+			existing[id] = version
+		}
+	}
+	return existing, nil
+}
+
 // emission is one correlated record together with the evidence it was built from,
 // which the metrics need after the write succeeds.
 type emission struct {
@@ -183,7 +215,7 @@ func (c *Closer) insert(ctx context.Context, tenantID uuid.UUID, emitted []emiss
 		ids = append(ids, e.record.CorrelationID)
 	}
 
-	existing, err := c.store.Versions(scoped, ids)
+	existing, err := c.versionsOf(scoped, ids)
 	if err != nil {
 		CloseFailures.WithLabelValues("read").Inc()
 		return fmt.Errorf("look up %d existing records: %w", len(ids), err)
