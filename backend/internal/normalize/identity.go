@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/menta2k/siem/internal/vendors"
 )
 
 // EventID derives a stable identity for one event.
@@ -96,13 +94,13 @@ func BatchID() uuid.UUID { return uuid.New() }
 // Identity therefore has to be per (feed, vendor, request id). It reads as belt and
 // braces only while one feed means one vendor, and that is exactly the assumption that
 // stopped being true.
-func EventIDFor(feedID uuid.UUID, event vendors.Event, rawBytes []byte) string {
-	requestID := strings.TrimSpace(event.VendorRequestID)
+func EventIDFor(feedID uuid.UUID, vendor, vendorRequestID string, rawBytes []byte) string {
+	requestID := strings.TrimSpace(vendorRequestID)
 	if requestID == "" {
 		// Left empty so EventID still falls through to hashing the raw bytes. Passing
 		// the vendor alone here would make every id-less event of one vendor share a
 		// single identity — a far worse version of the bug being fixed.
 		return EventID(feedID, "", rawBytes)
 	}
-	return EventID(feedID, event.Vendor+"|"+requestID, rawBytes)
+	return EventID(feedID, vendor+"|"+requestID, rawBytes)
 }

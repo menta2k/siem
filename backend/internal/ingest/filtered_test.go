@@ -22,7 +22,7 @@ func filterMeta(t *testing.T, rules ...filter.Rule) ingest.EnvelopeMeta {
 	return ingest.EnvelopeMeta{
 		TenantID: uuid.New(), FeedID: uuid.New(), BatchID: uuid.New(),
 		ReceivedAt:  time.Now().UTC(),
-		IdentityFor: func(vendorRequestID string, raw []byte) string { return string(raw) },
+		IdentityFor: func(vendor, vendorRequestID string, raw []byte) string { return string(raw) },
 		Filters:     set,
 	}
 }

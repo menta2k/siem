@@ -313,8 +313,8 @@ func (r *Receiver) accept(
 	batchID := normalize.BatchID()
 	envelopes, rejections, filtered := ingest.BuildEnvelopes(adapter, records, ingest.EnvelopeMeta{
 		TenantID: feed.TenantID, FeedID: feed.ID, BatchID: batchID, ReceivedAt: receivedAt,
-		IdentityFor: func(vendorRequestID string, raw []byte) string {
-			return normalize.EventID(feed.ID, vendorRequestID, raw)
+		IdentityFor: func(vendor, vendorRequestID string, raw []byte) string {
+			return normalize.EventIDFor(feed.ID, vendor, vendorRequestID, raw)
 		},
 		Filters: r.filters.For(ctx, feed.TenantID),
 	})

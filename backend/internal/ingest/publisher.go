@@ -199,7 +199,7 @@ func BuildEnvelopes(
 			// preserved and the dead-letter copy retains the original bytes.
 			envelopes = append(envelopes, Envelope{
 				TenantID: meta.TenantID, FeedID: meta.FeedID, Vendor: adapter.Vendor(),
-				EventID: meta.IdentityFor("", record.Bytes),
+				EventID: meta.IdentityFor(adapter.Vendor(), "", record.Bytes),
 				BatchID: meta.BatchID, ReceivedAt: meta.ReceivedAt,
 				Format: string(record.Format), Payload: record.Bytes,
 			})
@@ -221,7 +221,7 @@ func BuildEnvelopes(
 
 		envelopes = append(envelopes, Envelope{
 			TenantID: meta.TenantID, FeedID: meta.FeedID, Vendor: adapter.Vendor(),
-			EventID: meta.IdentityFor(event.VendorRequestID, record.Bytes),
+			EventID: meta.IdentityFor(event.Vendor, event.VendorRequestID, record.Bytes),
 			BatchID: meta.BatchID, ReceivedAt: meta.ReceivedAt,
 			Format: string(record.Format), Payload: record.Bytes,
 		})
@@ -238,7 +238,14 @@ type EnvelopeMeta struct {
 	ReceivedAt time.Time
 	// IdentityFor derives the stable event id. Injected so the identity scheme lives
 	// in one place and this package stays testable without it.
-	IdentityFor func(vendorRequestID string, rawBytes []byte) string
+	//
+	// The VENDOR is an input because a vendor request id identifies a REQUEST, not a
+	// record of one. Once a single feed can produce events for more than one vendor —
+	// which deriving DataDome's verdict from Cloudflare's log introduced — two
+	// genuinely different records legitimately share that id, and hashing it alone
+	// made them collide. The deduper then read the second as a redelivery and dropped
+	// it: a quarter of all received events, silently.
+	IdentityFor func(vendor, vendorRequestID string, rawBytes []byte) string
 	// Filters excludes events from ingestion entirely. Compiled once per delivery by
 	// the caller, because the preparation is the same for every event in it.
 	Filters filter.Set

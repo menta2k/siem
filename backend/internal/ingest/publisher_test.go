@@ -214,8 +214,10 @@ func TestBuildEnvelopesSeparatesUsableFromRejected(t *testing.T) {
 
 	meta := EnvelopeMeta{
 		TenantID: uuid.New(), FeedID: uuid.New(), BatchID: uuid.New(),
-		ReceivedAt:  time.Now().UTC(),
-		IdentityFor: func(requestID string, raw []byte) string { return requestID + string(raw[:4]) },
+		ReceivedAt: time.Now().UTC(),
+		IdentityFor: func(vendor, requestID string, raw []byte) string {
+			return vendor + requestID + string(raw[:4])
+		},
 	}
 
 	envelopes, rejections, _ := BuildEnvelopes(adapter, records, meta)

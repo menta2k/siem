@@ -220,8 +220,8 @@ func (w *Worker) commitBatch(
 	envelopes, rejections, filtered := ingest.BuildEnvelopes(adapter, records, ingest.EnvelopeMeta{
 		TenantID: feed.TenantID, FeedID: feed.ID,
 		BatchID: normalize.BatchID(), ReceivedAt: receivedAt,
-		IdentityFor: func(vendorRequestID string, raw []byte) string {
-			return normalize.EventID(feed.ID, vendorRequestID, raw)
+		IdentityFor: func(vendor, vendorRequestID string, raw []byte) string {
+			return normalize.EventIDFor(feed.ID, vendor, vendorRequestID, raw)
 		},
 		Filters: w.filters.For(ctx, feed.TenantID),
 	})

@@ -23,12 +23,8 @@ var identityFeed = uuid.MustParse("00000000-0000-4000-8000-0000000000fe")
 func TestTwoVendorsSharingARequestIDGetDifferentIdentities(t *testing.T) {
 	raw := []byte(`{"RayID":"a27fe3039e6f1216"}`)
 
-	parent := normalize.EventIDFor(identityFeed, vendors.Event{
-		Vendor: vendors.Cloudflare, VendorRequestID: "a27fe3039e6f1216",
-	}, raw)
-	derived := normalize.EventIDFor(identityFeed, vendors.Event{
-		Vendor: vendors.DataDome, VendorRequestID: "a27fe3039e6f1216",
-	}, raw)
+	parent := normalize.EventIDFor(identityFeed, vendors.Cloudflare, "a27fe3039e6f1216", raw)
+	derived := normalize.EventIDFor(identityFeed, vendors.DataDome, "a27fe3039e6f1216", raw)
 
 	if parent == derived {
 		t.Fatalf("both vendors produced event id %s — the deduper will drop one of them "+
@@ -39,12 +35,10 @@ func TestTwoVendorsSharingARequestIDGetDifferentIdentities(t *testing.T) {
 // The identity must still be stable across a redelivery, which is what makes a vendor
 // retry safe in the first place.
 func TestIdentityIsStableForTheSameVendorAndRequest(t *testing.T) {
-	event := vendors.Event{Vendor: vendors.Cloudflare, VendorRequestID: "ray-1"}
-
-	first := normalize.EventIDFor(identityFeed, event, []byte(`{"a":1}`))
 	// Different bytes, same vendor and request id: a redelivery whose formatting
 	// changed must still be recognised as the same event.
-	second := normalize.EventIDFor(identityFeed, event, []byte(`{"a": 1}`))
+	first := normalize.EventIDFor(identityFeed, vendors.Cloudflare, "ray-1", []byte(`{"a":1}`))
+	second := normalize.EventIDFor(identityFeed, vendors.Cloudflare, "ray-1", []byte(`{"a": 1}`))
 
 	if first != second {
 		t.Errorf("identity changed across a redelivery: %s vs %s", first, second)
@@ -56,10 +50,8 @@ func TestIdentityIsStableForTheSameVendorAndRequest(t *testing.T) {
 // every id-less event of that vendor ONE identity, collapsing them all into a single
 // row — a far worse failure than the one being fixed.
 func TestEventsWithNoRequestIDStayDistinct(t *testing.T) {
-	event := vendors.Event{Vendor: vendors.Cloudflare}
-
-	first := normalize.EventIDFor(identityFeed, event, []byte(`{"a":1}`))
-	second := normalize.EventIDFor(identityFeed, event, []byte(`{"a":2}`))
+	first := normalize.EventIDFor(identityFeed, vendors.Cloudflare, "", []byte(`{"a":1}`))
+	second := normalize.EventIDFor(identityFeed, vendors.Cloudflare, "", []byte(`{"a":2}`))
 
 	if first == second {
 		t.Fatal("two different id-less events share one identity — every event without " +
@@ -70,10 +62,8 @@ func TestEventsWithNoRequestIDStayDistinct(t *testing.T) {
 // Whitespace-only request ids must be treated as absent, not as a shared identity.
 func TestBlankRequestIDsFallBackToTheRawBytes(t *testing.T) {
 	for _, blank := range []string{"", "   ", "\t"} {
-		event := vendors.Event{Vendor: vendors.F5, VendorRequestID: blank}
-
-		first := normalize.EventIDFor(identityFeed, event, []byte(`{"a":1}`))
-		second := normalize.EventIDFor(identityFeed, event, []byte(`{"a":2}`))
+		first := normalize.EventIDFor(identityFeed, vendors.F5, blank, []byte(`{"a":1}`))
+		second := normalize.EventIDFor(identityFeed, vendors.F5, blank, []byte(`{"a":2}`))
 		if first == second {
 			t.Errorf("request id %q collapsed two distinct events into one identity", blank)
 		}
@@ -82,10 +72,10 @@ func TestBlankRequestIDsFallBackToTheRawBytes(t *testing.T) {
 
 // Two tenants sharing a Cloudflare zone see the same ray. They must not collide.
 func TestDifferentFeedsStillDoNotCollide(t *testing.T) {
-	event := vendors.Event{Vendor: vendors.Cloudflare, VendorRequestID: "ray-1"}
 	other := uuid.MustParse("00000000-0000-4000-8000-0000000000ff")
 
-	if normalize.EventIDFor(identityFeed, event, nil) == normalize.EventIDFor(other, event, nil) {
+	if normalize.EventIDFor(identityFeed, vendors.Cloudflare, "ray-1", nil) ==
+		normalize.EventIDFor(other, vendors.Cloudflare, "ray-1", nil) {
 		t.Error("two feeds produced the same identity for the same request id")
 	}
 }
