@@ -69,6 +69,23 @@ func (r *correlateRig) feed(t *testing.T, event chdata.NormalizedEvent) {
 	}
 }
 
+// afterDeadline is a time by which a window holding an event at `at` is genuinely due.
+//
+// DERIVED, never a hand-written offset. A window closes at eventTime + Window + grace,
+// and the grace has been raised twice — 30s, then 90s, then 210s — as the measured
+// delivery tail grew. Each raise left these tests closing at a hardcoded "+2 minutes",
+// which is BEFORE the deadline, so the closer correctly emitted nothing and every
+// assertion downstream read that empty result as a correlation bug. The failure looked
+// like "0 correlated records, want 1" and pointed at the pipeline rather than at the
+// clock the test had chosen.
+//
+// Deriving it from the same constants the closer uses means the next change to either
+// bound moves these tests with it instead of silently breaking them.
+func afterDeadline(at time.Time) time.Time {
+	settings := correlate.DefaultResolved().Keys
+	return at.Add(settings.Window).Add(window.DefaultGrace).Add(time.Second)
+}
+
 // closeWindows runs a close pass far enough in the future that everything is due.
 func (r *correlateRig) closeWindows(t *testing.T, at time.Time) {
 	t.Helper()
@@ -133,7 +150,7 @@ func TestLateArrivalAmendsTheExistingRecord(t *testing.T) {
 	rig := newCorrelateRig(t, "correlate-late-amend")
 
 	rig.feed(t, normalizedEvent(rig.tenant, "cf-1", vendors.Cloudflare, "ray-1", corrBase))
-	rig.closeWindows(t, corrBase.Add(2*time.Minute))
+	rig.closeWindows(t, afterDeadline(corrBase))
 
 	first := rig.only(t)
 	if first.Version != 1 || first.Amended {
@@ -148,7 +165,7 @@ func TestLateArrivalAmendsTheExistingRecord(t *testing.T) {
 	// The F5 report of the same request arrives late, but inside the lateness bound.
 	rig.feed(t, normalizedEvent(rig.tenant, "f5-1", vendors.F5, "support-9",
 		corrBase.Add(time.Second)))
-	rig.closeWindows(t, corrBase.Add(4*time.Minute))
+	rig.closeWindows(t, afterDeadline(corrBase.Add(time.Second)))
 
 	amended := rig.only(t)
 	if amended.CorrelationID != first.CorrelationID {
@@ -175,13 +192,13 @@ func TestOutOfBoundArrivalDoesNotAmend(t *testing.T) {
 	rig := newCorrelateRig(t, "correlate-out-of-bound")
 
 	rig.feed(t, normalizedEvent(rig.tenant, "cf-2", vendors.Cloudflare, "ray-2", corrBase))
-	rig.closeWindows(t, corrBase.Add(2*time.Minute))
+	rig.closeWindows(t, afterDeadline(corrBase))
 	first := rig.only(t)
 
 	// Far outside the correlation window: a different request entirely.
 	late := corrBase.Add(2 * time.Hour)
 	rig.feed(t, normalizedEvent(rig.tenant, "f5-2", vendors.F5, "support-8", late))
-	if err := rig.closer.Tick(rig.ctx, late.Add(2*time.Minute)); err != nil {
+	if err := rig.closer.Tick(rig.ctx, afterDeadline(late)); err != nil {
 		t.Fatalf("close pass: %v", err)
 	}
 	rig.fixture.Sync(t, "correlated_requests")
@@ -211,7 +228,7 @@ func TestSharedRequestIDJoinsAcrossWindows(t *testing.T) {
 	rig.feed(t, normalizedEvent(rig.tenant, "cf-3", vendors.Cloudflare, "ray-shared", corrBase))
 	rig.feed(t, normalizedEvent(rig.tenant, "f5-3", vendors.F5, "ray-shared",
 		corrBase.Add(45*time.Second)))
-	rig.closeWindows(t, corrBase.Add(5*time.Minute))
+	rig.closeWindows(t, afterDeadline(corrBase.Add(45*time.Second)))
 
 	var joined *chdata.CorrelatedRequest
 	for _, record := range rig.list(t) {
@@ -240,7 +257,7 @@ func TestDisagreementIsRecorded(t *testing.T) {
 		corrBase.Add(time.Second), func(e *chdata.NormalizedEvent) {
 			e.Verdict = vendors.VerdictBlocked
 		}))
-	rig.closeWindows(t, corrBase.Add(3*time.Minute))
+	rig.closeWindows(t, afterDeadline(corrBase.Add(time.Second)))
 
 	record := rig.only(t)
 	if !record.HasDisagreement {
@@ -267,7 +284,7 @@ func TestRedeliveredEventDoesNotDuplicateInTheRecord(t *testing.T) {
 	event := normalizedEvent(rig.tenant, "cf-5", vendors.Cloudflare, "ray-5", corrBase)
 	rig.feed(t, event)
 	rig.feed(t, event)
-	rig.closeWindows(t, corrBase.Add(2*time.Minute))
+	rig.closeWindows(t, afterDeadline(corrBase))
 
 	record := rig.only(t)
 	if len(record.EventIDs) != 1 {

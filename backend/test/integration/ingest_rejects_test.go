@@ -12,6 +12,7 @@ import (
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
 	"github.com/menta2k/siem/internal/ingest"
 	"github.com/menta2k/siem/internal/normalize"
+	"github.com/menta2k/siem/internal/vendors"
 )
 
 // rejectFilter spans the whole test run.
@@ -268,7 +269,12 @@ func TestRedactionPolicyIsEnforcedAtStorage(t *testing.T) {
 	h.drain(t, 1)
 	h.fixture.Sync(t, "normalized_events")
 
-	eventID := normalize.EventID(h.feed.ID, "redact-1", []byte(body))
+	// EventIDFor, not EventID: identity is per (feed, VENDOR, request id) since one feed
+	// stopped meaning one vendor. Recomputing it the old way here looked up an id the
+	// pipeline never wrote, and the miss surfaced as "clickhouse: not found" — which
+	// reads as the event having been lost rather than as the test asking for the wrong
+	// key.
+	eventID := normalize.EventIDFor(h.feed.ID, vendors.Cloudflare, "redact-1", []byte(body))
 
 	stored, err := h.fixture.Events.GetNormalized(h.ctx, eventID)
 	if err != nil {

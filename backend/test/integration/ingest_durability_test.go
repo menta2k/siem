@@ -390,7 +390,9 @@ func TestRawPayloadIsPreservedByteForByte(t *testing.T) {
 	h.drain(t, 1)
 	h.fixture.Sync(t, "raw_events")
 
-	eventID := normalize.EventID(h.feed.ID, "verbatim-1", []byte(payload))
+	// Derived exactly as the pipeline derives it — per (feed, vendor, request id). See
+	// the note in TestRedactionPolicyIsEnforcedAtStorage.
+	eventID := normalize.EventIDFor(h.feed.ID, vendors.Cloudflare, "verbatim-1", []byte(payload))
 
 	stored, format, err := h.fixture.Events.GetRawPayload(h.ctx, eventID)
 	if err != nil {
