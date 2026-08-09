@@ -58,6 +58,18 @@ func (a *Adapter) Normalize(record vendors.RawRecord) (vendors.Event, error) {
 		ClientIPShared: vendors.IsSharedIP(clientIP),
 		ClientCountry:  strings.ToUpper(vendors.AsString(record.Fields["geo_location"])),
 
+		// ClientASN is DELIBERATELY NOT MAPPED, and adding it needs more than a field
+		// name. BIG-IP resolves network attribution from the connection it terminates,
+		// and behind Cloudflare that connection comes from a Cloudflare edge address —
+		// so an ASN field here names AS13335 rather than the client's ISP. The client IP
+		// above is safe because it is recovered from CF-Connecting-IP (see
+		// resolveClientIP); the appliance's own geo fields are not re-derived from it.
+		//
+		// Any asn-like field the appliance does send is still kept, in RawExtra, where
+		// it is visible without being asserted as the client's network. Correlation
+		// applies the same rule a second time — see correlate.clientGeo — so a future
+		// mapping here cannot quietly contaminate a record either.
+
 		// Only genuine Host-header sources. `virtual_server` is deliberately NOT one:
 		// it is a BIG-IP object path like /Common/vs_shop_https, and using it as the
 		// host makes every F5 event unjoinable — no other vendor reports that string —

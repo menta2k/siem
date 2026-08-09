@@ -151,6 +151,19 @@ function blockRate(events?: string | number, blocked?: string | number): string 
   if (total === 0) return '—'
   return percent(Number(blocked ?? 0) / total)
 }
+
+/**
+ * The search that shows the traffic behind an ASN row.
+ *
+ * A ranking is only useful if the next question — WHICH requests — is one click away,
+ * and the search page already restores an `asn` query parameter. The range travels with
+ * it so the drill-through covers the window the number was computed over; landing on a
+ * different range would show a different figure than the row that was clicked.
+ */
+function asnSearch(asn?: number): { name: string; query: Record<string, string> } {
+  const { from, to } = currentRange()
+  return { name: 'search', query: { asn: String(asn ?? 0), from, to } }
+}
 </script>
 
 <template>
@@ -165,12 +178,7 @@ function blockRate(events?: string | number, blocked?: string | number): string 
         <v-icon icon="mdi-clock-outline" size="small" />
         <span class="text-body-2 mr-2">{{ rangeLabel }}</span>
 
-        <v-btn-toggle
-          :model-value="selected.label"
-          density="compact"
-          variant="outlined"
-          divided
-        >
+        <v-btn-toggle :model-value="selected.label" density="compact" variant="outlined" divided>
           <v-btn
             v-for="preset in RANGE_PRESETS"
             :key="preset.label"
@@ -285,7 +293,9 @@ function blockRate(events?: string | number, blocked?: string | number): string 
               </thead>
               <tbody>
                 <tr v-for="source in sources.sources" :key="source.clientIp">
-                  <td><code>{{ source.clientIp }}</code></td>
+                  <td>
+                    <code>{{ source.clientIp }}</code>
+                  </td>
                   <td>{{ source.country || '—' }}</td>
                   <td class="text-right">{{ source.events }}</td>
                   <td class="text-right">{{ blockRate(source.events, source.blocked) }}</td>
@@ -293,6 +303,52 @@ function blockRate(events?: string | number, blocked?: string | number): string 
               </tbody>
             </v-table>
             <div v-else class="text-body-2 text-medium-emphasis">No sources in this range.</div>
+          </v-card-text>
+        </v-card>
+
+        <!--
+          The same traffic one level up. A distributed source is invisible in the table
+          above — a thousand addresses with one request each never reach a top-10 by
+          address — and shows here as a single row with a large client count.
+        -->
+        <v-card class="mb-4">
+          <v-card-title class="text-subtitle-1">
+            Top networks
+            <span class="text-caption text-medium-emphasis ml-2">
+              by origin ASN, where the vendor reports one
+            </span>
+          </v-card-title>
+          <v-card-text>
+            <v-table v-if="sources?.asns?.length" density="compact">
+              <thead>
+                <tr>
+                  <th>Network</th>
+                  <th>Country</th>
+                  <th class="text-right">Clients</th>
+                  <th class="text-right">Events</th>
+                  <th class="text-right">Blocked</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="net in sources.asns" :key="net.asn">
+                  <td>
+                    <router-link :to="asnSearch(net.asn)">AS{{ net.asn }}</router-link>
+                  </td>
+                  <td>{{ net.country || '—' }}</td>
+                  <td class="text-right">{{ net.clients }}</td>
+                  <td class="text-right">{{ net.events }}</td>
+                  <td class="text-right">{{ blockRate(net.events, net.blocked) }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+            <!--
+              Said plainly rather than shown as an empty table. Only Cloudflare reports
+              an ASN today, so an empty panel usually means the range predates that feed
+              rather than that the traffic had no origin network.
+            -->
+            <div v-else class="text-body-2 text-medium-emphasis">
+              No network attribution in this range — no vendor reported an ASN.
+            </div>
           </v-card-text>
         </v-card>
 

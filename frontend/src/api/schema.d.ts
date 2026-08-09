@@ -651,6 +651,32 @@ export interface components {
             /** Format: date-time */
             updatedAt?: string;
         };
+        /**
+         * @description AsnCount is one origin network's activity for the range.
+         *
+         *      The network behind the addresses, which is the level a lot of abuse is actually
+         *      organised at. A botnet spread over a hosting provider shows as a thousand
+         *      single-request addresses in the top-sources table and never reaches it; aggregated by
+         *      ASN the same traffic is one row near the top.
+         */
+        AsnCount: {
+            /** Format: uint32 */
+            asn?: number;
+            /**
+             * @description The country most of this network's traffic came from. An ASN can span several, so
+             *      this names the majority rather than claiming the network sits in one place.
+             */
+            country?: string;
+            events?: string;
+            /** @description A subset of events, never a separate tally. */
+            blocked?: string;
+            /**
+             * @description Distinct client addresses seen on this network. The number that separates one busy
+             *      client from a distributed source: 50,000 events from 3 addresses and from 30,000
+             *      addresses are different problems with different responses.
+             */
+            clients?: string;
+        };
         AuditEntry: {
             entryId?: string;
             /** Format: date-time */
@@ -1324,6 +1350,11 @@ export interface components {
         };
         SourcesPanel: {
             sources?: components["schemas"]["SourceCount"][];
+            /**
+             * @description The same traffic aggregated by origin network. Carried on this panel rather than
+             *      its own so one request serves both views and they cannot disagree about the range.
+             */
+            asns?: components["schemas"]["AsnCount"][];
         };
         TenantSettings: {
             tenantId?: string;

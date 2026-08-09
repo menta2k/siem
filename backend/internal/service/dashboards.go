@@ -20,6 +20,7 @@ type PanelReader interface {
 	VerdictMix(ctx context.Context, q chdata.DashboardQuery) ([]chdata.VerdictPoint, error)
 	TopRules(ctx context.Context, q chdata.DashboardQuery) ([]chdata.RuleCount, error)
 	TopSources(ctx context.Context, q chdata.DashboardQuery) ([]chdata.SourceCount, error)
+	TopASNs(ctx context.Context, q chdata.DashboardQuery) ([]chdata.ASNCount, error)
 	Disagreements(ctx context.Context, q chdata.DashboardQuery) ([]chdata.DisagreementPoint, error)
 }
 
@@ -140,8 +141,17 @@ func (s *DashboardsService) GetSources(
 	if err != nil {
 		return nil, query.TranslateError(err)
 	}
+	// Fetched alongside the addresses because they answer the same question at two
+	// scales, and a distributed source is invisible at the address scale.
+	asns, err := s.panels.TopASNs(ctx, q)
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
 
-	out := &pb.SourcesPanel{Sources: make([]*pb.SourceCount, 0, len(sources))}
+	out := &pb.SourcesPanel{
+		Sources: make([]*pb.SourceCount, 0, len(sources)),
+		Asns:    make([]*pb.AsnCount, 0, len(asns)),
+	}
 	for _, s := range sources {
 		source := &pb.SourceCount{
 			Country: s.Country, Asn: s.ASN, Events: s.Events, Blocked: s.Blocked,
@@ -150,6 +160,12 @@ func (s *DashboardsService) GetSources(
 			source.ClientIp = s.ClientIP.String()
 		}
 		out.Sources = append(out.Sources, source)
+	}
+	for _, a := range asns {
+		out.Asns = append(out.Asns, &pb.AsnCount{
+			Asn: a.ASN, Country: a.Country, Events: a.Events,
+			Blocked: a.Blocked, Clients: a.Clients,
+		})
 	}
 	return out, nil
 }

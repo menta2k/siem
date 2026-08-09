@@ -539,16 +539,107 @@ func (x *SourceCount) GetBlocked() uint64 {
 	return 0
 }
 
+// AsnCount is one origin network's activity for the range.
+//
+// The network behind the addresses, which is the level a lot of abuse is actually
+// organised at. A botnet spread over a hosting provider shows as a thousand
+// single-request addresses in the top-sources table and never reaches it; aggregated by
+// ASN the same traffic is one row near the top.
+type AsnCount struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Asn   uint32                 `protobuf:"varint,1,opt,name=asn,proto3" json:"asn,omitempty"`
+	// The country most of this network's traffic came from. An ASN can span several, so
+	// this names the majority rather than claiming the network sits in one place.
+	Country string `protobuf:"bytes,2,opt,name=country,proto3" json:"country,omitempty"`
+	Events  uint64 `protobuf:"varint,3,opt,name=events,proto3" json:"events,omitempty"`
+	// A subset of events, never a separate tally.
+	Blocked uint64 `protobuf:"varint,4,opt,name=blocked,proto3" json:"blocked,omitempty"`
+	// Distinct client addresses seen on this network. The number that separates one busy
+	// client from a distributed source: 50,000 events from 3 addresses and from 30,000
+	// addresses are different problems with different responses.
+	Clients       uint64 `protobuf:"varint,5,opt,name=clients,proto3" json:"clients,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AsnCount) Reset() {
+	*x = AsnCount{}
+	mi := &file_siem_v1_dashboards_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AsnCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AsnCount) ProtoMessage() {}
+
+func (x *AsnCount) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_dashboards_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AsnCount.ProtoReflect.Descriptor instead.
+func (*AsnCount) Descriptor() ([]byte, []int) {
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AsnCount) GetAsn() uint32 {
+	if x != nil {
+		return x.Asn
+	}
+	return 0
+}
+
+func (x *AsnCount) GetCountry() string {
+	if x != nil {
+		return x.Country
+	}
+	return ""
+}
+
+func (x *AsnCount) GetEvents() uint64 {
+	if x != nil {
+		return x.Events
+	}
+	return 0
+}
+
+func (x *AsnCount) GetBlocked() uint64 {
+	if x != nil {
+		return x.Blocked
+	}
+	return 0
+}
+
+func (x *AsnCount) GetClients() uint64 {
+	if x != nil {
+		return x.Clients
+	}
+	return 0
+}
+
 type SourcesPanel struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Sources       []*SourceCount         `protobuf:"bytes,1,rep,name=sources,proto3" json:"sources,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Sources []*SourceCount         `protobuf:"bytes,1,rep,name=sources,proto3" json:"sources,omitempty"`
+	// The same traffic aggregated by origin network. Carried on this panel rather than
+	// its own so one request serves both views and they cannot disagree about the range.
+	Asns          []*AsnCount `protobuf:"bytes,2,rep,name=asns,proto3" json:"asns,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SourcesPanel) Reset() {
 	*x = SourcesPanel{}
-	mi := &file_siem_v1_dashboards_proto_msgTypes[7]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -560,7 +651,7 @@ func (x *SourcesPanel) String() string {
 func (*SourcesPanel) ProtoMessage() {}
 
 func (x *SourcesPanel) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_dashboards_proto_msgTypes[7]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -573,12 +664,19 @@ func (x *SourcesPanel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourcesPanel.ProtoReflect.Descriptor instead.
 func (*SourcesPanel) Descriptor() ([]byte, []int) {
-	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{7}
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SourcesPanel) GetSources() []*SourceCount {
 	if x != nil {
 		return x.Sources
+	}
+	return nil
+}
+
+func (x *SourcesPanel) GetAsns() []*AsnCount {
+	if x != nil {
+		return x.Asns
 	}
 	return nil
 }
@@ -598,7 +696,7 @@ type DisagreementPoint struct {
 
 func (x *DisagreementPoint) Reset() {
 	*x = DisagreementPoint{}
-	mi := &file_siem_v1_dashboards_proto_msgTypes[8]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -610,7 +708,7 @@ func (x *DisagreementPoint) String() string {
 func (*DisagreementPoint) ProtoMessage() {}
 
 func (x *DisagreementPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_dashboards_proto_msgTypes[8]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -623,7 +721,7 @@ func (x *DisagreementPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisagreementPoint.ProtoReflect.Descriptor instead.
 func (*DisagreementPoint) Descriptor() ([]byte, []int) {
-	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{8}
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DisagreementPoint) GetBucket() *timestamppb.Timestamp {
@@ -665,7 +763,7 @@ type DisagreementsPanel struct {
 
 func (x *DisagreementsPanel) Reset() {
 	*x = DisagreementsPanel{}
-	mi := &file_siem_v1_dashboards_proto_msgTypes[9]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -677,7 +775,7 @@ func (x *DisagreementsPanel) String() string {
 func (*DisagreementsPanel) ProtoMessage() {}
 
 func (x *DisagreementsPanel) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_dashboards_proto_msgTypes[9]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -690,7 +788,7 @@ func (x *DisagreementsPanel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisagreementsPanel.ProtoReflect.Descriptor instead.
 func (*DisagreementsPanel) Descriptor() ([]byte, []int) {
-	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{9}
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DisagreementsPanel) GetPoints() []*DisagreementPoint {
@@ -723,7 +821,7 @@ type FeedHealthPanel struct {
 
 func (x *FeedHealthPanel) Reset() {
 	*x = FeedHealthPanel{}
-	mi := &file_siem_v1_dashboards_proto_msgTypes[10]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -735,7 +833,7 @@ func (x *FeedHealthPanel) String() string {
 func (*FeedHealthPanel) ProtoMessage() {}
 
 func (x *FeedHealthPanel) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_dashboards_proto_msgTypes[10]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -748,7 +846,7 @@ func (x *FeedHealthPanel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FeedHealthPanel.ProtoReflect.Descriptor instead.
 func (*FeedHealthPanel) Descriptor() ([]byte, []int) {
-	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{10}
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *FeedHealthPanel) GetFeeds() []*FeedHealth {
@@ -795,9 +893,16 @@ const file_siem_v1_dashboards_proto_rawDesc = "" +
 	"\acountry\x18\x02 \x01(\tR\acountry\x12\x10\n" +
 	"\x03asn\x18\x03 \x01(\rR\x03asn\x12\x16\n" +
 	"\x06events\x18\x04 \x01(\x04R\x06events\x12\x18\n" +
-	"\ablocked\x18\x05 \x01(\x04R\ablocked\">\n" +
+	"\ablocked\x18\x05 \x01(\x04R\ablocked\"\x82\x01\n" +
+	"\bAsnCount\x12\x10\n" +
+	"\x03asn\x18\x01 \x01(\rR\x03asn\x12\x18\n" +
+	"\acountry\x18\x02 \x01(\tR\acountry\x12\x16\n" +
+	"\x06events\x18\x03 \x01(\x04R\x06events\x12\x18\n" +
+	"\ablocked\x18\x04 \x01(\x04R\ablocked\x12\x18\n" +
+	"\aclients\x18\x05 \x01(\x04R\aclients\"e\n" +
 	"\fSourcesPanel\x12.\n" +
-	"\asources\x18\x01 \x03(\v2\x14.siem.v1.SourceCountR\asources\"\xa6\x01\n" +
+	"\asources\x18\x01 \x03(\v2\x14.siem.v1.SourceCountR\asources\x12%\n" +
+	"\x04asns\x18\x02 \x03(\v2\x11.siem.v1.AsnCountR\x04asns\"\xa6\x01\n" +
 	"\x11DisagreementPoint\x122\n" +
 	"\x06bucket\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x06bucket\x12-\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x19.siem.v1.DisagreementKindR\x04kind\x12\x18\n" +
@@ -837,7 +942,7 @@ func file_siem_v1_dashboards_proto_rawDescGZIP() []byte {
 }
 
 var file_siem_v1_dashboards_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_siem_v1_dashboards_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_siem_v1_dashboards_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_siem_v1_dashboards_proto_goTypes = []any{
 	(BucketInterval)(0),           // 0: siem.v1.BucketInterval
 	(*DashboardRequest)(nil),      // 1: siem.v1.DashboardRequest
@@ -847,49 +952,51 @@ var file_siem_v1_dashboards_proto_goTypes = []any{
 	(*RuleCount)(nil),             // 5: siem.v1.RuleCount
 	(*RulesPanel)(nil),            // 6: siem.v1.RulesPanel
 	(*SourceCount)(nil),           // 7: siem.v1.SourceCount
-	(*SourcesPanel)(nil),          // 8: siem.v1.SourcesPanel
-	(*DisagreementPoint)(nil),     // 9: siem.v1.DisagreementPoint
-	(*DisagreementsPanel)(nil),    // 10: siem.v1.DisagreementsPanel
-	(*FeedHealthPanel)(nil),       // 11: siem.v1.FeedHealthPanel
-	(*TimeRange)(nil),             // 12: siem.v1.TimeRange
-	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
-	(Vendor)(0),                   // 14: siem.v1.Vendor
-	(Verdict)(0),                  // 15: siem.v1.Verdict
-	(DisagreementKind)(0),         // 16: siem.v1.DisagreementKind
-	(*FeedHealth)(nil),            // 17: siem.v1.FeedHealth
+	(*AsnCount)(nil),              // 8: siem.v1.AsnCount
+	(*SourcesPanel)(nil),          // 9: siem.v1.SourcesPanel
+	(*DisagreementPoint)(nil),     // 10: siem.v1.DisagreementPoint
+	(*DisagreementsPanel)(nil),    // 11: siem.v1.DisagreementsPanel
+	(*FeedHealthPanel)(nil),       // 12: siem.v1.FeedHealthPanel
+	(*TimeRange)(nil),             // 13: siem.v1.TimeRange
+	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
+	(Vendor)(0),                   // 15: siem.v1.Vendor
+	(Verdict)(0),                  // 16: siem.v1.Verdict
+	(DisagreementKind)(0),         // 17: siem.v1.DisagreementKind
+	(*FeedHealth)(nil),            // 18: siem.v1.FeedHealth
 }
 var file_siem_v1_dashboards_proto_depIdxs = []int32{
-	12, // 0: siem.v1.DashboardRequest.time_range:type_name -> siem.v1.TimeRange
+	13, // 0: siem.v1.DashboardRequest.time_range:type_name -> siem.v1.TimeRange
 	0,  // 1: siem.v1.DashboardRequest.interval:type_name -> siem.v1.BucketInterval
-	13, // 2: siem.v1.VolumePoint.bucket:type_name -> google.protobuf.Timestamp
-	14, // 3: siem.v1.VolumePoint.vendor:type_name -> siem.v1.Vendor
-	13, // 4: siem.v1.VerdictPoint.bucket:type_name -> google.protobuf.Timestamp
-	14, // 5: siem.v1.VerdictPoint.vendor:type_name -> siem.v1.Vendor
-	15, // 6: siem.v1.VerdictPoint.verdict:type_name -> siem.v1.Verdict
+	14, // 2: siem.v1.VolumePoint.bucket:type_name -> google.protobuf.Timestamp
+	15, // 3: siem.v1.VolumePoint.vendor:type_name -> siem.v1.Vendor
+	14, // 4: siem.v1.VerdictPoint.bucket:type_name -> google.protobuf.Timestamp
+	15, // 5: siem.v1.VerdictPoint.vendor:type_name -> siem.v1.Vendor
+	16, // 6: siem.v1.VerdictPoint.verdict:type_name -> siem.v1.Verdict
 	2,  // 7: siem.v1.OverviewPanel.volume:type_name -> siem.v1.VolumePoint
 	3,  // 8: siem.v1.OverviewPanel.verdicts:type_name -> siem.v1.VerdictPoint
-	14, // 9: siem.v1.RuleCount.vendor:type_name -> siem.v1.Vendor
+	15, // 9: siem.v1.RuleCount.vendor:type_name -> siem.v1.Vendor
 	5,  // 10: siem.v1.RulesPanel.rules:type_name -> siem.v1.RuleCount
 	7,  // 11: siem.v1.SourcesPanel.sources:type_name -> siem.v1.SourceCount
-	13, // 12: siem.v1.DisagreementPoint.bucket:type_name -> google.protobuf.Timestamp
-	16, // 13: siem.v1.DisagreementPoint.kind:type_name -> siem.v1.DisagreementKind
-	9,  // 14: siem.v1.DisagreementsPanel.points:type_name -> siem.v1.DisagreementPoint
-	17, // 15: siem.v1.FeedHealthPanel.feeds:type_name -> siem.v1.FeedHealth
-	1,  // 16: siem.v1.Dashboards.GetOverview:input_type -> siem.v1.DashboardRequest
-	1,  // 17: siem.v1.Dashboards.GetRules:input_type -> siem.v1.DashboardRequest
-	1,  // 18: siem.v1.Dashboards.GetSources:input_type -> siem.v1.DashboardRequest
-	1,  // 19: siem.v1.Dashboards.GetDisagreements:input_type -> siem.v1.DashboardRequest
-	1,  // 20: siem.v1.Dashboards.GetFeedHealthPanel:input_type -> siem.v1.DashboardRequest
-	4,  // 21: siem.v1.Dashboards.GetOverview:output_type -> siem.v1.OverviewPanel
-	6,  // 22: siem.v1.Dashboards.GetRules:output_type -> siem.v1.RulesPanel
-	8,  // 23: siem.v1.Dashboards.GetSources:output_type -> siem.v1.SourcesPanel
-	10, // 24: siem.v1.Dashboards.GetDisagreements:output_type -> siem.v1.DisagreementsPanel
-	11, // 25: siem.v1.Dashboards.GetFeedHealthPanel:output_type -> siem.v1.FeedHealthPanel
-	21, // [21:26] is the sub-list for method output_type
-	16, // [16:21] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	8,  // 12: siem.v1.SourcesPanel.asns:type_name -> siem.v1.AsnCount
+	14, // 13: siem.v1.DisagreementPoint.bucket:type_name -> google.protobuf.Timestamp
+	17, // 14: siem.v1.DisagreementPoint.kind:type_name -> siem.v1.DisagreementKind
+	10, // 15: siem.v1.DisagreementsPanel.points:type_name -> siem.v1.DisagreementPoint
+	18, // 16: siem.v1.FeedHealthPanel.feeds:type_name -> siem.v1.FeedHealth
+	1,  // 17: siem.v1.Dashboards.GetOverview:input_type -> siem.v1.DashboardRequest
+	1,  // 18: siem.v1.Dashboards.GetRules:input_type -> siem.v1.DashboardRequest
+	1,  // 19: siem.v1.Dashboards.GetSources:input_type -> siem.v1.DashboardRequest
+	1,  // 20: siem.v1.Dashboards.GetDisagreements:input_type -> siem.v1.DashboardRequest
+	1,  // 21: siem.v1.Dashboards.GetFeedHealthPanel:input_type -> siem.v1.DashboardRequest
+	4,  // 22: siem.v1.Dashboards.GetOverview:output_type -> siem.v1.OverviewPanel
+	6,  // 23: siem.v1.Dashboards.GetRules:output_type -> siem.v1.RulesPanel
+	9,  // 24: siem.v1.Dashboards.GetSources:output_type -> siem.v1.SourcesPanel
+	11, // 25: siem.v1.Dashboards.GetDisagreements:output_type -> siem.v1.DisagreementsPanel
+	12, // 26: siem.v1.Dashboards.GetFeedHealthPanel:output_type -> siem.v1.FeedHealthPanel
+	22, // [22:27] is the sub-list for method output_type
+	17, // [17:22] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_siem_v1_dashboards_proto_init() }
@@ -905,7 +1012,7 @@ func file_siem_v1_dashboards_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_dashboards_proto_rawDesc), len(file_siem_v1_dashboards_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

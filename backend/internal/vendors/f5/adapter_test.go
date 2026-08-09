@@ -306,6 +306,39 @@ func TestNATAddressesAreFlaggedAsShared(t *testing.T) {
 	}
 }
 
+// BIG-IP resolves network attribution from the connection it terminates, which behind
+// Cloudflare is a Cloudflare edge address. An asn field here therefore names the CDN, not
+// the client, and mapping it would attribute an ISP's traffic to AS13335 — so it stays
+// unmapped and is kept in RawExtra instead, where it is visible without being claimed.
+func TestASNIsNotAdoptedFromTheAppliance(t *testing.T) {
+	payload := []byte(`[{"support_id":"1","date_time":"2026-08-09T12:00:00Z",` +
+		`"ip_client":"203.0.113.1","method":"GET","uri":"/","asn":"13335",` +
+		`"geo_location":"BG","request_status":"passed"}]`)
+
+	records, err := New().Parse(payload, vendors.FormatJSON)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	event, err := New().Normalize(records[0])
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+
+	if event.ClientASN != 0 {
+		t.Errorf("ClientASN = %d, want 0: the appliance sees the CDN's network, not the client's",
+			event.ClientASN)
+	}
+	// Kept rather than discarded — an operator investigating still gets to see it.
+	if got := event.RawExtra["asn"]; got != "13335" {
+		t.Errorf("RawExtra[asn] = %q, want %q", got, "13335")
+	}
+	// The country IS mapped: ASM resolves it per-request and production shows it
+	// tracking the real client population rather than the edge.
+	if event.ClientCountry != "BG" {
+		t.Errorf("ClientCountry = %q, want %q", event.ClientCountry, "BG")
+	}
+}
+
 func TestNormalizeRejectsMissingTimestamp(t *testing.T) {
 	payload := []byte(`[{"support_id":"1","ip_client":"203.0.113.1","method":"GET","uri":"/"}]`)
 

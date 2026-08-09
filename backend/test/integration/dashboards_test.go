@@ -244,6 +244,77 @@ func TestTopSourcesTracksBlockedAsASubset(t *testing.T) {
 	}
 }
 
+// The network panel aggregates the SAME rollup as the source panel, one level up. The
+// property that matters is that it counts each event once across the many addresses a
+// network contributes, and reports how many of those addresses there were — a number
+// that is the whole reason to look at traffic by network rather than by address.
+func TestTopASNsAggregatesAddressesIntoNetworks(t *testing.T) {
+	f := support.Shared(t)
+	ctx, tenant := f.NewTenant(t, "dash-asns")
+
+	var events []chdata.NormalizedEvent
+	// Four addresses on one network, one on another. The busy network must rank first
+	// on events even though every address contributes the same handful.
+	for i := range 4 {
+		for j := range 3 {
+			events = append(events, dashEvent(tenant.ID,
+				fmt.Sprintf("asn-a-%d-%d", i, j), vendors.Cloudflare, vendors.VerdictAllowed, "",
+				dashBase.Add(time.Duration(i*10+j)*time.Second),
+				func(e *chdata.NormalizedEvent) {
+					e.ClientIP = net.ParseIP(fmt.Sprintf("198.51.100.%d", i+1))
+					e.ClientASN, e.ClientCountry = 8866, "BG"
+				}))
+		}
+	}
+	events = append(events, dashEvent(tenant.ID, "asn-b-1", vendors.Cloudflare,
+		vendors.VerdictBlocked, "", dashBase.Add(time.Minute),
+		func(e *chdata.NormalizedEvent) {
+			e.ClientIP = net.ParseIP("203.0.113.99")
+			e.ClientASN, e.ClientCountry = 15169, "US"
+		}))
+	// A vendor that reports no network at all must not collapse into an AS0 row that
+	// outranks the real ones.
+	events = append(events, dashEvent(tenant.ID, "asn-none-1", vendors.F5,
+		vendors.VerdictAllowed, "", dashBase.Add(2*time.Minute),
+		func(e *chdata.NormalizedEvent) {
+			e.ClientIP = net.ParseIP("203.0.113.77")
+			e.ClientASN, e.ClientCountry = 0, "BG"
+		}))
+
+	rng := seedEvents(ctx, t, f, events)
+
+	asns, err := chdata.NewDashboardRepo(f.ClickHouse).TopASNs(ctx,
+		chdata.DashboardQuery{Range: rng, Interval: chdata.Interval1h, Limit: 10})
+	if err != nil {
+		t.Fatalf("TopASNs: %v", err)
+	}
+
+	if len(asns) != 2 {
+		t.Fatalf("got %d networks, want 2 (AS0 must be excluded): %+v", len(asns), asns)
+	}
+
+	top := asns[0]
+	if top.ASN != 8866 {
+		t.Errorf("top network = AS%d, want AS8866", top.ASN)
+	}
+	if top.Events != 12 {
+		t.Errorf("events = %d, want 12: one per event across the network's addresses", top.Events)
+	}
+	if top.Clients != 4 {
+		t.Errorf("clients = %d, want 4 distinct addresses", top.Clients)
+	}
+	if top.Country != "BG" {
+		t.Errorf("country = %q, want %q", top.Country, "BG")
+	}
+	if top.Blocked != 0 {
+		t.Errorf("blocked = %d, want 0", top.Blocked)
+	}
+
+	if asns[1].ASN != 15169 || asns[1].Blocked != 1 || asns[1].Clients != 1 {
+		t.Errorf("second network = %+v, want AS15169 with 1 blocked from 1 client", asns[1])
+	}
+}
+
 // Panels must be scoped to the caller's tenant. The rollups carry tenant_id in their
 // sort key, but a repository that forgot the predicate would still return rows.
 func TestDashboardsAreTenantScoped(t *testing.T) {

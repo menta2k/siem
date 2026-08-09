@@ -170,15 +170,22 @@ func applyRequestShape(record *chdata.CorrelatedRequest, members []group.Event) 
 		if record.RequestMethod == "" {
 			record.RequestMethod = m.Row.RequestMethod
 		}
-		if record.ClientCountry == "" {
-			record.ClientCountry = m.Row.ClientCountry
-		}
-		if record.ClientASN == 0 {
-			record.ClientASN = m.Row.ClientASN
-		}
 		// Shared is sticky: if ANY vendor saw the client behind a shared address, the
 		// join is uncertain regardless of what the others reported.
 		record.ClientIPShared = record.ClientIPShared || m.Row.ClientIPShared
+	}
+
+	// Network attribution is NOT first-member-wins. Only the vendors at the front of the
+	// path can see the client's own network; the ones behind the CDN see the CDN. See
+	// clientGeo.
+	if record.ClientASN == 0 || record.ClientCountry == "" {
+		asn, country := clientGeo(members)
+		if record.ClientASN == 0 {
+			record.ClientASN = asn
+		}
+		if record.ClientCountry == "" {
+			record.ClientCountry = country
+		}
 	}
 }
 

@@ -252,6 +252,76 @@ func (r *DashboardRepo) TopSources(
 	return out, query.TranslateError(rows.Err())
 }
 
+// ASNCount is one origin network's activity for the range.
+type ASNCount struct {
+	ASN uint32
+	// Country is where most of this network's traffic came from, not where the network
+	// is registered — an ASN routinely spans several.
+	Country string
+	Events  uint64
+	Blocked uint64
+	// Clients is the number of distinct addresses seen on the network, which is what
+	// separates one noisy client from a distributed source.
+	Clients uint64
+}
+
+// TopASNs returns the busiest origin networks.
+//
+// Reads the SAME rollup as TopSources rather than a rollup of its own. The uniqCombined
+// states are per address, and merging them across the addresses of one network unions
+// the sets — so an event redelivered by the ReplacingMergeTree is still counted once,
+// exactly as it is per source. A second materialised view would have bought nothing and
+// cost another write path.
+//
+// Rows with no ASN are EXCLUDED. Only Cloudflare reports one, so a zero means "this
+// vendor does not say", and letting those collapse into a single AS0 row would put a
+// meaningless bucket at the top of the panel on most ranges.
+func (r *DashboardRepo) TopASNs(ctx context.Context, q DashboardQuery) ([]ASNCount, error) {
+	tenantID, err := tenancy.MustID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.client.Query(ctx, `
+		SELECT client_asn,
+		       -- The country of the addresses that carried the most traffic. argMax over
+		       -- the per-address event count, so a handful of events from a network's
+		       -- outlier country cannot outvote its bulk.
+		       argMax(client_country, address_events) AS country,
+		       sum(address_events) AS events,
+		       sum(address_blocked) AS blocked,
+		       uniqExact(client_ip) AS clients
+		FROM (
+			-- Merged per ADDRESS first, then summed. An event belongs to exactly one
+			-- address, so the per-address sets are disjoint and summing their sizes is
+			-- exact — while each set still absorbs a redelivery of its own events.
+			SELECT client_asn, client_country, client_ip,
+			       uniqCombinedMerge(12)(events) AS address_events,
+			       uniqCombinedMerge(12)(blocked) AS address_blocked
+			FROM rollup_top_sources_1h
+			WHERE tenant_id = ? AND bucket >= ? AND bucket < ? AND client_asn > 0
+			GROUP BY client_asn, client_country, client_ip
+		)
+		GROUP BY client_asn
+		ORDER BY events DESC
+		LIMIT ?`,
+		tenantID, q.Range.From, q.Range.To, q.limitOrDefault())
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []ASNCount
+	for rows.Next() {
+		var c ASNCount
+		if err := rows.Scan(&c.ASN, &c.Country, &c.Events, &c.Blocked, &c.Clients); err != nil {
+			return nil, fmt.Errorf("scan top asns: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, query.TranslateError(rows.Err())
+}
+
 // DisagreementPoint is one bucket's disagreement breakdown.
 type DisagreementPoint struct {
 	Bucket time.Time
