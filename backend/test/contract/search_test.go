@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/menta2k/siem/api/gen/siem/v1"
@@ -19,6 +20,8 @@ import (
 	"github.com/menta2k/siem/internal/query"
 	"github.com/menta2k/siem/internal/service"
 	"github.com/menta2k/siem/internal/vendors"
+	"github.com/menta2k/siem/internal/vendors/cloudflare"
+	"github.com/menta2k/siem/internal/vendors/f5"
 )
 
 var searchNow = time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
@@ -56,6 +59,20 @@ func (s *stubSearch) SearchCorrelated(
 	return page, nil
 }
 
+// EventIDsFor resolves a ray or support id to the events carrying it. The stub answers
+// with the ids it was primed with, so a lookup either resolves or finds nothing —
+// enough for a shape contract, and the resolution itself is exercised against real
+// storage in the integration suite.
+func (s *stubSearch) EventIDsFor(
+	_ context.Context, _, _ string, _ query.TimeRange,
+) ([]string, error) {
+	ids := make([]string, 0, len(s.events))
+	for _, e := range s.events {
+		ids = append(ids, e.EventID)
+	}
+	return ids, nil
+}
+
 type stubEvents struct {
 	event   chdata.NormalizedEvent
 	err     error
@@ -68,6 +85,16 @@ func (s stubEvents) GetNormalized(context.Context, string) (chdata.NormalizedEve
 
 func (s stubEvents) GetRawPayload(context.Context, string) ([]byte, string, error) {
 	return s.payload, "application/json", nil
+}
+
+// stubTenants supplies the redaction policy the service re-applies when it rebuilds a
+// vendor's fields from the raw payload. A contract test asserts the SHAPE of a response,
+// so an empty policy is the right answer here: redaction is asserted where it belongs, in
+// service.TestTheTenantsRedactionPolicyIsReapplied.
+type stubTenants struct{ tenant chdata.Tenant }
+
+func (s stubTenants) GetByID(context.Context, uuid.UUID) (chdata.Tenant, error) {
+	return s.tenant, nil
 }
 
 type stubAudit struct{ records []audit.Record }
@@ -93,8 +120,20 @@ func sampleEvent(id string, at time.Time) chdata.EventSearchResult {
 func newSearchService(t *testing.T, stub *stubSearch) (*service.SearchService, *stubAudit) {
 	t.Helper()
 	auditLog := &stubAudit{}
-	return service.NewSearchService(stub, stubEvents{}, auditLog, query.DefaultLimits()),
-		auditLog
+
+	// The adapter registry and the tenant policy are what let the service rebuild a
+	// vendor's own fields from the raw payload instead of storing a second parsed copy
+	// of them. Both are REQUIRED by the constructor, so a contract test that omitted
+	// them stopped compiling — which is the gate working: the response shape it pins is
+	// derived through exactly this path.
+	registry, err := vendors.NewRegistry(cloudflare.New(), f5.New())
+	if err != nil {
+		t.Fatalf("build adapter registry: %v", err)
+	}
+
+	return service.NewSearchService(
+		stub, stubEvents{}, auditLog, query.DefaultLimits(), registry, stubTenants{},
+	), auditLog
 }
 
 func validRange() *pb.TimeRange {

@@ -150,6 +150,13 @@ components:
         duplicates_suppressed:
           type: integer
           description: Events recognized as redeliveries and not re-committed.
+        filtered:
+          type: integer
+          description: >-
+            Events excluded by the tenant's ingest filters. A filtered event is stored
+            nowhere at all, so without this number a vendor cannot tell "you dropped it
+            on purpose" from "you lost it" — which is why it is reported to the sender
+            rather than only recorded in feed health.
         rejected:
           type: array
           items: {$ref: "#/components/schemas/Rejection"}
