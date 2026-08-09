@@ -35,8 +35,14 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://$$(hostname -i | cut -d' ' -f1):8123/ping"]
       interval: 10s
-      timeout: 5s
+      # See the note on redis: a healthcheck runs through the Docker daemon and measures
+      # its responsiveness too, so a tight deadline turns unrelated exec load into a
+      # false unhealthy — and this one gates every service that stores anything.
+      timeout: 20s
       retries: 30
+      # ClickHouse replays its write-ahead log and opens every part on boot, which on a
+      # large database takes longer than one interval.
+      start_period: 60s
 
   redpanda:
     <<: *restart
@@ -60,8 +66,12 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
       interval: 10s
-      timeout: 5s
+      timeout: 20s
       retries: 30
+      # After an unclean shutdown Redpanda rebuilds compaction indexes before it reports
+      # healthy. That is recovery working, not a fault, and it must not be counted as
+      # failures against a broker that is deliberately taking its time.
+      start_period: 60s
 
   redis:
     <<: *restart
@@ -74,8 +84,22 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 5s
+      # Generous on purpose. The check runs THROUGH the Docker daemon, so it measures
+      # the daemon's responsiveness as much as Redis's, and a burst of unrelated exec
+      # traffic can delay it past a tight deadline while Redis itself answers instantly.
+      #
+      # That is not hypothetical. A bulk key cleanup that spawned one exec per batch
+      # saturated the daemon, and this check began failing with the output "Health check
+      # exceeded timeout (5s): PONG" -- the correct answer, arriving late. 179 consecutive
+      # failures marked Redis unhealthy, compose then refused to start siem-ingest because
+      # it depends on redis being healthy, the event topics were never recreated, and
+      # ingestion stopped entirely. Redis was serving normally throughout.
+      timeout: 20s
       retries: 30
+      # Redis loads its RDB before answering, and a large dump takes longer than one
+      # interval. Without this, the restore counts as failures against a service that is
+      # simply still starting.
+      start_period: 30s
 
   # ---------------------------------------------------------------- services
   siem-api:
@@ -99,8 +123,9 @@ services:
     healthcheck:
       test: ["CMD", "/app/service", "-healthcheck"]
       interval: 15s
-      timeout: 5s
+      timeout: 20s
       retries: 10
+      start_period: 30s
 
   siem-ingest:
     <<: *restart
