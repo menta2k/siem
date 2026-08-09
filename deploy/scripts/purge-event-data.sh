@@ -159,11 +159,12 @@ echo
 for p in "${REDIS_PATTERNS[@]}"; do
     before="$(redis_count "$p")"
     if [ "$before" -gt 0 ]; then
-        # The compose invocation is spelled out rather than going through the redis
-        # helper: xargs needs a real command to exec, not a shell function, and
-        # wrapping one in `sh -c` here would mean quoting keys through another shell.
-        redis --scan --pattern "$p" | xargs -r -n 500 docker compose -f "$COMPOSE_FILE" \
-            exec -T redis redis-cli del >/dev/null
+        # The whole pipeline runs INSIDE one exec. Piping the key list out and batching
+        # it through xargs out here spawns a container attach per batch — 123,007 keys
+        # at 500 a time is 246 of them, several minutes of Docker overhead for work
+        # Redis finishes in seconds, and it reads as a hung script.
+        compose exec -T redis sh -c \
+            "redis-cli --scan --pattern '$p' | xargs -r -n 500 redis-cli del" >/dev/null
     fi
     echo "  cleared $p ($before keys)"
 done
