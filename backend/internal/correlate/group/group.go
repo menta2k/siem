@@ -314,16 +314,45 @@ func score(g *Group) {
 	for _, m := range g.Members {
 		perVendor[m.Row.Vendor]++
 	}
-	g.CandidateCount = 1
-	for _, count := range perVendor {
-		if count > g.CandidateCount {
-			g.CandidateCount = count
-		}
-	}
+
+	g.CandidateCount = candidateCount(g.Key.Tier, perVendor)
 	g.Confidence = confidence.Score(confidence.Input{
 		Tier:           g.Key.Tier,
 		Ambiguous:      g.Key.Ambiguous,
 		CandidateCount: g.CandidateCount,
 		VendorCount:    len(perVendor),
 	})
+}
+
+// candidateCount reports how many events genuinely COMPETED to be this request's
+// partner — which is not the same as how many one vendor contributed.
+//
+// An exact join rests on an identifier every member carries, so nothing competed: the
+// members ARE one request, however many of them there are. Counting them anyway
+// mislabelled 48,446 of 50,552 exact joins on production — 95.8% — as ambiguous, and
+// the console told analysts the partner "may be the wrong one" on almost every
+// four-vendor record it displayed.
+//
+// The cause is that a Worker-protected request legitimately produces TWO Cloudflare
+// rows, the client-facing request and the fetch to the origin. Both belong in the
+// record and are tied to it by a shared ray. Reading that as two candidates competing
+// for one slot describes a hazard that cannot occur when an identifier is what did the
+// joining.
+//
+// The heuristic tier is where the count means what it says: those members matched on
+// client, host, path, method and a time window, so a vendor appearing twice really is
+// two plausible partners and the platform really did pick one. Production shows that
+// spread running to 76, and none of it is touched here.
+func candidateCount(tier keys.Tier, perVendor map[string]int) int {
+	if tier == keys.TierExact {
+		return 1
+	}
+
+	most := 1
+	for _, count := range perVendor {
+		if count > most {
+			most = count
+		}
+	}
+	return most
 }

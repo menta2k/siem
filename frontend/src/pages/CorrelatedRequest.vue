@@ -216,7 +216,7 @@ function vendorOf(v: VendorVerdict): string {
               </v-list>
 
               <v-alert
-                v-if="(record.candidateCount ?? 1) > 1"
+                v-if="record.joinTier !== 1 && (record.candidateCount ?? 1) > 1"
                 type="warning"
                 variant="tonal"
                 density="compact"

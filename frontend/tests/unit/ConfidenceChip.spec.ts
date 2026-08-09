@@ -83,6 +83,26 @@ describe('ConfidenceChip', () => {
     expect(label).toContain('wrong one')
   })
 
+  // THE FALSE ALARM THIS REMOVES. An exact join rests on an identifier every member
+  // carries, so nothing competed — a Worker-protected request legitimately produces two
+  // Cloudflare rows, the client-facing request and the fetch to the origin. Reading that
+  // as two candidates for one slot told analysts the partner "may be the wrong one" on
+  // 95.8% of exact joins in production.
+  //
+  // Checked in the component as well as in the correlator so records written before the
+  // fix stop showing it immediately, rather than only once they age out.
+  it('does not claim candidates competed when an identifier did the joining', () => {
+    const chip = render({
+      confidence: 'CONFIDENCE_HIGH',
+      joinTier: 1,
+      vendorCount: 4,
+      candidateCount: 2,
+    })
+    const label = chip.find('.v-chip').attributes('aria-label') ?? ''
+    expect(label).not.toContain('competed')
+    expect(label).not.toContain('wrong one')
+  })
+
   it('falls back to an explicit unknown rather than implying confidence', () => {
     const chip = render({ vendorCount: 2 })
     expect(chip.text()).toContain('Unknown')
