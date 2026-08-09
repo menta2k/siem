@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import type { components } from '@/api/schema'
 import EventTable from '@/components/EventTable.vue'
 import SearchFilters from '@/components/SearchFilters.vue'
+import { formatPayload } from '@/lib/json-format'
 
 type EventSummary = components['schemas']['EventSummary']
 type EventDetail = components['schemas']['EventDetail']
@@ -66,7 +67,9 @@ async function runSearch(): Promise<void> {
 function sameQuery(a: LocationQueryRaw, b: LocationQuery): boolean {
   const flatten = (query: LocationQueryRaw | LocationQuery): string =>
     Object.entries(query)
-      .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(',') : String(value ?? '')}`)
+      .map(
+        ([key, value]) => `${key}=${Array.isArray(value) ? value.join(',') : String(value ?? '')}`,
+      )
       .sort()
       .join('&')
   return flatten(a) === flatten(b)
@@ -86,6 +89,15 @@ watch(
     void store.search()
   },
 )
+
+/**
+ * The payload indented for reading, computed once per open rather than per render.
+ *
+ * Vendors send one line of minified JSON, so the panel used to hand the analyst an
+ * unbroken string to scan by eye. Anything that does not parse is shown exactly as it
+ * arrived — see formatPayload.
+ */
+const payload = computed(() => formatPayload(detail.value?.rawPayload))
 
 async function openDetail(item: EventSummary): Promise<void> {
   detailOpen.value = true
@@ -243,7 +255,9 @@ function downloadExport(base64: string, contentType: string, filename: string): 
               <tbody>
                 <tr>
                   <td class="text-medium-emphasis">Event</td>
-                  <td><code>{{ detail.summary?.eventId }}</code></td>
+                  <td>
+                    <code>{{ detail.summary?.eventId }}</code>
+                  </td>
                 </tr>
                 <tr>
                   <td class="text-medium-emphasis">User agent</td>
@@ -261,13 +275,22 @@ function downloadExport(base64: string, contentType: string, filename: string): 
               </tbody>
             </v-table>
 
-            <div class="text-subtitle-2 mb-1">Raw vendor payload</div>
+            <div class="d-flex align-center mb-1">
+              <div class="text-subtitle-2">Raw vendor payload</div>
+              <!-- Says which of the two the analyst is looking at, so indented output is
+                   never mistaken for the bytes the vendor actually sent. -->
+              <div class="text-caption text-medium-emphasis ml-2">
+                {{ payload.pretty ? 'formatted JSON' : payload.text ? 'as received' : '' }}
+              </div>
+            </div>
             <!--
-              The payload is shown verbatim in a <pre> as TEXT. Vue escapes it, so a
-              payload containing markup renders as the characters the vendor sent —
-              which is the whole point of keeping the raw record (FR-005).
+              The payload is shown in a <pre> as TEXT. Vue escapes it, so a payload
+              containing markup renders as the characters the vendor sent — which is the
+              whole point of keeping the raw record (FR-005). Indenting it does not
+              change that: JSON.parse builds data, it evaluates nothing, and the result
+              is interpolated exactly like the unformatted string was.
             -->
-            <pre class="raw-payload">{{ detail.rawPayload || '(not retained)' }}</pre>
+            <pre class="raw-payload">{{ payload.text || '(not retained)' }}</pre>
           </template>
         </v-card-text>
         <v-card-actions>

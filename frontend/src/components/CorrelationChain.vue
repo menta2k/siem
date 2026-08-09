@@ -16,6 +16,8 @@
 import { computed, ref, watch } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
+import { formatPayload } from '@/lib/json-format'
+import type { FormattedPayload } from '@/lib/json-format'
 
 type EventDetail = components['schemas']['EventDetail']
 type Vendor = NonNullable<components['schemas']['EventSummary']['vendor']>
@@ -156,6 +158,14 @@ function toggle(eventId: string): void {
 function extraEntries(link: Link): [string, string][] {
   return Object.entries(link.detail?.rawExtra ?? {})
 }
+
+/**
+ * The link's payload indented for reading, the same way the event detail panel shows it.
+ * Anything that does not parse as JSON comes back exactly as received.
+ */
+function payloadOf(link: Link): FormattedPayload {
+  return formatPayload(link.detail?.rawPayload)
+}
 </script>
 
 <template>
@@ -238,15 +248,9 @@ function extraEntries(link: Link): [string, string][] {
               </template>
             </div>
 
-            <v-btn
-              size="x-small"
-              variant="text"
-              class="px-0 mt-1"
-              @click="toggle(link.eventId)"
-            >
-              {{ expanded.has(link.eventId) ? 'Hide' : 'Show' }} what {{
-                vendorLabel(link.detail?.summary?.vendor)
-              }} sent
+            <v-btn size="x-small" variant="text" class="px-0 mt-1" @click="toggle(link.eventId)">
+              {{ expanded.has(link.eventId) ? 'Hide' : 'Show' }} what
+              {{ vendorLabel(link.detail?.summary?.vendor) }} sent
             </v-btn>
 
             <div v-if="expanded.has(link.eventId)" class="mt-2">
@@ -264,18 +268,19 @@ function extraEntries(link: Link): [string, string][] {
               </v-table>
 
               <div class="text-caption text-medium-emphasis mb-1">
-                Raw payload, exactly as received
+                {{
+                  payloadOf(link).pretty
+                    ? 'Raw payload, formatted'
+                    : 'Raw payload, exactly as received'
+                }}
               </div>
-              <pre class="raw-payload">{{ link.detail?.rawPayload }}</pre>
+              <pre class="raw-payload">{{ payloadOf(link).text }}</pre>
             </div>
           </div>
         </v-timeline-item>
       </v-timeline>
 
-      <div
-        v-if="props.eventIds.length > MAX_EVENTS"
-        class="text-caption text-medium-emphasis mt-2"
-      >
+      <div v-if="props.eventIds.length > MAX_EVENTS" class="text-caption text-medium-emphasis mt-2">
         Showing the first {{ MAX_EVENTS }} of {{ props.eventIds.length }} contributing events.
       </div>
     </v-card-text>
