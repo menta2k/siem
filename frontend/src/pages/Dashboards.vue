@@ -4,6 +4,8 @@ import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
 import { usePreferencesStore } from '@/stores/preferences'
 import FeedHealthChip from '@/components/FeedHealthChip.vue'
+import StoragePanel from '@/components/StoragePanel.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const prefs = usePreferencesStore()
 
@@ -12,6 +14,9 @@ type RulesPanel = components['schemas']['RulesPanel']
 type SourcesPanel = components['schemas']['SourcesPanel']
 type DisagreementsPanel = components['schemas']['DisagreementsPanel']
 type FeedHealthPanel = components['schemas']['FeedHealthPanel']
+type StorageState = components['schemas']['StoragePanel']
+
+const auth = useAuthStore()
 
 const RANGE_PRESETS = [
   { label: '1h', minutes: 60, interval: 'BUCKET_INTERVAL_5M' },
@@ -32,6 +37,7 @@ const rules = ref<RulesPanel | null>(null)
 const sources = ref<SourcesPanel | null>(null)
 const disagreements = ref<DisagreementsPanel | null>(null)
 const feedHealth = ref<FeedHealthPanel | null>(null)
+const storage = ref<StorageState | null>(null)
 
 /**
  * ONE range for every panel.
@@ -81,10 +87,26 @@ async function load(): Promise<void> {
     sources.value = s.data ?? null
     disagreements.value = d.data ?? null
     feedHealth.value = h.data ?? null
+
+    // Fetched separately, and its failure is swallowed. It is admin-only and takes no
+    // range, so folding it into the batch above would fail the WHOLE dashboard with a
+    // 403 for every analyst — the panel is a footnote and must not be able to do that.
+    if (auth.can.viewStorage) void loadStorage()
   } catch (err) {
     errorMessage.value = toDisplayMessage(err)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadStorage(): Promise<void> {
+  try {
+    const { data } = await api.GET('/api/v1/dashboards/storage', { params: { query: {} } })
+    storage.value = data ?? null
+  } catch {
+    // Left null, which the panel renders as "unavailable". A disk figure the console
+    // could not fetch must not displace the traffic the page exists to show.
+    storage.value = null
   }
 }
 
@@ -393,6 +415,11 @@ function asnSearch(asn?: number): { name: string; query: Record<string, string> 
         </v-card>
       </v-col>
     </v-row>
+
+    <!-- Admin-only, and hidden rather than shown empty for everyone else: the endpoint
+         behind it is restricted server-side, so an analyst would see a permanent
+         "unavailable" card telling them nothing they could act on. -->
+    <StoragePanel v-if="auth.can.viewStorage" :storage="storage" />
 
     <v-card>
       <v-card-title class="text-subtitle-1">Feed health</v-card-title>

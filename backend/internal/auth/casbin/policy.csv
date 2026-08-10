@@ -35,6 +35,11 @@ p, admin, *, /api/v1/dashboards/rules, GET
 p, admin, *, /api/v1/dashboards/sources, GET
 p, admin, *, /api/v1/dashboards/disagreements, GET
 p, admin, *, /api/v1/dashboards/feed-health, GET
+# Storage headroom is admin-only, unlike the panels above it. It describes the cluster's
+# disk rather than the tenant's traffic, and the same disk serves every tenant on it --
+# so it is neither an analyst's decision nor a figure one customer should read about the
+# others. Deliberately absent from the analyst and auditor blocks below.
+p, admin, *, /api/v1/dashboards/storage, GET
 
 p, admin, *, /api/v1/alert-rules, GET
 p, admin, *, /api/v1/alert-rules, POST

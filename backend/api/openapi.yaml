@@ -807,6 +807,50 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/SourcesPanel'
+    /api/v1/dashboards/storage:
+        get:
+            tags:
+                - Dashboards
+            description: |-
+                Storage headroom. ADMIN ONLY, unlike every other panel here: it describes the
+                 cluster's disk rather than the tenant's traffic, and it is the same disk for every
+                 tenant on it. An analyst has no action to take on it and no business seeing another
+                 customer's contribution to it.
+            operationId: Dashboards_GetStorage
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: interval
+                  in: query
+                  schema:
+                    enum:
+                        - BUCKET_INTERVAL_UNSPECIFIED
+                        - BUCKET_INTERVAL_5M
+                        - BUCKET_INTERVAL_1H
+                        - BUCKET_INTERVAL_1D
+                    type: string
+                    format: enum
+                - name: limit
+                  in: query
+                  description: Caps the rows a top-N panel returns.
+                  schema:
+                    type: integer
+                    format: uint32
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/StoragePanel'
     /api/v1/events/{eventId}:
         get:
             tags:
@@ -2293,6 +2337,54 @@ components:
                     description: |-
                         The same traffic aggregated by origin network. Carried on this panel rather than
                          its own so one request serves both views and they cannot disagree about the range.
+        StoragePanel:
+            type: object
+            properties:
+                diskTotalBytes:
+                    type: string
+                    description: The filesystem ClickHouse writes to.
+                diskFreeBytes:
+                    type: string
+                databaseBytes:
+                    type: string
+                    description: |-
+                        What this platform's own database occupies, which is NOT total minus free: the disk
+                         may hold anything else the host puts there, and reporting the difference as ours
+                         would blame the platform for someone else's files.
+                bytesPerDay:
+                    type: string
+                    description: Average bytes written per day, measured over whole days only.
+                measuredDays:
+                    type: integer
+                    description: |-
+                        How many whole days that average is based on. A projection from one day is a guess
+                         and the console has to be able to say so.
+                    format: uint32
+                daysRemaining:
+                    type: number
+                    description: |-
+                        Days until the disk is full at the measured rate. Zero when growth is zero or
+                         negative -- which is the expected steady state once retention starts expiring as
+                         much as ingestion writes, not an error.
+                    format: double
+                steady:
+                    type: boolean
+                    description: True once expiry offsets ingestion, meaning days_remaining is not meaningful.
+                tables:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/TableSize'
+            description: StoragePanel answers "how long until we run out of disk".
+        TableSize:
+            type: object
+            properties:
+                table:
+                    type: string
+                bytes:
+                    type: string
+                rows:
+                    type: string
+            description: TableSize is how much disk one table occupies.
         TenantSettings:
             type: object
             properties:

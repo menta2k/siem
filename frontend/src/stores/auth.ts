@@ -55,6 +55,9 @@ export const useAuthStore = defineStore('auth', () => {
     triageAlerts: role.value === 'admin' || role.value === 'analyst',
     export: role.value === 'admin' || role.value === 'analyst',
     readAudit: role.value === 'admin' || role.value === 'auditor',
+    // Storage headroom describes the cluster's disk, which is shared by every tenant on
+    // it. Admin-only server-side; this only keeps a panel that would 403 off the page.
+    viewStorage: role.value === 'admin',
     search: role.value !== null && role.value !== 'ingest_only',
   }))
 

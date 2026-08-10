@@ -35,6 +35,9 @@ type Fixture struct {
 	Events     *chdata.EventRepo
 	Health     *chdata.HealthRepo
 	Producer   *stream.Producer
+	// Database is the schema the stack created, so a test that reads ClickHouse's own
+	// system tables can filter to it without hardcoding the name.
+	Database string
 }
 
 // newSharedFixture builds a fixture and its teardown.
@@ -175,6 +178,7 @@ func wire(
 		Events:     chdata.NewEventRepo(ch),
 		Health:     chdata.NewHealthRepo(ch),
 		Producer:   producer,
+		Database:   testDatabase,
 	}
 }
 

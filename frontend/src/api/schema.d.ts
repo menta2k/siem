@@ -422,6 +422,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dashboards/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Storage headroom. ADMIN ONLY, unlike every other panel here: it describes the
+         *      cluster's disk rather than the tenant's traffic, and it is the same disk for every
+         *      tenant on it. An analyst has no action to take on it and no business seeing another
+         *      customer's contribution to it.
+         */
+        get: operations["Dashboards_GetStorage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/events/{eventId}": {
         parameters: {
             query?: never;
@@ -1376,6 +1398,42 @@ export interface components {
              */
             asns?: components["schemas"]["AsnCount"][];
         };
+        /** @description StoragePanel answers "how long until we run out of disk". */
+        StoragePanel: {
+            /** @description The filesystem ClickHouse writes to. */
+            diskTotalBytes?: string;
+            diskFreeBytes?: string;
+            /**
+             * @description What this platform's own database occupies, which is NOT total minus free: the disk
+             *      may hold anything else the host puts there, and reporting the difference as ours
+             *      would blame the platform for someone else's files.
+             */
+            databaseBytes?: string;
+            /** @description Average bytes written per day, measured over whole days only. */
+            bytesPerDay?: string;
+            /**
+             * Format: uint32
+             * @description How many whole days that average is based on. A projection from one day is a guess
+             *      and the console has to be able to say so.
+             */
+            measuredDays?: number;
+            /**
+             * Format: double
+             * @description Days until the disk is full at the measured rate. Zero when growth is zero or
+             *      negative -- which is the expected steady state once retention starts expiring as
+             *      much as ingestion writes, not an error.
+             */
+            daysRemaining?: number;
+            /** @description True once expiry offsets ingestion, meaning days_remaining is not meaningful. */
+            steady?: boolean;
+            tables?: components["schemas"]["TableSize"][];
+        };
+        /** @description TableSize is how much disk one table occupies. */
+        TableSize: {
+            table?: string;
+            bytes?: string;
+            rows?: string;
+        };
         TenantSettings: {
             tenantId?: string;
             name?: string;
@@ -2314,6 +2372,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourcesPanel"];
+                };
+            };
+        };
+    };
+    Dashboards_GetStorage: {
+        parameters: {
+            query?: {
+                "timeRange.from"?: string;
+                "timeRange.to"?: string;
+                interval?: "BUCKET_INTERVAL_UNSPECIFIED" | "BUCKET_INTERVAL_5M" | "BUCKET_INTERVAL_1H" | "BUCKET_INTERVAL_1D";
+                /** @description Caps the rows a top-N panel returns. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoragePanel"];
                 };
             };
         };

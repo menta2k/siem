@@ -37,6 +37,14 @@ service Dashboards {
   rpc GetFeedHealthPanel(DashboardRequest) returns (FeedHealthPanel) {
     option (google.api.http) = {get: "/api/v1/dashboards/feed-health"};
   }
+
+  // Storage headroom. ADMIN ONLY, unlike every other panel here: it describes the
+  // cluster's disk rather than the tenant's traffic, and it is the same disk for every
+  // tenant on it. An analyst has no action to take on it and no business seeing another
+  // customer's contribution to it.
+  rpc GetStorage(DashboardRequest) returns (StoragePanel) {
+    option (google.api.http) = {get: "/api/v1/dashboards/storage"};
+  }
 }
 
 // BucketInterval is the width of one point on a time series.
@@ -135,6 +143,39 @@ message SourcesPanel {
   // The same traffic aggregated by origin network. Carried on this panel rather than
   // its own so one request serves both views and they cannot disagree about the range.
   repeated AsnCount asns = 2;
+}
+
+// TableSize is how much disk one table occupies.
+message TableSize {
+  string table = 1;
+  uint64 bytes = 2;
+  uint64 rows = 3;
+}
+
+// StoragePanel answers "how long until we run out of disk".
+message StoragePanel {
+  // The filesystem ClickHouse writes to.
+  uint64 disk_total_bytes = 1;
+  uint64 disk_free_bytes = 2;
+  // What this platform's own database occupies, which is NOT total minus free: the disk
+  // may hold anything else the host puts there, and reporting the difference as ours
+  // would blame the platform for someone else's files.
+  uint64 database_bytes = 3;
+
+  // Average bytes written per day, measured over whole days only.
+  uint64 bytes_per_day = 4;
+  // How many whole days that average is based on. A projection from one day is a guess
+  // and the console has to be able to say so.
+  uint32 measured_days = 5;
+
+  // Days until the disk is full at the measured rate. Zero when growth is zero or
+  // negative -- which is the expected steady state once retention starts expiring as
+  // much as ingestion writes, not an error.
+  double days_remaining = 6;
+  // True once expiry offsets ingestion, meaning days_remaining is not meaningful.
+  bool steady = 7;
+
+  repeated TableSize tables = 8;
 }
 
 message DisagreementPoint {

@@ -24,6 +24,7 @@ const OperationDashboardsGetFeedHealthPanel = "/siem.v1.Dashboards/GetFeedHealth
 const OperationDashboardsGetOverview = "/siem.v1.Dashboards/GetOverview"
 const OperationDashboardsGetRules = "/siem.v1.Dashboards/GetRules"
 const OperationDashboardsGetSources = "/siem.v1.Dashboards/GetSources"
+const OperationDashboardsGetStorage = "/siem.v1.Dashboards/GetStorage"
 
 type DashboardsHTTPServer interface {
 	GetDisagreements(context.Context, *DashboardRequest) (*DisagreementsPanel, error)
@@ -31,6 +32,11 @@ type DashboardsHTTPServer interface {
 	GetOverview(context.Context, *DashboardRequest) (*OverviewPanel, error)
 	GetRules(context.Context, *DashboardRequest) (*RulesPanel, error)
 	GetSources(context.Context, *DashboardRequest) (*SourcesPanel, error)
+	// GetStorage Storage headroom. ADMIN ONLY, unlike every other panel here: it describes the
+	// cluster's disk rather than the tenant's traffic, and it is the same disk for every
+	// tenant on it. An analyst has no action to take on it and no business seeing another
+	// customer's contribution to it.
+	GetStorage(context.Context, *DashboardRequest) (*StoragePanel, error)
 }
 
 func RegisterDashboardsHTTPServer(s *http.Server, srv DashboardsHTTPServer) {
@@ -40,6 +46,7 @@ func RegisterDashboardsHTTPServer(s *http.Server, srv DashboardsHTTPServer) {
 	r.GET("/api/v1/dashboards/sources", _Dashboards_GetSources0_HTTP_Handler(srv))
 	r.GET("/api/v1/dashboards/disagreements", _Dashboards_GetDisagreements0_HTTP_Handler(srv))
 	r.GET("/api/v1/dashboards/feed-health", _Dashboards_GetFeedHealthPanel0_HTTP_Handler(srv))
+	r.GET("/api/v1/dashboards/storage", _Dashboards_GetStorage0_HTTP_Handler(srv))
 }
 
 func _Dashboards_GetOverview0_HTTP_Handler(srv DashboardsHTTPServer) func(ctx http.Context) error {
@@ -137,12 +144,36 @@ func _Dashboards_GetFeedHealthPanel0_HTTP_Handler(srv DashboardsHTTPServer) func
 	}
 }
 
+func _Dashboards_GetStorage0_HTTP_Handler(srv DashboardsHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in DashboardRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationDashboardsGetStorage)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.GetStorage(ctx, req.(*DashboardRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*StoragePanel)
+		return ctx.Result(200, reply)
+	}
+}
+
 type DashboardsHTTPClient interface {
 	GetDisagreements(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *DisagreementsPanel, err error)
 	GetFeedHealthPanel(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *FeedHealthPanel, err error)
 	GetOverview(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *OverviewPanel, err error)
 	GetRules(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *RulesPanel, err error)
 	GetSources(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *SourcesPanel, err error)
+	// GetStorage Storage headroom. ADMIN ONLY, unlike every other panel here: it describes the
+	// cluster's disk rather than the tenant's traffic, and it is the same disk for every
+	// tenant on it. An analyst has no action to take on it and no business seeing another
+	// customer's contribution to it.
+	GetStorage(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *StoragePanel, err error)
 }
 
 type DashboardsHTTPClientImpl struct {
@@ -210,6 +241,23 @@ func (c *DashboardsHTTPClientImpl) GetSources(ctx context.Context, in *Dashboard
 	pattern := "/api/v1/dashboards/sources"
 	path := binding.EncodeURL(pattern, in, true)
 	opts = append(opts, http.Operation(OperationDashboardsGetSources))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetStorage Storage headroom. ADMIN ONLY, unlike every other panel here: it describes the
+// cluster's disk rather than the tenant's traffic, and it is the same disk for every
+// tenant on it. An analyst has no action to take on it and no business seeing another
+// customer's contribution to it.
+func (c *DashboardsHTTPClientImpl) GetStorage(ctx context.Context, in *DashboardRequest, opts ...http.CallOption) (*StoragePanel, error) {
+	var out StoragePanel
+	pattern := "/api/v1/dashboards/storage"
+	path := binding.EncodeURL(pattern, in, true)
+	opts = append(opts, http.Operation(OperationDashboardsGetStorage))
 	opts = append(opts, http.PathTemplate(pattern))
 	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
 	if err != nil {

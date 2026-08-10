@@ -701,6 +701,179 @@ func (x *SourcesPanel) GetAsns() []*AsnCount {
 	return nil
 }
 
+// TableSize is how much disk one table occupies.
+type TableSize struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Table         string                 `protobuf:"bytes,1,opt,name=table,proto3" json:"table,omitempty"`
+	Bytes         uint64                 `protobuf:"varint,2,opt,name=bytes,proto3" json:"bytes,omitempty"`
+	Rows          uint64                 `protobuf:"varint,3,opt,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TableSize) Reset() {
+	*x = TableSize{}
+	mi := &file_siem_v1_dashboards_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TableSize) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TableSize) ProtoMessage() {}
+
+func (x *TableSize) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_dashboards_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TableSize.ProtoReflect.Descriptor instead.
+func (*TableSize) Descriptor() ([]byte, []int) {
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *TableSize) GetTable() string {
+	if x != nil {
+		return x.Table
+	}
+	return ""
+}
+
+func (x *TableSize) GetBytes() uint64 {
+	if x != nil {
+		return x.Bytes
+	}
+	return 0
+}
+
+func (x *TableSize) GetRows() uint64 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+// StoragePanel answers "how long until we run out of disk".
+type StoragePanel struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The filesystem ClickHouse writes to.
+	DiskTotalBytes uint64 `protobuf:"varint,1,opt,name=disk_total_bytes,json=diskTotalBytes,proto3" json:"disk_total_bytes,omitempty"`
+	DiskFreeBytes  uint64 `protobuf:"varint,2,opt,name=disk_free_bytes,json=diskFreeBytes,proto3" json:"disk_free_bytes,omitempty"`
+	// What this platform's own database occupies, which is NOT total minus free: the disk
+	// may hold anything else the host puts there, and reporting the difference as ours
+	// would blame the platform for someone else's files.
+	DatabaseBytes uint64 `protobuf:"varint,3,opt,name=database_bytes,json=databaseBytes,proto3" json:"database_bytes,omitempty"`
+	// Average bytes written per day, measured over whole days only.
+	BytesPerDay uint64 `protobuf:"varint,4,opt,name=bytes_per_day,json=bytesPerDay,proto3" json:"bytes_per_day,omitempty"`
+	// How many whole days that average is based on. A projection from one day is a guess
+	// and the console has to be able to say so.
+	MeasuredDays uint32 `protobuf:"varint,5,opt,name=measured_days,json=measuredDays,proto3" json:"measured_days,omitempty"`
+	// Days until the disk is full at the measured rate. Zero when growth is zero or
+	// negative -- which is the expected steady state once retention starts expiring as
+	// much as ingestion writes, not an error.
+	DaysRemaining float64 `protobuf:"fixed64,6,opt,name=days_remaining,json=daysRemaining,proto3" json:"days_remaining,omitempty"`
+	// True once expiry offsets ingestion, meaning days_remaining is not meaningful.
+	Steady        bool         `protobuf:"varint,7,opt,name=steady,proto3" json:"steady,omitempty"`
+	Tables        []*TableSize `protobuf:"bytes,8,rep,name=tables,proto3" json:"tables,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StoragePanel) Reset() {
+	*x = StoragePanel{}
+	mi := &file_siem_v1_dashboards_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StoragePanel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StoragePanel) ProtoMessage() {}
+
+func (x *StoragePanel) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_dashboards_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StoragePanel.ProtoReflect.Descriptor instead.
+func (*StoragePanel) Descriptor() ([]byte, []int) {
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *StoragePanel) GetDiskTotalBytes() uint64 {
+	if x != nil {
+		return x.DiskTotalBytes
+	}
+	return 0
+}
+
+func (x *StoragePanel) GetDiskFreeBytes() uint64 {
+	if x != nil {
+		return x.DiskFreeBytes
+	}
+	return 0
+}
+
+func (x *StoragePanel) GetDatabaseBytes() uint64 {
+	if x != nil {
+		return x.DatabaseBytes
+	}
+	return 0
+}
+
+func (x *StoragePanel) GetBytesPerDay() uint64 {
+	if x != nil {
+		return x.BytesPerDay
+	}
+	return 0
+}
+
+func (x *StoragePanel) GetMeasuredDays() uint32 {
+	if x != nil {
+		return x.MeasuredDays
+	}
+	return 0
+}
+
+func (x *StoragePanel) GetDaysRemaining() float64 {
+	if x != nil {
+		return x.DaysRemaining
+	}
+	return 0
+}
+
+func (x *StoragePanel) GetSteady() bool {
+	if x != nil {
+		return x.Steady
+	}
+	return false
+}
+
+func (x *StoragePanel) GetTables() []*TableSize {
+	if x != nil {
+		return x.Tables
+	}
+	return nil
+}
+
 type DisagreementPoint struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Bucket  *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=bucket,proto3" json:"bucket,omitempty"`
@@ -716,7 +889,7 @@ type DisagreementPoint struct {
 
 func (x *DisagreementPoint) Reset() {
 	*x = DisagreementPoint{}
-	mi := &file_siem_v1_dashboards_proto_msgTypes[9]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -728,7 +901,7 @@ func (x *DisagreementPoint) String() string {
 func (*DisagreementPoint) ProtoMessage() {}
 
 func (x *DisagreementPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_dashboards_proto_msgTypes[9]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -741,7 +914,7 @@ func (x *DisagreementPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisagreementPoint.ProtoReflect.Descriptor instead.
 func (*DisagreementPoint) Descriptor() ([]byte, []int) {
-	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{9}
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *DisagreementPoint) GetBucket() *timestamppb.Timestamp {
@@ -783,7 +956,7 @@ type DisagreementsPanel struct {
 
 func (x *DisagreementsPanel) Reset() {
 	*x = DisagreementsPanel{}
-	mi := &file_siem_v1_dashboards_proto_msgTypes[10]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -795,7 +968,7 @@ func (x *DisagreementsPanel) String() string {
 func (*DisagreementsPanel) ProtoMessage() {}
 
 func (x *DisagreementsPanel) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_dashboards_proto_msgTypes[10]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -808,7 +981,7 @@ func (x *DisagreementsPanel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisagreementsPanel.ProtoReflect.Descriptor instead.
 func (*DisagreementsPanel) Descriptor() ([]byte, []int) {
-	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{10}
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DisagreementsPanel) GetPoints() []*DisagreementPoint {
@@ -841,7 +1014,7 @@ type FeedHealthPanel struct {
 
 func (x *FeedHealthPanel) Reset() {
 	*x = FeedHealthPanel{}
-	mi := &file_siem_v1_dashboards_proto_msgTypes[11]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -853,7 +1026,7 @@ func (x *FeedHealthPanel) String() string {
 func (*FeedHealthPanel) ProtoMessage() {}
 
 func (x *FeedHealthPanel) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_dashboards_proto_msgTypes[11]
+	mi := &file_siem_v1_dashboards_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -866,7 +1039,7 @@ func (x *FeedHealthPanel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FeedHealthPanel.ProtoReflect.Descriptor instead.
 func (*FeedHealthPanel) Descriptor() ([]byte, []int) {
-	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{11}
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *FeedHealthPanel) GetFeeds() []*FeedHealth {
@@ -924,7 +1097,20 @@ const file_siem_v1_dashboards_proto_rawDesc = "" +
 	"\aclients\x18\x05 \x01(\x04R\aclients\"e\n" +
 	"\fSourcesPanel\x12.\n" +
 	"\asources\x18\x01 \x03(\v2\x14.siem.v1.SourceCountR\asources\x12%\n" +
-	"\x04asns\x18\x02 \x03(\v2\x11.siem.v1.AsnCountR\x04asns\"\xa6\x01\n" +
+	"\x04asns\x18\x02 \x03(\v2\x11.siem.v1.AsnCountR\x04asns\"K\n" +
+	"\tTableSize\x12\x14\n" +
+	"\x05table\x18\x01 \x01(\tR\x05table\x12\x14\n" +
+	"\x05bytes\x18\x02 \x01(\x04R\x05bytes\x12\x12\n" +
+	"\x04rows\x18\x03 \x01(\x04R\x04rows\"\xbb\x02\n" +
+	"\fStoragePanel\x12(\n" +
+	"\x10disk_total_bytes\x18\x01 \x01(\x04R\x0ediskTotalBytes\x12&\n" +
+	"\x0fdisk_free_bytes\x18\x02 \x01(\x04R\rdiskFreeBytes\x12%\n" +
+	"\x0edatabase_bytes\x18\x03 \x01(\x04R\rdatabaseBytes\x12\"\n" +
+	"\rbytes_per_day\x18\x04 \x01(\x04R\vbytesPerDay\x12#\n" +
+	"\rmeasured_days\x18\x05 \x01(\rR\fmeasuredDays\x12%\n" +
+	"\x0edays_remaining\x18\x06 \x01(\x01R\rdaysRemaining\x12\x16\n" +
+	"\x06steady\x18\a \x01(\bR\x06steady\x12*\n" +
+	"\x06tables\x18\b \x03(\v2\x12.siem.v1.TableSizeR\x06tables\"\xa6\x01\n" +
 	"\x11DisagreementPoint\x122\n" +
 	"\x06bucket\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x06bucket\x12-\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x19.siem.v1.DisagreementKindR\x04kind\x12\x18\n" +
@@ -940,7 +1126,7 @@ const file_siem_v1_dashboards_proto_rawDesc = "" +
 	"\x1bBUCKET_INTERVAL_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12BUCKET_INTERVAL_5M\x10\x01\x12\x16\n" +
 	"\x12BUCKET_INTERVAL_1H\x10\x02\x12\x16\n" +
-	"\x12BUCKET_INTERVAL_1D\x10\x032\x9e\x04\n" +
+	"\x12BUCKET_INTERVAL_1D\x10\x032\x82\x05\n" +
 	"\n" +
 	"Dashboards\x12e\n" +
 	"\vGetOverview\x12\x19.siem.v1.DashboardRequest\x1a\x16.siem.v1.OverviewPanel\"#\x82\xd3\xe4\x93\x02\x1d\x12\x1b/api/v1/dashboards/overview\x12\\\n" +
@@ -948,7 +1134,9 @@ const file_siem_v1_dashboards_proto_rawDesc = "" +
 	"\n" +
 	"GetSources\x12\x19.siem.v1.DashboardRequest\x1a\x15.siem.v1.SourcesPanel\"\"\x82\xd3\xe4\x93\x02\x1c\x12\x1a/api/v1/dashboards/sources\x12t\n" +
 	"\x10GetDisagreements\x12\x19.siem.v1.DashboardRequest\x1a\x1b.siem.v1.DisagreementsPanel\"(\x82\xd3\xe4\x93\x02\"\x12 /api/v1/dashboards/disagreements\x12q\n" +
-	"\x12GetFeedHealthPanel\x12\x19.siem.v1.DashboardRequest\x1a\x18.siem.v1.FeedHealthPanel\"&\x82\xd3\xe4\x93\x02 \x12\x1e/api/v1/dashboards/feed-healthB\x8b\x01\n" +
+	"\x12GetFeedHealthPanel\x12\x19.siem.v1.DashboardRequest\x1a\x18.siem.v1.FeedHealthPanel\"&\x82\xd3\xe4\x93\x02 \x12\x1e/api/v1/dashboards/feed-health\x12b\n" +
+	"\n" +
+	"GetStorage\x12\x19.siem.v1.DashboardRequest\x1a\x15.siem.v1.StoragePanel\"\"\x82\xd3\xe4\x93\x02\x1c\x12\x1a/api/v1/dashboards/storageB\x8b\x01\n" +
 	"\vcom.siem.v1B\x0fDashboardsProtoP\x01Z.github.com/menta2k/siem/api/gen/siem/v1;siemv1\xa2\x02\x03SXX\xaa\x02\aSiem.V1\xca\x02\aSiem\\V1\xe2\x02\x13Siem\\V1\\GPBMetadata\xea\x02\bSiem::V1b\x06proto3"
 
 var (
@@ -964,7 +1152,7 @@ func file_siem_v1_dashboards_proto_rawDescGZIP() []byte {
 }
 
 var file_siem_v1_dashboards_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_siem_v1_dashboards_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_siem_v1_dashboards_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_siem_v1_dashboards_proto_goTypes = []any{
 	(BucketInterval)(0),           // 0: siem.v1.BucketInterval
 	(*DashboardRequest)(nil),      // 1: siem.v1.DashboardRequest
@@ -976,49 +1164,54 @@ var file_siem_v1_dashboards_proto_goTypes = []any{
 	(*SourceCount)(nil),           // 7: siem.v1.SourceCount
 	(*AsnCount)(nil),              // 8: siem.v1.AsnCount
 	(*SourcesPanel)(nil),          // 9: siem.v1.SourcesPanel
-	(*DisagreementPoint)(nil),     // 10: siem.v1.DisagreementPoint
-	(*DisagreementsPanel)(nil),    // 11: siem.v1.DisagreementsPanel
-	(*FeedHealthPanel)(nil),       // 12: siem.v1.FeedHealthPanel
-	(*TimeRange)(nil),             // 13: siem.v1.TimeRange
-	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
-	(Vendor)(0),                   // 15: siem.v1.Vendor
-	(Verdict)(0),                  // 16: siem.v1.Verdict
-	(DisagreementKind)(0),         // 17: siem.v1.DisagreementKind
-	(*FeedHealth)(nil),            // 18: siem.v1.FeedHealth
+	(*TableSize)(nil),             // 10: siem.v1.TableSize
+	(*StoragePanel)(nil),          // 11: siem.v1.StoragePanel
+	(*DisagreementPoint)(nil),     // 12: siem.v1.DisagreementPoint
+	(*DisagreementsPanel)(nil),    // 13: siem.v1.DisagreementsPanel
+	(*FeedHealthPanel)(nil),       // 14: siem.v1.FeedHealthPanel
+	(*TimeRange)(nil),             // 15: siem.v1.TimeRange
+	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
+	(Vendor)(0),                   // 17: siem.v1.Vendor
+	(Verdict)(0),                  // 18: siem.v1.Verdict
+	(DisagreementKind)(0),         // 19: siem.v1.DisagreementKind
+	(*FeedHealth)(nil),            // 20: siem.v1.FeedHealth
 }
 var file_siem_v1_dashboards_proto_depIdxs = []int32{
-	13, // 0: siem.v1.DashboardRequest.time_range:type_name -> siem.v1.TimeRange
+	15, // 0: siem.v1.DashboardRequest.time_range:type_name -> siem.v1.TimeRange
 	0,  // 1: siem.v1.DashboardRequest.interval:type_name -> siem.v1.BucketInterval
-	14, // 2: siem.v1.VolumePoint.bucket:type_name -> google.protobuf.Timestamp
-	15, // 3: siem.v1.VolumePoint.vendor:type_name -> siem.v1.Vendor
-	14, // 4: siem.v1.VerdictPoint.bucket:type_name -> google.protobuf.Timestamp
-	15, // 5: siem.v1.VerdictPoint.vendor:type_name -> siem.v1.Vendor
-	16, // 6: siem.v1.VerdictPoint.verdict:type_name -> siem.v1.Verdict
+	16, // 2: siem.v1.VolumePoint.bucket:type_name -> google.protobuf.Timestamp
+	17, // 3: siem.v1.VolumePoint.vendor:type_name -> siem.v1.Vendor
+	16, // 4: siem.v1.VerdictPoint.bucket:type_name -> google.protobuf.Timestamp
+	17, // 5: siem.v1.VerdictPoint.vendor:type_name -> siem.v1.Vendor
+	18, // 6: siem.v1.VerdictPoint.verdict:type_name -> siem.v1.Verdict
 	2,  // 7: siem.v1.OverviewPanel.volume:type_name -> siem.v1.VolumePoint
 	3,  // 8: siem.v1.OverviewPanel.verdicts:type_name -> siem.v1.VerdictPoint
-	15, // 9: siem.v1.RuleCount.vendor:type_name -> siem.v1.Vendor
+	17, // 9: siem.v1.RuleCount.vendor:type_name -> siem.v1.Vendor
 	5,  // 10: siem.v1.RulesPanel.rules:type_name -> siem.v1.RuleCount
 	7,  // 11: siem.v1.SourcesPanel.sources:type_name -> siem.v1.SourceCount
 	8,  // 12: siem.v1.SourcesPanel.asns:type_name -> siem.v1.AsnCount
-	14, // 13: siem.v1.DisagreementPoint.bucket:type_name -> google.protobuf.Timestamp
-	17, // 14: siem.v1.DisagreementPoint.kind:type_name -> siem.v1.DisagreementKind
-	10, // 15: siem.v1.DisagreementsPanel.points:type_name -> siem.v1.DisagreementPoint
-	18, // 16: siem.v1.FeedHealthPanel.feeds:type_name -> siem.v1.FeedHealth
-	1,  // 17: siem.v1.Dashboards.GetOverview:input_type -> siem.v1.DashboardRequest
-	1,  // 18: siem.v1.Dashboards.GetRules:input_type -> siem.v1.DashboardRequest
-	1,  // 19: siem.v1.Dashboards.GetSources:input_type -> siem.v1.DashboardRequest
-	1,  // 20: siem.v1.Dashboards.GetDisagreements:input_type -> siem.v1.DashboardRequest
-	1,  // 21: siem.v1.Dashboards.GetFeedHealthPanel:input_type -> siem.v1.DashboardRequest
-	4,  // 22: siem.v1.Dashboards.GetOverview:output_type -> siem.v1.OverviewPanel
-	6,  // 23: siem.v1.Dashboards.GetRules:output_type -> siem.v1.RulesPanel
-	9,  // 24: siem.v1.Dashboards.GetSources:output_type -> siem.v1.SourcesPanel
-	11, // 25: siem.v1.Dashboards.GetDisagreements:output_type -> siem.v1.DisagreementsPanel
-	12, // 26: siem.v1.Dashboards.GetFeedHealthPanel:output_type -> siem.v1.FeedHealthPanel
-	22, // [22:27] is the sub-list for method output_type
-	17, // [17:22] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	10, // 13: siem.v1.StoragePanel.tables:type_name -> siem.v1.TableSize
+	16, // 14: siem.v1.DisagreementPoint.bucket:type_name -> google.protobuf.Timestamp
+	19, // 15: siem.v1.DisagreementPoint.kind:type_name -> siem.v1.DisagreementKind
+	12, // 16: siem.v1.DisagreementsPanel.points:type_name -> siem.v1.DisagreementPoint
+	20, // 17: siem.v1.FeedHealthPanel.feeds:type_name -> siem.v1.FeedHealth
+	1,  // 18: siem.v1.Dashboards.GetOverview:input_type -> siem.v1.DashboardRequest
+	1,  // 19: siem.v1.Dashboards.GetRules:input_type -> siem.v1.DashboardRequest
+	1,  // 20: siem.v1.Dashboards.GetSources:input_type -> siem.v1.DashboardRequest
+	1,  // 21: siem.v1.Dashboards.GetDisagreements:input_type -> siem.v1.DashboardRequest
+	1,  // 22: siem.v1.Dashboards.GetFeedHealthPanel:input_type -> siem.v1.DashboardRequest
+	1,  // 23: siem.v1.Dashboards.GetStorage:input_type -> siem.v1.DashboardRequest
+	4,  // 24: siem.v1.Dashboards.GetOverview:output_type -> siem.v1.OverviewPanel
+	6,  // 25: siem.v1.Dashboards.GetRules:output_type -> siem.v1.RulesPanel
+	9,  // 26: siem.v1.Dashboards.GetSources:output_type -> siem.v1.SourcesPanel
+	13, // 27: siem.v1.Dashboards.GetDisagreements:output_type -> siem.v1.DisagreementsPanel
+	14, // 28: siem.v1.Dashboards.GetFeedHealthPanel:output_type -> siem.v1.FeedHealthPanel
+	11, // 29: siem.v1.Dashboards.GetStorage:output_type -> siem.v1.StoragePanel
+	24, // [24:30] is the sub-list for method output_type
+	18, // [18:24] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_siem_v1_dashboards_proto_init() }
@@ -1034,7 +1227,7 @@ func file_siem_v1_dashboards_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_dashboards_proto_rawDesc), len(file_siem_v1_dashboards_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

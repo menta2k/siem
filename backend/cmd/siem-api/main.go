@@ -163,7 +163,8 @@ func buildServices(
 		Search: service.NewSearchService(
 			searchRepo, events, auditLog, limits, adapters, tenants, networks),
 		Correlation: service.NewCorrelationService(correlated, networks),
-		Dashboards:  service.NewDashboardsService(panels, feeds, health, limits, networks),
+		Dashboards: service.NewDashboardsService(panels, feeds, health, limits, networks,
+			clickhouse.NewStorageRepo(ch, cfg.ClickHouse.Database)),
 		Admin: service.NewAdminService(users, tenants, auditLog,
 			retentionWorker(deps, ch, locker, tenants, events),
 			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL)),

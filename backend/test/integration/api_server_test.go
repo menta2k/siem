@@ -147,7 +147,8 @@ func buildTestServer(
 				chdata.NewAlertingRepo(f.ClickHouse, locker))),
 			secrets.NewMemoryStore(), auditLog),
 		Dashboards: service.NewDashboardsService(
-			chdata.NewDashboardRepo(f.ClickHouse), feeds, health, limits, networks),
+			chdata.NewDashboardRepo(f.ClickHouse), feeds, health, limits, networks,
+			chdata.NewStorageRepo(f.ClickHouse, f.Database)),
 	}, server.HTTPOptions{
 		Config:      cfg,
 		Health:      server.NewHealth(),

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,11 @@ type PanelReader interface {
 	Disagreements(ctx context.Context, q chdata.DashboardQuery) ([]chdata.DisagreementPoint, error)
 }
 
+// StorageReader reports what the platform has written to disk.
+type StorageReader interface {
+	Read(ctx context.Context) (chdata.Storage, error)
+}
+
 // FeedHealthReader supplies the health tiles.
 type FeedHealthReader interface {
 	ListFeedHealth(ctx context.Context) (map[uuid.UUID]chdata.FeedHealth, error)
@@ -31,10 +37,11 @@ type FeedHealthReader interface {
 
 // DashboardsService implements the Dashboards proto service.
 type DashboardsService struct {
-	panels PanelReader
-	feeds  *chdata.FeedRepo
-	health FeedHealthReader
-	limits query.Limits
+	panels  PanelReader
+	feeds   *chdata.FeedRepo
+	health  FeedHealthReader
+	limits  query.Limits
+	storage StorageReader
 	// networks names the ASNs the source panels rank. Optional: nil where the lookup is
 	// disabled, in which case the panels show bare numbers.
 	networks NetworkNamer
@@ -44,12 +51,49 @@ type DashboardsService struct {
 // NewDashboardsService constructs the service.
 func NewDashboardsService(
 	panels PanelReader, feeds *chdata.FeedRepo, health FeedHealthReader,
-	limits query.Limits, networks NetworkNamer,
+	limits query.Limits, networks NetworkNamer, storage StorageReader,
 ) *DashboardsService {
 	return &DashboardsService{
 		panels: panels, feeds: feeds, health: health, limits: limits,
-		networks: networks, now: time.Now,
+		networks: networks, storage: storage, now: time.Now,
 	}
+}
+
+// GetStorage reports disk headroom and how long it lasts at the measured write rate.
+//
+// Takes no time range, unlike every other panel here, and ignores the one it is sent:
+// this describes what is on disk NOW. A range would suggest the answer could be asked
+// about last week, which the parts on disk cannot say — they hold what survived
+// retention, not what once existed.
+func (s *DashboardsService) GetStorage(
+	ctx context.Context, _ *pb.DashboardRequest,
+) (*pb.StoragePanel, error) {
+	ctx, cancel := s.limits.WithTimeout(ctx)
+	defer cancel()
+
+	storage, err := s.storage.Read(ctx)
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
+
+	projection := project(storage, s.now())
+
+	out := &pb.StoragePanel{
+		DiskTotalBytes: storage.DiskTotalBytes,
+		DiskFreeBytes:  storage.DiskFreeBytes,
+		DatabaseBytes:  storage.DatabaseBytes,
+		BytesPerDay:    projection.BytesPerDay,
+		MeasuredDays:   clampToUint32(projection.MeasuredDays),
+		DaysRemaining:  projection.DaysRemaining,
+		Steady:         projection.Steady,
+		Tables:         make([]*pb.TableSize, 0, len(storage.Tables)),
+	}
+	for _, table := range storage.Tables {
+		out.Tables = append(out.Tables, &pb.TableSize{
+			Table: table.Table, Bytes: table.Bytes, Rows: table.Rows,
+		})
+	}
+	return out, nil
 }
 
 // GetOverview returns volume and verdict mix for the shared range.
@@ -205,6 +249,21 @@ func (s *DashboardsService) nameNetworks(ctx context.Context, panel *pb.SourcesP
 	}
 	for _, network := range panel.GetAsns() {
 		network.Owner = names[network.GetAsn()]
+	}
+}
+
+// clampToUint32 saturates rather than wrapping. The count is a day tally that cannot
+// realistically overflow, but a conversion that CAN wrap is worth closing rather than
+// arguing about: a negative or enormous "measured days" would make the panel's caveat
+// read as its headline.
+func clampToUint32(n int) uint32 {
+	switch {
+	case n < 0:
+		return 0
+	case n > math.MaxUint32:
+		return math.MaxUint32
+	default:
+		return uint32(n)
 	}
 }
 
