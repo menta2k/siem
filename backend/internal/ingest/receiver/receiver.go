@@ -391,6 +391,21 @@ func (r *Receiver) accept(
 		return ingest.Outcome{}, mw.ValidationFailed("the batch could not be parsed").WithCause(err)
 	}
 	if len(records) > r.opts.MaxBatchEvents {
+		// A SECOND ceiling, refused for a different reason than the byte limit, and it
+		// used to say nothing at all. Both answer 413, so from the vendor's side they
+		// are indistinguishable — and an operator who had already raised the byte limit
+		// had no way to learn that the COUNT was what refused the batch. That cost a day.
+		//
+		// The count and its limit are both reported, because the useful question is not
+		// "was it too big" but "by how much, and against which of the two limits".
+		r.log.Warn(ctx, "delivery refused",
+			"feed_id", feed.ID.String(), "vendor", feed.Vendor,
+			"code", mw.CodePayloadTooLarge, "reason", "more events than the batch limit",
+			"events", len(records), "limit_events", r.opts.MaxBatchEvents,
+			"body_bytes", len(body))
+		r.health.Record(ctx, ingest.HealthSample{
+			TenantID: feed.TenantID, FeedID: feed.ID, CredentialValid: true,
+		})
 		return ingest.Outcome{}, mw.PayloadTooLarge(int64(r.opts.MaxBatchEvents))
 	}
 

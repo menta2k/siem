@@ -743,3 +743,25 @@ func TestAnAbandonedUploadIsRecorded(t *testing.T) {
 		t.Error("an abandoned upload recorded nothing against feed health")
 	}
 }
+
+// The batch-count ceiling and the byte ceiling both answer 413, so from the vendor's side
+// they are indistinguishable. This one used to log nothing, which left an operator who had
+// already raised the byte limit with no way to learn that the COUNT refused the batch.
+func TestABatchOverTheEventLimitIsRecordedWithItsCount(t *testing.T) {
+	h := newHarness(t)
+
+	// The harness caps a batch at 100 events; send more.
+	lines := make([]string, 0, 150)
+	for range 150 {
+		lines = append(lines, testPayload)
+	}
+
+	rec := h.deliver(t, strings.Join(lines, "\n"))
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", rec.Code)
+	}
+	if len(h.health.samples) == 0 {
+		t.Error("a batch refused on event count recorded nothing against feed health")
+	}
+}
