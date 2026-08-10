@@ -72,7 +72,15 @@ func newFakeProducer() *fakeProducer {
 	return &fakeProducer{published: map[string][]stream.Record{}}
 }
 
-func (f *fakeProducer) Publish(_ context.Context, topic string, records []stream.Record) error {
+// Publish HONOURS THE CONTEXT, as the real producer does. Without this the fake will
+// happily publish through a cancelled context and no test can tell a commit that
+// survives a client disconnect from one that does not — which is precisely the bug that
+// reached production.
+func (f *fakeProducer) Publish(ctx context.Context, topic string, records []stream.Record) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
@@ -646,5 +654,49 @@ func TestFailedCommitDoesNotSuppressTheRetry(t *testing.T) {
 	}
 	if h.producer.count("raw") != 1 {
 		t.Errorf("published %d records, want 1", h.producer.count("raw"))
+	}
+}
+
+// THE PRODUCTION FAILURE THIS PINS. Cloudflare Logpush gives up on a slow destination
+// and disconnects, which used to cancel the request context mid-publish and roll the
+// whole batch back. Every retry carried the same batch, took the same time, and was
+// cancelled at the same point — so a two-hour backlog stood still for hours because its
+// largest batches could never land.
+//
+// The commit is now detached from the client connection: once the body is in hand, the
+// events are published whether or not anyone is still listening for the answer. The
+// sender's retry then finds them already ingested and is suppressed by dedup.
+func TestACommitSurvivesTheClientHangingUp(t *testing.T) {
+	h := newHarness(t)
+
+	// A context already cancelled, as a disconnected client leaves behind.
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost,
+		"/ingest/v1/cloudflare/"+h.feedID.String(), strings.NewReader(testPayload))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+
+	// Cancelled after the body is readable but before the handler runs, which is where
+	// a vendor's timeout lands: the payload arrived, the patience did not.
+	cancel()
+
+	rec := httptest.NewRecorder()
+	h.receiver.Handler().ServeHTTP(rec, req)
+
+	if got := len(h.producer.published["raw"]); got != 1 {
+		t.Errorf("published %d events after the client hung up, want 1 — abandoning the "+
+			"batch is what makes a vendor retry it forever", got)
+	}
+}
+
+// The detached commit must not become a way to ignore a broken broker: a publish that
+// genuinely fails still has to surface as a retryable error rather than a silent 202.
+func TestADetachedCommitStillReportsABrokerFailure(t *testing.T) {
+	h := newHarness(t)
+	h.producer.err = errors.New("all brokers unreachable")
+
+	rec := h.deliver(t, testPayload)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 so the vendor retries", rec.Code)
 	}
 }

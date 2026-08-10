@@ -61,7 +61,19 @@ type HealthRecorder interface {
 type Options struct {
 	MaxBodyBytes   int64
 	MaxBatchEvents int
+	// CommitTimeout bounds the detached durable commit — the phase that deliberately
+	// outlives the client connection. It is the platform's OWN patience, not the
+	// sender's: a vendor that disconnects early must not shorten it, and a broker that
+	// never answers must not hold a goroutine forever.
+	//
+	// Generous, because the batches that need it most are the largest. A backlogged
+	// Logpush job delivers tens of thousands of events at once, and refusing those is
+	// what leaves a backlog undrainable.
+	CommitTimeout time.Duration
 }
+
+// DefaultCommitTimeout applies when Options leaves it unset.
+const DefaultCommitTimeout = 2 * time.Minute
 
 // Receiver handles vendor deliveries.
 type Receiver struct {
@@ -152,7 +164,36 @@ func (r *Receiver) handleDelivery(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	outcome, err := r.accept(ctx, feed, adapter, body, receivedAt)
+	// FROM HERE THE WORK OUTLIVES THE CLIENT.
+	//
+	// Everything above legitimately belongs to the request: if the sender hangs up
+	// while we are reading its body or checking its credential, there is nothing worth
+	// finishing. The durable commit is the opposite. The body is already in hand, and
+	// abandoning it half-published helps nobody — the sender will deliver the same batch
+	// again, and we will abandon that one too.
+	//
+	// That is not hypothetical. Cloudflare Logpush gives up on a slow destination and
+	// disconnects, which cancelled the request context mid-publish and rolled the whole
+	// batch back. Every retry carried the same batch, took the same time, and was
+	// cancelled at the same point: 36,000-event batches never landed, and a two-hour
+	// backlog sat still for hours because its largest batches could never succeed.
+	//
+	// Detached, the commit completes even when nobody is listening for the answer. The
+	// sender's retry then finds the events already ingested and is suppressed by dedup,
+	// so the batch costs one commit rather than an unbounded loop of them.
+	r.commitDelivery(ctx, w, feed, adapter, body, receivedAt)
+}
+
+// commitDelivery runs the durable commit and answers the sender.
+func (r *Receiver) commitDelivery(
+	ctx context.Context, w http.ResponseWriter, feed chdata.Feed,
+	adapter vendors.Adapter, body []byte, receivedAt time.Time,
+) {
+	commitCtx, cancelCommit := context.WithTimeout(
+		context.WithoutCancel(ctx), r.commitTimeout())
+	defer cancelCommit()
+
+	outcome, err := r.accept(commitCtx, feed, adapter, body, receivedAt)
 	if err != nil {
 		r.observeFailure(feed, err)
 		writeError(w, mw.AsError(err))
@@ -166,6 +207,14 @@ func (r *Receiver) handleDelivery(w http.ResponseWriter, req *http.Request) {
 		status = http.StatusMultiStatus
 	}
 	writeJSON(w, status, outcome)
+}
+
+// commitTimeout is the configured bound, or the default when unset.
+func (r *Receiver) commitTimeout() time.Duration {
+	if r.opts.CommitTimeout > 0 {
+		return r.opts.CommitTimeout
+	}
+	return DefaultCommitTimeout
 }
 
 // observeFailure records a refused delivery against the right metric, so an operator

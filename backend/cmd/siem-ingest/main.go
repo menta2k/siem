@@ -131,6 +131,7 @@ func buildReceiver(
 		receiver.Options{
 			MaxBodyBytes:   cfg.Limits.IngestMaxBodyBytes,
 			MaxBatchEvents: cfg.Limits.IngestMaxBatchEvents,
+			CommitTimeout:  cfg.Limits.IngestCommitTimeout,
 		},
 	), health, nil
 }

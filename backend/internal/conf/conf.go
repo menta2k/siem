@@ -90,9 +90,12 @@ type Server struct {
 type Limits struct {
 	IngestMaxBodyBytes   int64
 	IngestMaxBatchEvents int
-	QueryMaxResultRows   int32
-	QueryMaxRangeDays    int
-	ExportMaxRows        int
+	// IngestCommitTimeout bounds the durable commit, which deliberately outlives the
+	// sender's connection. See receiver.Options.CommitTimeout.
+	IngestCommitTimeout time.Duration
+	QueryMaxResultRows  int32
+	QueryMaxRangeDays   int
+	ExportMaxRows       int
 }
 
 // Correlation holds platform defaults; per-tenant settings override these at runtime.
@@ -262,6 +265,8 @@ func loadLimits(collect func(error)) Limits {
 	collect(err)
 	batch, err := integer("INGEST_MAX_BATCH_EVENTS", 50000)
 	collect(err)
+	commit, err := durationSeconds("INGEST_COMMIT_TIMEOUT_SECONDS", 120)
+	collect(err)
 	rows, err := integer32("QUERY_MAX_RESULT_ROWS", 1000)
 	collect(err)
 	rangeDays, err := integer("QUERY_MAX_RANGE_DAYS", 90)
@@ -272,6 +277,7 @@ func loadLimits(collect func(error)) Limits {
 	return Limits{
 		IngestMaxBodyBytes:   body,
 		IngestMaxBatchEvents: batch,
+		IngestCommitTimeout:  commit,
 		QueryMaxResultRows:   rows,
 		QueryMaxRangeDays:    rangeDays,
 		ExportMaxRows:        exportRows,
