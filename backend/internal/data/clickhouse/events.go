@@ -330,6 +330,7 @@ func scanNormalized(row rowScanner) (NormalizedEvent, error) {
 	if err != nil {
 		return NormalizedEvent{}, fmt.Errorf("scan normalized event: %w", err)
 	}
+	e.ClientIP = ipOrNil(e.ClientIP)
 	return e, nil
 }
 
@@ -338,6 +339,26 @@ func scanNormalized(row rowScanner) (NormalizedEvent, error) {
 func ipOrZero(ip net.IP) net.IP {
 	if ip == nil {
 		return net.IPv6zero
+	}
+	return ip
+}
+
+// ipOrNil is the INVERSE, and every read has to apply it.
+//
+// The column cannot be null, so "no vendor reported a client address" is stored as the
+// all-zeros address. Reading that back as a net.IP produces a perfectly valid value that
+// renders as "::" — and the console then showed it as though it were a client: the
+// top-sources panel ranked "::" among the busiest addresses, aggregating every event
+// that had no address into one fictional visitor. Every DataDome-derived row is one of
+// those by design, because the Worker's call to DataDome is not the visitor's request
+// (see cloudflare.normalizeDataDomeCall).
+//
+// Mapping it back to nil at the boundary is what makes "absent" absent again, so a
+// renderer showing "—" and a panel excluding the row both follow without either having
+// to know about the storage convention.
+func ipOrNil(ip net.IP) net.IP {
+	if ip == nil || ip.IsUnspecified() {
+		return nil
 	}
 	return ip
 }

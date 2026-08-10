@@ -275,7 +275,7 @@ func scanCorrelated(row rowScanner) (CorrelatedRequest, error) {
 	); err != nil {
 		return CorrelatedRequest{}, fmt.Errorf("scan correlated request: %w", err)
 	}
-	record.ClientIP = clientIP
+	record.ClientIP = ipOrNil(clientIP)
 	return record, nil
 }
 

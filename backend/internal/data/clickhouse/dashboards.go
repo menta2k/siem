@@ -223,11 +223,22 @@ func (r *DashboardRepo) TopSources(
 		return nil, err
 	}
 
+	// Rows with NO client address are excluded. The column cannot be null, so "no vendor
+	// reported an address" is stored as the all-zeros address — and every one of those
+	// events shares it, which made "::" collapse into a single row that ranked among the
+	// busiest sources on the panel. It was not a client at all: every DataDome-derived
+	// event has no address by design, because the Worker's call to DataDome is not the
+	// visitor's request.
+	//
+	// Excluded at the READ rather than at the materialised view, which would need a
+	// migration and a rebuild to say the same thing — and the rollup holding the row is
+	// harmless as long as nothing presents it as a source.
 	rows, err := r.client.Query(ctx, `
 		SELECT client_ip, client_country, client_asn,
 		       uniqCombinedMerge(12)(events) AS events, uniqCombinedMerge(12)(blocked) AS blocked
 		FROM rollup_top_sources_1h
 		WHERE tenant_id = ? AND bucket >= ? AND bucket < ?
+		  AND client_ip != toIPv6('::')
 		GROUP BY client_ip, client_country, client_asn
 		ORDER BY events DESC
 		LIMIT ?`,
@@ -246,7 +257,7 @@ func (r *DashboardRepo) TopSources(
 		if err := rows.Scan(&ip, &c.Country, &c.ASN, &c.Events, &c.Blocked); err != nil {
 			return nil, fmt.Errorf("scan top sources: %w", err)
 		}
-		c.ClientIP = ip
+		c.ClientIP = ipOrNil(ip)
 		out = append(out, c)
 	}
 	return out, query.TranslateError(rows.Err())
@@ -300,6 +311,7 @@ func (r *DashboardRepo) TopASNs(ctx context.Context, q DashboardQuery) ([]ASNCou
 			       uniqCombinedMerge(12)(blocked) AS address_blocked
 			FROM rollup_top_sources_1h
 			WHERE tenant_id = ? AND bucket >= ? AND bucket < ? AND client_asn > 0
+			  AND client_ip != toIPv6('::')
 			GROUP BY client_asn, client_country, client_ip
 		)
 		GROUP BY client_asn

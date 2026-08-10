@@ -186,7 +186,7 @@ func scanEventSearchResult(row rowScanner) (EventSearchResult, error) {
 	); err != nil {
 		return EventSearchResult{}, fmt.Errorf("scan event search result: %w", err)
 	}
-	result.ClientIP = clientIP
+	result.ClientIP = ipOrNil(clientIP)
 	return result, nil
 }
 
