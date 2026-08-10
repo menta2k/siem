@@ -96,12 +96,20 @@ func (r *CorrelatedRepo) ByIDs(
 		return nil, err
 	}
 
-	// FINAL because the engine keeps every version until it merges: without it the same
-	// id returns each version it has ever had, and the merge would fold in a superseded
-	// copy of itself.
+	// The engine keeps every version until it merges, so the winning row has to be picked
+	// explicitly: without that the same id returns each version it has ever had, and the
+	// merge would fold in a superseded copy of itself.
+	//
+	// LIMIT 1 BY, NOT FINAL, and the difference matters here more than anywhere else in
+	// this file. FINAL merges the matching parts to produce the answer; LIMIT 1 BY reads
+	// the rows and keeps the highest version of each, which is the same answer for a
+	// ReplacingMergeTree versioned on this column. This query is the most expensive read
+	// the closer makes — every column, including the arrays and maps, for every amendment
+	// in a tick — and during a backlog replay nearly every record IS an amendment.
 	rows, err := r.client.Query(ctx,
-		"SELECT "+correlatedColumns+" FROM correlated_requests FINAL "+
-			"WHERE tenant_id = ? AND correlation_id IN (?)",
+		"SELECT "+correlatedColumns+" FROM correlated_requests "+
+			"WHERE tenant_id = ? AND correlation_id IN (?) "+
+			"ORDER BY version DESC LIMIT 1 BY correlation_id",
 		tenantID, correlationIDs)
 	if err != nil {
 		return nil, fmt.Errorf("query correlated records: %w", err)
@@ -180,11 +188,16 @@ func (r *CorrelatedRepo) Versions(
 		return nil, err
 	}
 
-	// FINAL for the same reason Get needs it: without it an amended record returns
-	// every version it has ever had, and max() would still be right but the scan would
-	// be over every superseded row.
+	// DELIBERATELY NOT FINAL. Everywhere else in this file FINAL is load-bearing, because
+	// the caller wants the winning row's CONTENTS and an unmerged read hands back stale
+	// ones. Here the only thing asked for is the highest version, and max() computes that
+	// from the superseded rows just as correctly as from the merged one — FINAL would buy
+	// an identical answer for the cost of a merge-on-read.
+	//
+	// It is not a micro-optimisation either. This runs on the closer's hot path, every
+	// ten seconds, in chunks of VersionLookupChunk over a tick's whole output.
 	rows, err := r.client.Query(ctx,
-		"SELECT correlation_id, max(version) FROM correlated_requests FINAL "+
+		"SELECT correlation_id, max(version) FROM correlated_requests "+
 			"WHERE tenant_id = ? AND correlation_id IN (?) GROUP BY correlation_id",
 		tenantID, correlationIDs)
 	if err != nil {

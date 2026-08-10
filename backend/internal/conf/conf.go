@@ -84,6 +84,10 @@ type Server struct {
 	IngestPort    int
 	ProcessorPort int
 	MetricsBind   string
+	// PprofBind is the address the runtime profiles are served on; empty disables them
+	// entirely. See server.ProfilingServer for why this defaults to off and why the
+	// documented value is loopback-only.
+	PprofBind string
 }
 
 // Limits are the bounds that keep ingestion and querying from running unbounded.
@@ -257,6 +261,11 @@ func loadServer(collect func(error)) Server {
 		IngestPort:    ingest,
 		ProcessorPort: processor,
 		MetricsBind:   optional("METRICS_BIND", "0.0.0.0"),
+		// Off unless asked for, and deliberately NOT defaulted to a port. The ingest
+		// service's operational port is published to the host, so a profiling endpoint
+		// that came up by default would be one misconfigured bind address away from
+		// serving the heap to the internet.
+		PprofBind: optional("PPROF_BIND", ""),
 	}
 }
 

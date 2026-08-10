@@ -141,11 +141,16 @@ func run(ctx context.Context, deps *server.Deps) error {
 		}
 	}()
 
+	profiling := server.StartProfiling(ctx, deps, cfg.Server.PprofBind)
+
 	deps.Log.Info(ctx, "service started", "service", serviceName, "workers", len(workers))
 
 	return server.RunUntilSignal(deps, func(shutdownCtx context.Context) error {
 		stopWorkers()
 		wg.Wait()
+		if profiling != nil {
+			_ = profiling.Shutdown(shutdownCtx)
+		}
 		return ops.Shutdown(shutdownCtx)
 	})
 }

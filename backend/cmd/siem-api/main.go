@@ -101,9 +101,14 @@ func run(ctx context.Context, deps *server.Deps) error {
 		}
 	}()
 
+	profiling := server.StartProfiling(ctx, deps, cfg.Server.PprofBind)
+
 	deps.Log.Info(ctx, "service started", "service", serviceName, "port", cfg.Server.APIPort)
 
 	return server.RunUntilSignal(deps, func(shutdownCtx context.Context) error {
+		if profiling != nil {
+			_ = profiling.Shutdown(shutdownCtx)
+		}
 		return srv.Stop(shutdownCtx)
 	})
 }

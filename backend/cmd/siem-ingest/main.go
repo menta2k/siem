@@ -89,12 +89,16 @@ func run(ctx context.Context, deps *server.Deps) error {
 	ops := server.OperationalServer(opsAddr, deps.Health, rx.Handler())
 
 	serve(ctx, deps, ops, opsAddr)
+	profiling := server.StartProfiling(ctx, deps, cfg.Server.PprofBind)
 
 	deps.Log.Info(ctx, "service started", "service", serviceName, "port", cfg.Server.IngestPort)
 
 	return server.RunUntilSignal(deps, func(shutdownCtx context.Context) error {
 		// Stop accepting first, then let the producer flush in Close. Draining in
 		// this order keeps the promise made by every 202 already returned.
+		if profiling != nil {
+			_ = profiling.Shutdown(shutdownCtx)
+		}
 		return ops.Shutdown(shutdownCtx)
 	})
 }
