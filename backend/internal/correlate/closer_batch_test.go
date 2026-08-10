@@ -41,6 +41,26 @@ func (s *countingCorrelatedStore) Insert(
 	return nil
 }
 
+// ByIDs returns the records this store has already been given, so an amendment can be
+// merged into them exactly as it is against real storage.
+func (s *countingCorrelatedStore) ByIDs(
+	_ context.Context, correlationIDs []uuid.UUID,
+) (map[uuid.UUID]chdata.CorrelatedRequest, error) {
+	wanted := make(map[uuid.UUID]struct{}, len(correlationIDs))
+	for _, id := range correlationIDs {
+		wanted[id] = struct{}{}
+	}
+
+	out := map[uuid.UUID]chdata.CorrelatedRequest{}
+	for _, record := range s.written {
+		if _, ok := wanted[record.CorrelationID]; ok {
+			// The newest write wins, as FINAL would return.
+			out[record.CorrelationID] = record
+		}
+	}
+	return out, nil
+}
+
 func (s *countingCorrelatedStore) Versions(
 	_ context.Context, correlationIDs []uuid.UUID,
 ) (map[uuid.UUID]uint64, error) {
@@ -247,4 +267,10 @@ func (s *failingCorrelatedStore) Versions(
 	_ context.Context, _ []uuid.UUID,
 ) (map[uuid.UUID]uint64, error) {
 	return map[uuid.UUID]uint64{}, nil
+}
+
+func (s *failingCorrelatedStore) ByIDs(
+	_ context.Context, _ []uuid.UUID,
+) (map[uuid.UUID]chdata.CorrelatedRequest, error) {
+	return map[uuid.UUID]chdata.CorrelatedRequest{}, nil
 }

@@ -295,3 +295,68 @@ func TestRedeliveredEventDoesNotDuplicateInTheRecord(t *testing.T) {
 			record.CandidateCount)
 	}
 }
+
+// THE DURABILITY CONTRACT. A provider that stops for half an hour and then resumes must
+// not cost the joins for that period, and must never DEGRADE what was already stored.
+//
+// This is the failure that reached production: a Logpush outage left every Cloudflare
+// event two hours late, far outside the lateness bound. The window state behind those
+// records had expired while the correlation id — derived from the window key — had not,
+// so each late event refilled an empty window and its amendment overwrote a record that
+// already held the other vendors.
+func TestAnOutageLongerThanTheLatenessBoundStillCompletesTheRecord(t *testing.T) {
+	rig := newCorrelateRig(t, "correlate-outage")
+
+	// F5 reports on time and the record closes with one vendor, exactly as it does
+	// while the other provider is down.
+	rig.feed(t, normalizedEvent(rig.tenant, "f5-outage", vendors.F5, "ray-outage", corrBase))
+	rig.closeWindows(t, afterDeadline(corrBase))
+
+	first := rig.only(t)
+	if first.VendorCount != 1 || first.Vendors[0] != vendors.F5 {
+		t.Fatalf("first emission = %v, want f5 alone", first.Vendors)
+	}
+
+	// Half an hour later — twice the fifteen-minute lateness bound — the provider comes
+	// back and delivers its copy of the SAME request.
+	outage := 30 * time.Minute
+	rig.feed(t, normalizedEvent(rig.tenant, "cf-outage", vendors.Cloudflare, "ray-outage",
+		corrBase.Add(time.Second)))
+	rig.closeWindows(t, afterDeadline(corrBase).Add(outage))
+
+	// THE PROPERTY THAT MATTERS: after the outage a record exists holding BOTH vendors.
+	// Half an hour of silence costs the platform nothing it can recover from.
+	var joined *chdata.CorrelatedRequest
+	for _, record := range rig.list(t) {
+		if record.VendorCount == 2 {
+			r := record
+			joined = &r
+		}
+		// And nothing DEGRADED: no record may come back holding less than it did. This
+		// is the failure that reached production, where a late arrival overwrote a
+		// multi-vendor record with a single-vendor one.
+		if record.CorrelationID == first.CorrelationID && record.VendorCount < first.VendorCount {
+			t.Errorf("record %s shrank from %d vendors to %d",
+				record.CorrelationID, first.VendorCount, record.VendorCount)
+		}
+	}
+
+	if joined == nil {
+		t.Fatalf("no two-vendor record after the outage: %+v", rig.list(t))
+	}
+	if len(joined.EventIDs) != 2 {
+		t.Errorf("event_ids = %v, want both events", joined.EventIDs)
+	}
+	if joined.JoinTier != uint8(keys.TierExact) {
+		t.Errorf("join_tier = %d, want the exact tier — the two share a ray", joined.JoinTier)
+	}
+
+	// KNOWN GAP, asserted so it cannot change unnoticed. The first closing filed the
+	// lone F5 event under its HEURISTIC key, and the late join is emitted under the
+	// exact-identifier key, so the superseded single-vendor record survives beside the
+	// complete one rather than being replaced. An analyst sees the request twice: once
+	// correctly, once as it looked before its partner arrived.
+	if got := len(rig.list(t)); got != 2 {
+		t.Errorf("got %d records, want 2 — one complete, one superseded", got)
+	}
+}

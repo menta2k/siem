@@ -73,6 +73,51 @@ const correlatedColumns = `tenant_id, correlation_id, window_start, first_event_
 	rule_ids, scores, combined_outcome, has_disagreement, disagreement_kind,
 	join_signals, join_tier, confidence, candidate_count, version, amended`
 
+// ByIDs loads the stored records for a set of correlation ids.
+//
+// Exists so the closer can MERGE a late arrival into what is already stored rather than
+// replacing it. A correlation id is stable forever while the window state behind it is
+// not, so an event arriving after the lateness bound refills an empty window — and an
+// amendment built from that window alone would overwrite a four-vendor record with a
+// one-vendor one.
+//
+// Returns only what it finds. A first emission has nothing stored, which is the ordinary
+// case and not an error.
+func (r *CorrelatedRepo) ByIDs(
+	ctx context.Context, correlationIDs []uuid.UUID,
+) (map[uuid.UUID]CorrelatedRequest, error) {
+	out := make(map[uuid.UUID]CorrelatedRequest, len(correlationIDs))
+	if len(correlationIDs) == 0 {
+		return out, nil
+	}
+
+	tenantID, err := tenancy.MustID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// FINAL because the engine keeps every version until it merges: without it the same
+	// id returns each version it has ever had, and the merge would fold in a superseded
+	// copy of itself.
+	rows, err := r.client.Query(ctx,
+		"SELECT "+correlatedColumns+" FROM correlated_requests FINAL "+
+			"WHERE tenant_id = ? AND correlation_id IN (?)",
+		tenantID, correlationIDs)
+	if err != nil {
+		return nil, fmt.Errorf("query correlated records: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		record, err := scanCorrelated(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[record.CorrelationID] = record
+	}
+	return out, rows.Err()
+}
+
 // Insert writes correlated records.
 //
 // Writes are idempotent by (correlation_id, version): re-emitting an unchanged record

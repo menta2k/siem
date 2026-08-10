@@ -22,6 +22,11 @@ type CorrelatedStore interface {
 	// Versions reports the current version of each id that already exists. Ids with
 	// no record are absent, which is how "this is a new record" is expressed.
 	Versions(ctx context.Context, correlationIDs []uuid.UUID) (map[uuid.UUID]uint64, error)
+	// ByIDs loads the stored records so an amendment can be MERGED into what is there
+	// rather than replacing it. See mergeRecords.
+	ByIDs(
+		ctx context.Context, correlationIDs []uuid.UUID,
+	) (map[uuid.UUID]chdata.CorrelatedRequest, error)
 }
 
 // DefaultPollInterval is how often the closer looks for windows that have closed.
@@ -221,6 +226,14 @@ func (c *Closer) insert(ctx context.Context, tenantID uuid.UUID, emitted []emiss
 		return fmt.Errorf("look up %d existing records: %w", len(ids), err)
 	}
 
+	// The stored records are read only for ids that already exist, so a tick of first
+	// emissions — the ordinary case — costs nothing extra.
+	stored, err := c.storedFor(scoped, existing)
+	if err != nil {
+		CloseFailures.WithLabelValues("read").Inc()
+		return fmt.Errorf("load %d existing records: %w", len(existing), err)
+	}
+
 	records := make([]chdata.CorrelatedRequest, 0, len(emitted))
 	for i, e := range emitted {
 		record := e.record
@@ -229,6 +242,14 @@ func (c *Closer) insert(ctx context.Context, tenantID uuid.UUID, emitted []emiss
 		// analyst who bookmarked a correlation id still finds it, now with the extra
 		// vendor attached.
 		if version, ok := existing[record.CorrelationID]; ok {
+			// MERGED, not replaced. The window behind this closing may hold only the
+			// late event: its member state expires with the lateness bound while the
+			// correlation id does not, so an amendment built from the window alone
+			// would overwrite the other vendors with nothing.
+			if previous, ok := stored[record.CorrelationID]; ok {
+				record = mergeRecords(previous, record,
+					c.settings.For(ctx, tenantID).ScoreConflictThreshold)
+			}
 			record.Version = version + 1
 			record.Amended = true
 		} else {
@@ -248,6 +269,21 @@ func (c *Closer) insert(ctx context.Context, tenantID uuid.UUID, emitted []emiss
 			e.members, e.record.Amended)
 	}
 	return nil
+}
+
+// storedFor loads the records behind the ids that already exist.
+func (c *Closer) storedFor(
+	ctx context.Context, existing map[uuid.UUID]uint64,
+) (map[uuid.UUID]chdata.CorrelatedRequest, error) {
+	if len(existing) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]uuid.UUID, 0, len(existing))
+	for id := range existing {
+		ids = append(ids, id)
+	}
+	return c.store.ByIDs(ctx, ids)
 }
 
 // build assembles the records for one closed window without writing them.
