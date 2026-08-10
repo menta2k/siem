@@ -11,14 +11,30 @@ COVER_MIN := 80
 # has a password — which is every server except an unconfigured local one.
 CLICKHOUSE_URL ?= clickhouse://$(CLICKHOUSE_ADDR)?username=$(CLICKHOUSE_USERNAME)&password=$(CLICKHOUSE_PASSWORD)&database=$(CLICKHOUSE_DATABASE)&x-multi-statement=true
 
+# PINNED, NEVER @latest. These tools GENERATE COMMITTED FILES, and api-check fails the
+# build when what they produce differs from what is in the tree. With @latest that gate
+# is armed by upstream: protobuf-go published v1.36.12, the next CI run regenerated with
+# it, and main went red over eight version-stamp COMMENTS while every proto and every
+# byte of real generated code was unchanged. Nobody had touched the API.
+#
+# protoc-gen-go tracks the google.golang.org/protobuf version in go.mod on purpose --
+# the generated code and the runtime it links against are one pair, and letting them
+# drift apart is how you get a mismatch that only shows up at runtime. Bump them
+# together, run `make api`, and commit the regenerated output in the same change.
+PROTOC_GEN_GO_VERSION      := v1.36.11
+PROTOC_GEN_GO_HTTP_VERSION := v2.0.0-20260404020628-f149714c1d54
+PROTOC_GEN_OPENAPI_VERSION := v0.7.1
+MIGRATE_VERSION            := v4.19.1
+GOLANGCI_LINT_VERSION      := v2.12.2
+
 init:
-	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install github.com/go-kratos/kratos/cmd/protoc-gen-go-http/v2@latest
-	go install github.com/google/gnostic/cmd/protoc-gen-openapi@latest
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	go install github.com/go-kratos/kratos/cmd/protoc-gen-go-http/v2@$(PROTOC_GEN_GO_HTTP_VERSION)
+	go install github.com/google/gnostic/cmd/protoc-gen-openapi@$(PROTOC_GEN_OPENAPI_VERSION)
 	# The clickhouse build tag is REQUIRED: without it the CLI installs with no
 	# ClickHouse driver and fails at runtime with "unknown driver clickhouse".
-	go install -tags 'clickhouse' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	go install -tags 'clickhouse' github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	go mod download
 
 api:
@@ -33,6 +49,11 @@ api-check:
 	if ! diff -r -q "$$tmp/gen" api/gen >/dev/null 2>&1 || \
 	   ! diff -q "$$tmp/openapi.yaml" api/openapi.yaml >/dev/null 2>&1; then \
 		echo "ERROR: generated code is stale. Run 'make api' and commit the result."; \
+		echo "--- what differs (committed <, regenerated >) ---"; \
+		diff -r -u "$$tmp/gen" api/gen | head -60 || true; \
+		diff -u "$$tmp/openapi.yaml" api/openapi.yaml | head -20 || true; \
+		echo "--- if this is only a 'protoc-gen-go vX' comment, a PINNED tool version"; \
+		echo "    in this Makefile no longer matches what is installed ---"; \
 		rm -rf "$$tmp"; exit 1; \
 	fi; \
 	rm -rf "$$tmp"; echo "OK: generated code matches committed output"
