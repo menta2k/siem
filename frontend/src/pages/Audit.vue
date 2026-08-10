@@ -1,9 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
-import type { components } from '@/api/schema'
+import type { components, operations } from '@/api/schema'
 
 type AuditEntry = components['schemas']['AuditEntry']
+
+/**
+ * The query this endpoint accepts, taken from the generated contract.
+ *
+ * Named explicitly so the object below is CHECKED against it. An inline literal with
+ * spreads in it is not: TypeScript drops excess-property checking for those, which is
+ * how `timeRange.from` — the right name on every other endpoint, and meaningless on
+ * this one — reached production without the build noticing.
+ */
+type AuditQuery = NonNullable<operations['Admin_ListAuditEntries']['parameters']['query']>
 
 const entries = ref<AuditEntry[]>([])
 const loading = ref(false)
@@ -20,17 +30,21 @@ async function load(): Promise<void> {
   const to = new Date()
   const from = new Date(to.getTime() - days.value * 24 * 60 * 60 * 1000)
 
+  // `range`, NOT `timeRange`. This endpoint's request message names the field `range`
+  // while every other one names it `time_range`, so the parameter that works everywhere
+  // else silently does nothing here — the server saw no range at all and refused the
+  // query as unbounded, which read as the audit trail being broken rather than as the
+  // console having asked wrongly.
+  const query: AuditQuery = {
+    'range.from': from.toISOString(),
+    'range.to': to.toISOString(),
+  }
+  // Assigned rather than spread, so the literal above stays checkable.
+  if (actionFilter.value) query.action = actionFilter.value
+  if (actorFilter.value) query.actorEmail = actorFilter.value
+
   try {
-    const { data } = await api.GET('/api/v1/audit', {
-      params: {
-        query: {
-          'timeRange.from': from.toISOString(),
-          'timeRange.to': to.toISOString(),
-          ...(actionFilter.value ? { action: actionFilter.value } : {}),
-          ...(actorFilter.value ? { actorEmail: actorFilter.value } : {}),
-        },
-      },
-    })
+    const { data } = await api.GET('/api/v1/audit', { params: { query } })
     entries.value = data?.entries ?? []
   } catch (err) {
     errorMessage.value = toDisplayMessage(err)
@@ -157,7 +171,9 @@ function shortHash(hash?: string): string {
           <tr v-for="entry in entries" :key="entry.entryId">
             <td class="text-no-wrap">{{ formatTime(entry.occurredAt) }}</td>
             <td>{{ entry.actorEmail || 'system' }}</td>
-            <td><code>{{ entry.action }}</code></td>
+            <td>
+              <code>{{ entry.action }}</code>
+            </td>
             <td>
               {{ entry.targetType }}
               <code v-if="entry.targetId" class="text-caption">{{ entry.targetId }}</code>

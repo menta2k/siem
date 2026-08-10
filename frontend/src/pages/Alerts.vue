@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
-import type { components } from '@/api/schema'
+import type { components, operations } from '@/api/schema'
+
+/** The query this endpoint accepts, named so the literal below is checked against it. */
+type AlertsQuery = NonNullable<operations['Alerts_ListAlerts']['parameters']['query']>
 
 type Alert = components['schemas']['Alert']
 type AlertState = NonNullable<Alert['state']>
@@ -41,17 +44,17 @@ async function load(): Promise<void> {
   const to = new Date()
   const from = new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000)
 
+  const query: AlertsQuery = {
+    'timeRange.from': from.toISOString(),
+    'timeRange.to': to.toISOString(),
+  }
+  // Assigned rather than spread: a spread in the literal turns off excess-property
+  // checking, which is how a misnamed parameter reached production on the audit page.
+  if (stateFilter.value !== 'ALL') query.state = stateFilter.value
+  if (onlyFailedDelivery.value) query.notifyStatus = 'NOTIFY_STATUS_FAILED'
+
   try {
-    const { data } = await api.GET('/api/v1/alerts', {
-      params: {
-        query: {
-          'timeRange.from': from.toISOString(),
-          'timeRange.to': to.toISOString(),
-          ...(stateFilter.value !== 'ALL' ? { state: stateFilter.value } : {}),
-          ...(onlyFailedDelivery.value ? { notifyStatus: 'NOTIFY_STATUS_FAILED' } : {}),
-        },
-      },
-    })
+    const { data } = await api.GET('/api/v1/alerts', { params: { query } })
     alerts.value = data?.alerts ?? []
   } catch (err) {
     errorMessage.value = toDisplayMessage(err)

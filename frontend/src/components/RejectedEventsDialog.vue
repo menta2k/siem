@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
+import type { operations } from '@/api/schema'
+
+/** The query this endpoint accepts, named so the literal below is checked against it. */
+type RejectedQuery = NonNullable<operations['Feeds_ListRejectedEvents']['parameters']['query']>
 
 const props = defineProps<{ feedId: string | null }>()
 const emit = defineEmits<{ close: [] }>()
@@ -39,14 +43,17 @@ async function load(): Promise<void> {
     const to = new Date()
     const from = new Date(to.getTime() - 24 * 60 * 60 * 1000)
 
+    const query: RejectedQuery = {
+      'range.from': from.toISOString(),
+      'range.to': to.toISOString(),
+    }
+    // Assigned rather than spread, so the literal stays excess-property checked.
+    if (reasonFilter.value) query.reasonCode = reasonFilter.value
+
     const { data } = await api.GET('/api/v1/feeds/{feedId}/rejected', {
       params: {
         path: { feedId: props.feedId },
-        query: {
-          'range.from': from.toISOString(),
-          'range.to': to.toISOString(),
-          ...(reasonFilter.value ? { reasonCode: reasonFilter.value } : {}),
-        },
+        query,
       },
     })
     events.value = data?.events ?? []
