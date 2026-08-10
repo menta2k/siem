@@ -142,6 +142,21 @@ func (r *Receiver) handleDelivery(w http.ResponseWriter, req *http.Request) {
 
 	body, err := r.readBody(req)
 	if err != nil {
+		// A REFUSED DELIVERY MUST BE VISIBLE HERE, not only in the vendor's console.
+		// An oversized batch is answered 413 and dropped, and the sender retries the
+		// same bytes forever — so if the platform says nothing, an operator watching
+		// our logs sees a healthy service while the vendor sees a wall. That is exactly
+		// how a backlog went undiagnosed: our side was silent, Cloudflare reported the
+		// error, and only the vendor knew.
+		//
+		// ContentLength is logged rather than the bytes read, because the reader stops
+		// AT the limit and cannot say how far over the batch actually was. It is what
+		// an operator needs to size the limit correctly.
+		if mw.AsError(err).Code == mw.CodePayloadTooLarge {
+			r.log.Warn(ctx, "delivery refused as too large",
+				"feed_id", feed.ID.String(), "vendor", feed.Vendor,
+				"content_length", req.ContentLength, "limit_bytes", r.opts.MaxBodyBytes)
+		}
 		writeError(w, mw.AsError(err))
 		return
 	}

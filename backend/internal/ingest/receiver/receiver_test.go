@@ -700,3 +700,19 @@ func TestADetachedCommitStillReportsABrokerFailure(t *testing.T) {
 		t.Errorf("status = %d, want 503 so the vendor retries", rec.Code)
 	}
 }
+
+// A refused delivery has to be visible on OUR side. An oversized batch is answered 413
+// and dropped, and the sender retries the same bytes indefinitely — so a platform that
+// logs nothing leaves an operator watching a healthy-looking service while the vendor
+// stares at a wall. That is precisely how an undrainable backlog went undiagnosed.
+func TestAnOversizedDeliveryIsRefusedAndRecorded(t *testing.T) {
+	h := newHarness(t)
+	// A body past the harness's 1 MiB limit, as a recovery batch is past a live one.
+	oversized := strings.Repeat("x", 2<<20)
+
+	rec := h.deliver(t, oversized)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d, want 413", rec.Code)
+	}
+}

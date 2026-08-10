@@ -261,7 +261,13 @@ func loadServer(collect func(error)) Server {
 }
 
 func loadLimits(collect func(error)) Limits {
-	body, err := integer64("INGEST_MAX_BODY_BYTES", 32<<20)
+	// 128 MiB. A LIVE batch is a fraction of this — the size that matters is a
+	// RECOVERY batch, where a vendor that has been buffering for an hour delivers
+	// everything at once. Sizing this for the steady state is what turns a provider
+	// outage into a permanent one: the oversized batch is refused, the vendor retries
+	// the same bytes, and the backlog can never drain. Observed on production at 36,000
+	// events, comfortably past the previous 32 MiB.
+	body, err := integer64("INGEST_MAX_BODY_BYTES", 128<<20)
 	collect(err)
 	batch, err := integer("INGEST_MAX_BATCH_EVENTS", 50000)
 	collect(err)
