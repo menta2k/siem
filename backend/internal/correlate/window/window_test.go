@@ -101,6 +101,39 @@ func (f *fakeStore) Lookup(ctx context.Context, key string) (string, bool, error
 	return value, true, nil
 }
 
+// LRangeMany and LookupMany go through the SAME expiry-aware primitives the singular
+// reads use, so a batched caller cannot accidentally see a key the unbatched one would
+// have treated as expired.
+func (f *fakeStore) LRangeMany(
+	ctx context.Context, keys []string,
+) (map[string][]string, error) {
+	out := make(map[string][]string, len(keys))
+	for _, key := range keys {
+		values, err := f.LRange(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		out[key] = values
+	}
+	return out, nil
+}
+
+func (f *fakeStore) LookupMany(
+	ctx context.Context, keys []string,
+) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		value, found, err := f.Lookup(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			out[key] = value
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) Get(_ context.Context, key string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

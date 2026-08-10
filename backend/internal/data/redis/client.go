@@ -259,6 +259,86 @@ func (c *Client) LRange(ctx context.Context, key string) ([]string, error) {
 	return values, nil
 }
 
+// LRangeMany reads many lists in one round trip per chunk.
+//
+// THE READ SIDE OF THE CLOSE PASS IS WHAT THIS EXISTS FOR. Writes were pipelined long ago
+// because the per-event round trip bounded ingest throughput, but the closer kept asking
+// one key at a time: a window's members, then a bucket per identifier, then an identity per
+// identifier, each a separate blocking round trip. A production CPU profile put 34% of the
+// processor's samples in socket syscalls with the process idle two thirds of the time --
+// the work was not computation, it was waiting, thousands of times a tick.
+//
+// Keys are returned by name rather than positionally so a caller can look up what it asked
+// for without tracking indices. A key that does not exist maps to an empty slice, which is
+// the same answer LRange gives and means "this window has expired".
+func (c *Client) LRangeMany(ctx context.Context, keys []string) (map[string][]string, error) {
+	out := make(map[string][]string, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+
+	for chunk := range slices.Chunk(keys, pipelineChunk) {
+		pipe := c.rdb.Pipeline()
+		cmds := make([]*goredis.StringSliceCmd, len(chunk))
+		for i, key := range chunk {
+			cmds[i] = pipe.LRange(ctx, key, 0, -1)
+		}
+		// Exec reports the FIRST command error, and goredis.Nil is not one here: LRange
+		// on a missing key returns an empty slice rather than nil. Any other error means
+		// the pipeline did not complete and the caller must not treat partial results as
+		// a complete window.
+		if _, err := pipe.Exec(ctx); err != nil {
+			return nil, fmt.Errorf("redis lrange %d keys: %w", len(chunk), err)
+		}
+		for i, cmd := range cmds {
+			values, err := cmd.Result()
+			if err != nil {
+				return nil, fmt.Errorf("redis lrange %s: %w", chunk[i], err)
+			}
+			out[chunk[i]] = values
+		}
+	}
+	return out, nil
+}
+
+// LookupMany reads many keys in one round trip per chunk, omitting those that are absent.
+//
+// Absence is the ORDINARY result here, not a failure: the identity lookup asks about
+// identifiers that have usually never been claimed. Missing keys are simply left out of the
+// map, which is what makes the caller's "has this request been seen before" check a map
+// lookup rather than error handling.
+func (c *Client) LookupMany(ctx context.Context, keys []string) (map[string]string, error) {
+	out := make(map[string]string, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+
+	for chunk := range slices.Chunk(keys, pipelineChunk) {
+		pipe := c.rdb.Pipeline()
+		cmds := make([]*goredis.StringCmd, len(chunk))
+		for i, key := range chunk {
+			cmds[i] = pipe.Get(ctx, key)
+		}
+		// A pipeline containing any missing key reports goredis.Nil from Exec. That is
+		// the expected case, so it is not an error -- the per-command results below say
+		// which keys were actually absent.
+		if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, goredis.Nil) {
+			return nil, fmt.Errorf("redis get %d keys: %w", len(chunk), err)
+		}
+		for i, cmd := range cmds {
+			value, err := cmd.Result()
+			if errors.Is(err, goredis.Nil) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("redis get %s: %w", chunk[i], err)
+			}
+			out[chunk[i]] = value
+		}
+	}
+	return out, nil
+}
+
 // ZAdd schedules a member at a score, applying the TTL to the whole set.
 func (c *Client) ZAdd(
 	ctx context.Context, key, member string, score float64, ttl time.Duration,

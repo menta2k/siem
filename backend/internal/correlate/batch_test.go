@@ -29,6 +29,11 @@ type countingWindowStore struct {
 
 	pushCalls int
 	zaddCalls int
+	// readCalls counts READ round trips, one per call whether it asks about one key or
+	// five hundred. That is what makes it a measure of latency rather than of work: the
+	// closer's cost was never decoding members, it was blocking on the socket once per
+	// key.
+	readCalls int
 
 	fail error
 }
@@ -95,7 +100,34 @@ func (s *countingWindowStore) ZAddMany(
 }
 
 func (s *countingWindowStore) LRange(_ context.Context, key string) ([]string, error) {
+	s.readCalls++
 	return s.lists[key], nil
+}
+
+// LRangeMany serves the whole set from the same map the singular read uses, so a caller
+// that batches sees exactly what a caller that did not would have seen. Only the round
+// trip count differs, which is the property under test.
+func (s *countingWindowStore) LRangeMany(
+	_ context.Context, keys []string,
+) (map[string][]string, error) {
+	s.readCalls++
+	if s.fail != nil {
+		return nil, s.fail
+	}
+	out := make(map[string][]string, len(keys))
+	for _, key := range keys {
+		out[key] = s.lists[key]
+	}
+	return out, nil
+}
+
+func (s *countingWindowStore) LookupMany(
+	_ context.Context, keys []string,
+) (map[string]string, error) {
+	s.readCalls++
+	// Absent keys are OMITTED, as the real client omits them. Returning empty strings
+	// instead would hide a caller that cannot tell "claimed as empty" from "unclaimed".
+	return map[string]string{}, nil
 }
 
 func (s *countingWindowStore) SetNX(
@@ -109,6 +141,7 @@ func (s *countingWindowStore) Get(context.Context, string) (string, error) {
 }
 
 func (s *countingWindowStore) Lookup(context.Context, string) (string, bool, error) {
+	s.readCalls++
 	return "", false, nil
 }
 

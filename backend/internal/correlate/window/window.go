@@ -57,6 +57,12 @@ type Store interface {
 	// ZAddMany applies many scored inserts in one round trip.
 	ZAddMany(ctx context.Context, entries []ScoreEntry) error
 	LRange(ctx context.Context, key string) ([]string, error)
+	// LRangeMany reads many lists in one round trip. The closer's reads, not its
+	// writes, are what a close pass spends its time on: see MembersMany.
+	LRangeMany(ctx context.Context, keys []string) (map[string][]string, error)
+	// LookupMany reads many keys at once, omitting those that are absent, for the
+	// same reason Lookup treats absence as an ordinary answer.
+	LookupMany(ctx context.Context, keys []string) (map[string]string, error)
 	SetNX(ctx context.Context, key, value string, ttl time.Duration) (bool, error)
 	Get(ctx context.Context, key string) (string, error)
 	// Lookup reads a key, reporting found=false when it is ABSENT rather than
@@ -223,7 +229,57 @@ func (w *Windows) Members(
 	if err != nil {
 		return nil, err
 	}
+	return decodeMembers(raw), nil
+}
 
+// MembersMany reads several windows in one round trip.
+//
+// A close pass reads a window per scheduled key and then a bucket per identifier while it
+// chases exact partners, and asking for those one at a time is what a close pass actually
+// spends its time on -- 34% of the processor's CPU samples were socket syscalls, with the
+// process idle two thirds of the time. The decoding is unchanged and still per window: the
+// saving is round trips, not work.
+//
+// Keys absent from Redis map to a nil slice, exactly as Members returns none for a window
+// that has expired.
+func (w *Windows) MembersMany(
+	ctx context.Context, tenantID uuid.UUID, keys []string,
+) (map[string][]Member, error) {
+	out := make(map[string][]Member, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+
+	// The Redis key is derived from the join key, so the mapping back has to be kept:
+	// callers index by the join key they asked about, not by the storage key.
+	redisKeys := make([]string, 0, len(keys))
+	byRedisKey := make(map[string]string, len(keys))
+	for _, key := range keys {
+		redisKey := membersKey(tenantID, key)
+		if _, duplicate := byRedisKey[redisKey]; duplicate {
+			continue
+		}
+		byRedisKey[redisKey] = key
+		redisKeys = append(redisKeys, redisKey)
+	}
+
+	raw, err := w.store.LRangeMany(ctx, redisKeys)
+	if err != nil {
+		return nil, err
+	}
+
+	for redisKey, values := range raw {
+		out[byRedisKey[redisKey]] = decodeMembers(values)
+	}
+	return out, nil
+}
+
+// decodeMembers turns stored entries into members, collapsing duplicates by event id.
+//
+// A redelivered event must not appear twice in a correlated record's event list, and it
+// must not inflate the candidate count that drives the confidence score into reporting a
+// false ambiguity.
+func decodeMembers(raw []string) []Member {
 	seen := make(map[string]bool, len(raw))
 	members := make([]Member, 0, len(raw))
 	for _, value := range raw {
@@ -239,7 +295,7 @@ func (w *Windows) Members(
 		seen[member.EventID] = true
 		members = append(members, member)
 	}
-	return members, nil
+	return members
 }
 
 // Identity returns the correlation id a window is emitted under, assigning proposed on
@@ -342,15 +398,27 @@ func (w *Windows) IdentityForAny(
 }
 
 // existingIdentity returns the id already claimed under any identifier, or Nil.
+//
+// ONE ROUND TRIP FOR THE WHOLE SET, not one per identifier. The identifiers are read
+// together and then scanned IN ORDER, which preserves the previous behaviour exactly: the
+// first identifier holding a claim decides, so two closers seeing the same set still agree
+// on the answer. Reading them in one go changes when the values arrive, not which one wins.
 func (w *Windows) existingIdentity(
 	ctx context.Context, tenantID uuid.UUID, identifiers []string,
 ) (uuid.UUID, error) {
+	redisKeys := make([]string, 0, len(identifiers))
 	for _, identifier := range identifiers {
-		existing, found, err := w.store.Lookup(ctx, identityKey(tenantID, identifier))
-		if err != nil {
-			return uuid.Nil, err
-		}
-		if !found || existing == "" {
+		redisKeys = append(redisKeys, identityKey(tenantID, identifier))
+	}
+
+	claimed, err := w.store.LookupMany(ctx, redisKeys)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	for i, identifier := range identifiers {
+		existing := claimed[redisKeys[i]]
+		if existing == "" {
 			continue
 		}
 		parsed, err := uuid.Parse(existing)

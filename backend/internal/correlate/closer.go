@@ -151,9 +151,27 @@ func (c *Closer) pass(
 		return true, nil
 	}
 
+	// EVERY WINDOW'S MEMBERS IN ONE ROUND TRIP, before any of them is built. Reading them
+	// inside the loop cost a blocking round trip per window, and a batch is up to
+	// DefaultBatch of them.
+	members, err := c.membersForBatch(ctx, due)
+	if err != nil {
+		CloseFailures.WithLabelValues("read").Inc()
+		return true, err
+	}
+
+	// Exact partners for the WHOLE batch, walked level by level across every window at
+	// once rather than window by window. Same closure, same members, a round trip per
+	// level instead of one per window.
+	members, err = c.expandExactPartners(ctx, due, members)
+	if err != nil {
+		CloseFailures.WithLabelValues("read").Inc()
+		return true, err
+	}
+
 	var failed error
 	for _, scheduled := range due {
-		emitted, err := c.build(ctx, scheduled)
+		emitted, err := c.build(ctx, scheduled, members[scheduled])
 		if err != nil {
 			// One window's failure must not abandon the rest of the batch.
 			failed = errors.Join(failed, err)
@@ -162,6 +180,32 @@ func (c *Closer) pass(
 		byTenant[scheduled.TenantID] = append(byTenant[scheduled.TenantID], emitted...)
 	}
 	return len(due) < c.batch, failed
+}
+
+// membersForBatch reads the members of every due window, one round trip per tenant.
+//
+// Grouped by tenant because the storage key is tenant-scoped, so a single read cannot span
+// them. A batch is normally one tenant's windows, which makes this one round trip in
+// practice and never more than one per tenant present.
+func (c *Closer) membersForBatch(
+	ctx context.Context, due []window.Scheduled,
+) (map[window.Scheduled][]window.Member, error) {
+	keysByTenant := make(map[uuid.UUID][]string, 1)
+	for _, scheduled := range due {
+		keysByTenant[scheduled.TenantID] = append(keysByTenant[scheduled.TenantID], scheduled.Key)
+	}
+
+	out := make(map[window.Scheduled][]window.Member, len(due))
+	for tenantID, keys := range keysByTenant {
+		found, err := c.windows.MembersMany(ctx, tenantID, keys)
+		if err != nil {
+			return nil, fmt.Errorf("read %d windows: %w", len(keys), err)
+		}
+		for key, members := range found {
+			out[window.Scheduled{TenantID: tenantID, Key: key}] = members
+		}
+	}
+	return out, nil
 }
 
 // VersionLookupChunk bounds how many ids one version query asks about.
@@ -290,23 +334,13 @@ func (c *Closer) storedFor(
 //
 // Writing is left to the caller so a whole tick's records go out in one insert.
 func (c *Closer) build(
-	ctx context.Context, scheduled window.Scheduled,
+	ctx context.Context, scheduled window.Scheduled, members []window.Member,
 ) ([]emission, error) {
-	members, err := c.windows.Members(ctx, scheduled.TenantID, scheduled.Key)
-	if err != nil {
-		CloseFailures.WithLabelValues("read").Inc()
-		return nil, fmt.Errorf("read window %s: %w", scheduled.Key, err)
-	}
 	if len(members) == 0 {
 		// The window expired before it was closed, which means it is older than the
 		// lateness bound. There is nothing left to emit and nothing to repair.
 		LateArrivalsDropped.Inc()
 		return nil, nil
-	}
-
-	members, err = c.withExactPartners(ctx, scheduled.TenantID, members)
-	if err != nil {
-		return nil, err
 	}
 
 	settings := c.settings.For(ctx, scheduled.TenantID)
@@ -335,8 +369,8 @@ func (c *Closer) build(
 	return emitted, nil
 }
 
-// withExactPartners pulls in events that share a vendor request id with a member but
-// landed in a different window.
+// expandExactPartners pulls in events that share a vendor request id with a member but
+// landed in a different window, for every window in the batch at once.
 //
 // This is the case tier 1 exists for. Two vendors report the same request with clocks
 // far enough apart that they fall into different time windows; only the shared
@@ -349,50 +383,155 @@ func (c *Closer) build(
 // from the starting members finds that bridge from one side but not the other, and
 // which side a request landed on would decide whether it got two verdicts or three.
 //
-// The closure is small and self-limiting: each member contributes at most two
-// identifiers and every bucket is visited once.
-func (c *Closer) withExactPartners(
-	ctx context.Context, tenantID uuid.UUID, members []window.Member,
-) ([]window.Member, error) {
-	seen := make(map[string]bool, len(members))
-	out := make([]window.Member, 0, len(members))
-	queue := make([]window.Member, 0, len(members))
+// IT WALKS EVERY WINDOW IN LOCKSTEP, one level at a time, so a level costs ONE round trip
+// for the whole batch instead of one per window. Done window by window this was the
+// closer's dominant cost: a production profile put 34% of the processor's CPU samples in
+// socket syscalls while the process sat idle two thirds of the time.
+//
+// Each window keeps its OWN seen and visited sets. Sharing them across windows would be
+// faster still and completely wrong: two windows reaching the same bucket must each
+// receive its members, and a shared seen set would silently give them to whichever window
+// happened to be visited first.
+func (c *Closer) expandExactPartners(
+	ctx context.Context, due []window.Scheduled,
+	byWindow map[window.Scheduled][]window.Member,
+) (map[window.Scheduled][]window.Member, error) {
+	walks := newPartnerWalks(due, byWindow)
 
-	for _, m := range members {
-		if seen[m.EventID] {
-			continue
+	// Bounded by the longest chain any window forms, not by the number of windows. The
+	// closure is self-limiting: each member contributes at most two identifiers and each
+	// window visits a bucket once, so a window runs out of new identifiers quickly.
+	for {
+		wanted, byTenant := nextIdentifiers(due, walks)
+		if len(byTenant) == 0 {
+			break
 		}
-		seen[m.EventID] = true
-		out = append(out, m)
-		queue = append(queue, m)
+
+		buckets, err := c.readBuckets(ctx, byTenant)
+		if err != nil {
+			return nil, err
+		}
+		advanceWalks(due, walks, wanted, buckets)
 	}
 
-	visited := map[string]bool{}
-	for len(queue) > 0 {
-		member := queue[0]
-		queue = queue[1:]
-
-		for _, identifier := range identifiersOf(tenantID, member) {
-			if visited[identifier] {
-				continue
-			}
-			visited[identifier] = true
-
-			partners, err := c.windows.Members(ctx, tenantID, identifier)
-			if err != nil {
-				return nil, fmt.Errorf("read exact bucket for %s: %w", member.EventID, err)
-			}
-			for _, partner := range partners {
-				if seen[partner.EventID] {
-					continue
-				}
-				seen[partner.EventID] = true
-				out = append(out, partner)
-				queue = append(queue, partner)
-			}
-		}
+	out := make(map[window.Scheduled][]window.Member, len(due))
+	for scheduled, w := range walks {
+		out[scheduled] = w.out
 	}
 	return out, nil
+}
+
+// partnerWalk is one window's position in the traversal.
+//
+// Each window keeps its OWN seen and visited sets. Sharing them across windows would be
+// faster still and completely wrong: two windows reaching the same bucket must each
+// receive its members, and a shared seen set would silently give them to whichever window
+// happened to be visited first.
+type partnerWalk struct {
+	seen     map[string]bool
+	visited  map[string]bool
+	out      []window.Member
+	frontier []window.Member
+}
+
+func newPartnerWalks(
+	due []window.Scheduled, byWindow map[window.Scheduled][]window.Member,
+) map[window.Scheduled]*partnerWalk {
+	walks := make(map[window.Scheduled]*partnerWalk, len(due))
+	for _, scheduled := range due {
+		members := byWindow[scheduled]
+		w := &partnerWalk{
+			seen:    make(map[string]bool, len(members)),
+			visited: map[string]bool{},
+			out:     make([]window.Member, 0, len(members)),
+		}
+		for _, m := range members {
+			if w.seen[m.EventID] {
+				continue
+			}
+			w.seen[m.EventID] = true
+			w.out = append(w.out, m)
+			w.frontier = append(w.frontier, m)
+		}
+		walks[scheduled] = w
+	}
+	return walks
+}
+
+// nextIdentifiers reports which buckets each window still wants, and the deduplicated set
+// to ask for per tenant.
+//
+// Several members of one request carry the same ray, and several windows in a batch often
+// want the same bucket. Both are worth reading once, which is why the per-window list and
+// the per-tenant set are built together rather than derived from each other.
+func nextIdentifiers(
+	due []window.Scheduled, walks map[window.Scheduled]*partnerWalk,
+) (map[window.Scheduled][]string, map[uuid.UUID]map[string]struct{}) {
+	wanted := make(map[window.Scheduled][]string, len(due))
+	byTenant := make(map[uuid.UUID]map[string]struct{}, 1)
+
+	for _, scheduled := range due {
+		w := walks[scheduled]
+		for _, member := range w.frontier {
+			for _, identifier := range identifiersOf(scheduled.TenantID, member) {
+				if w.visited[identifier] {
+					continue
+				}
+				w.visited[identifier] = true
+				wanted[scheduled] = append(wanted[scheduled], identifier)
+
+				if byTenant[scheduled.TenantID] == nil {
+					byTenant[scheduled.TenantID] = map[string]struct{}{}
+				}
+				byTenant[scheduled.TenantID][identifier] = struct{}{}
+			}
+		}
+	}
+	return wanted, byTenant
+}
+
+// readBuckets fetches one level's buckets, one round trip per tenant.
+func (c *Closer) readBuckets(
+	ctx context.Context, byTenant map[uuid.UUID]map[string]struct{},
+) (map[uuid.UUID]map[string][]window.Member, error) {
+	buckets := make(map[uuid.UUID]map[string][]window.Member, len(byTenant))
+	for tenantID, set := range byTenant {
+		identifiers := make([]string, 0, len(set))
+		for identifier := range set {
+			identifiers = append(identifiers, identifier)
+		}
+		found, err := c.windows.MembersMany(ctx, tenantID, identifiers)
+		if err != nil {
+			return nil, fmt.Errorf("read %d exact buckets: %w", len(identifiers), err)
+		}
+		buckets[tenantID] = found
+	}
+	return buckets, nil
+}
+
+// advanceWalks hands each window the partners its own identifiers reached.
+func advanceWalks(
+	due []window.Scheduled, walks map[window.Scheduled]*partnerWalk,
+	wanted map[window.Scheduled][]string,
+	buckets map[uuid.UUID]map[string][]window.Member,
+) {
+	for _, scheduled := range due {
+		w := walks[scheduled]
+		// Iterate the identifier SLICE this window asked for, not a map: map order is
+		// random, and it decides the order partners enter the record's event list.
+		next := make([]window.Member, 0, len(wanted[scheduled]))
+		for _, identifier := range wanted[scheduled] {
+			for _, partner := range buckets[scheduled.TenantID][identifier] {
+				if w.seen[partner.EventID] {
+					continue
+				}
+				w.seen[partner.EventID] = true
+				w.out = append(w.out, partner)
+				next = append(next, partner)
+			}
+		}
+		w.frontier = next
+	}
 }
 
 // identifiersOf returns the exact bucket keys a member is reachable through.

@@ -58,6 +58,23 @@ func (s *identityStore) Lookup(_ context.Context, key string) (string, bool, err
 	return value, found, nil
 }
 
+// LookupMany MUST be overridden, not inherited. The embedded countingWindowStore answers
+// every identity lookup with nothing, so inheriting it here would make the closer believe
+// no correlation id had ever been claimed — and these are the tests that exist to prove it
+// finds one. The split-record bug would pass unnoticed.
+func (s *identityStore) LookupMany(
+	_ context.Context, keys []string,
+) (map[string]string, error) {
+	s.readCalls++
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if value, found := s.values[key]; found {
+			out[key] = value
+		}
+	}
+	return out, nil
+}
+
 // The four rows a Worker-protected request produces, split by ARRIVAL time rather than
 // by event time — which is the whole point. F5 and nginx ship in real time; Cloudflare
 // Logpush lags roughly thirty seconds and only its origin-fetch row carries the bridge.
