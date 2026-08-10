@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import { createVuetify } from 'vuetify'
 import * as vuetifyComponents from 'vuetify/components'
 import * as vuetifyDirectives from 'vuetify/directives'
@@ -19,11 +20,16 @@ const vuetify = createVuetify({
   directives: vuetifyDirectives,
 })
 
-/** Mounts with the real Vuetify components, so the rendered markup is what ships. */
+/**
+ * Mounts with the real Vuetify components, so the rendered markup is what ships.
+ *
+ * Pinia is required because the chain renders its timestamps through the display
+ * preference — the same clock as the rest of the console, rather than a second one.
+ */
 function render(eventIds: string[], conflicting?: Set<string>) {
   return mount(CorrelationChain, {
     props: { eventIds, conflicting },
-    global: { plugins: [vuetify] },
+    global: { plugins: [vuetify, createPinia()] },
   })
 }
 

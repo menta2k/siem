@@ -18,6 +18,9 @@ import { api, toDisplayMessage } from '@/api/client'
 import { debounce } from '@/lib/debounce'
 import type { components } from '@/api/schema'
 import ConfidenceChip from '@/components/ConfidenceChip.vue'
+import { usePreferencesStore } from '@/stores/preferences'
+
+const prefs = usePreferencesStore()
 
 type CorrelatedRequest = components['schemas']['CorrelatedRequest']
 
@@ -98,9 +101,10 @@ async function load(append = false): Promise<void> {
           ...(ray.value ? { vendorRequestId: ray.value } : {}),
           ...(supportID.value ? { vendorEventId: supportID.value } : {}),
         },
-        page: append && nextCursor.value
-          ? { cursor: nextCursor.value, limit: PAGE_SIZE }
-          : { limit: PAGE_SIZE },
+        page:
+          append && nextCursor.value
+            ? { cursor: nextCursor.value, limit: PAGE_SIZE }
+            : { limit: PAGE_SIZE },
       },
     })
 
@@ -214,9 +218,7 @@ function onRowClick(_event: unknown, row: { item: CorrelatedRequest }): void {
   open(row.item)
 }
 
-const disagreementCount = computed(
-  () => records.value.filter((r) => r.hasDisagreement).length,
-)
+const disagreementCount = computed(() => records.value.filter((r) => r.hasDisagreement).length)
 </script>
 
 <template>
@@ -312,9 +314,7 @@ const disagreementCount = computed(
 
     <v-card>
       <v-card-title class="text-subtitle-1 d-flex align-center ga-3">
-        <span>
-          {{ records.length }} of {{ totalIsEstimate ? '~' : '' }}{{ total }} requests
-        </span>
+        <span> {{ records.length }} of {{ totalIsEstimate ? '~' : '' }}{{ total }} requests </span>
         <v-chip v-if="disagreementCount" color="warning" size="small" variant="tonal">
           {{ disagreementCount }} with a disagreement
         </v-chip>
@@ -337,7 +337,7 @@ const disagreementCount = computed(
         @click:row="onRowClick"
       >
         <template #item.firstEventTime="{ item }">
-          <span class="text-caption">{{ item.firstEventTime }}</span>
+          <span class="text-caption">{{ prefs.dateTime(item.firstEventTime) }}</span>
         </template>
 
         <!-- Interpolated, never v-html: every one of these is vendor-supplied text. -->
@@ -364,12 +364,7 @@ const disagreementCount = computed(
             >
               {{ v.vendor }}: {{ v.verdict }}
             </v-chip>
-            <v-chip
-              v-if="item.hasDisagreement"
-              color="warning"
-              size="x-small"
-              variant="flat"
-            >
+            <v-chip v-if="item.hasDisagreement" color="warning" size="x-small" variant="flat">
               disagree
             </v-chip>
           </div>
@@ -388,10 +383,9 @@ const disagreementCount = computed(
         <template #no-data>
           <div class="pa-8 text-center text-medium-emphasis">
             <template v-if="onlyMultiVendor">
-              No cross-vendor correlations in this window. That means no single request
-              was reported by two vendors — usually because only one feed is delivering,
-              or because the vendors disagree on the hostname or client IP that the join
-              is made on.
+              No cross-vendor correlations in this window. That means no single request was reported
+              by two vendors — usually because only one feed is delivering, or because the vendors
+              disagree on the hostname or client IP that the join is made on.
             </template>
             <template v-else>No correlated requests in this window.</template>
           </div>

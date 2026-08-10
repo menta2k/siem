@@ -17,6 +17,7 @@ import { computed, ref, watch } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
 import { formatPayload } from '@/lib/json-format'
+import { usePreferencesStore } from '@/stores/preferences'
 import type { FormattedPayload } from '@/lib/json-format'
 
 type EventDetail = components['schemas']['EventDetail']
@@ -34,6 +35,8 @@ type Link = {
   detail: EventDetail | null
   error: string
 }
+
+const prefs = usePreferencesStore()
 
 const links = ref<Link[]>([])
 const loading = ref(false)
@@ -219,7 +222,7 @@ function payloadOf(link: Link): FormattedPayload {
                 disagrees
               </v-chip>
               <span class="text-caption text-medium-emphasis">
-                {{ link.detail?.summary?.eventTime }}
+                {{ prefs.dateTime(link.detail?.summary?.eventTime) }}
               </span>
               <!-- Inline, not in the timeline's `opposite` slot: Vuetify drops that slot
                    when `side` is set, so the offset silently never rendered — and the
