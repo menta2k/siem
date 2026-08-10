@@ -38,8 +38,11 @@ server {
         proxy_set_header Host            $host;
         proxy_set_header X-Real-IP       $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        # Logpush and BIG-IP send large batches.
-        client_max_body_size 64m;
+        # Logpush and BIG-IP send large batches, and a vendor recovering from an outage
+        # sends larger ones still. Keep this at or above INGEST_MAX_BODY_BYTES: the
+        # smaller of the two wins, and if it is this one the receiver never sees the
+        # request and the platform has nothing to log.
+        client_max_body_size 128m;
     }
 
     location /assets/ {

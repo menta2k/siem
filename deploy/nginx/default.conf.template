@@ -55,11 +55,16 @@ server {
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Cloudflare Logpush and BIG-IP send large batched deliveries. The receiver caps
-        # a body at INGEST_MAX_BODY_BYTES (32 MB by default) and answers over-large ones
-        # itself; nginx must not reject them first with its own 1 MB default, or the
-        # vendor sees a bare 413 instead of the platform's error envelope.
-        client_max_body_size 64m;
+        # Cloudflare Logpush and BIG-IP send large batched deliveries, and a vendor
+        # RECOVERING from an outage sends far larger ones than a live feed ever does.
+        #
+        # THIS MUST NOT BE LOWER THAN INGEST_MAX_BODY_BYTES. It is the same limit
+        # expressed twice, and when the two disagree the smaller one wins silently: nginx
+        # answers 413 here and the receiver never sees the request, so the platform logs
+        # nothing at all while the vendor reports a rejection. That is exactly what
+        # happened -- the receiver's cap was raised to 128 MB, the backlog kept failing,
+        # and the ingest log was clean because the delivery never reached it.
+        client_max_body_size 128m;
         proxy_request_buffering off;
         proxy_read_timeout 120s;
     }
