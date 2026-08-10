@@ -10,6 +10,7 @@ package cfrules
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -119,6 +120,24 @@ func (c *Client) Zones(ctx context.Context) ([]Zone, error) {
 			return zones, nil
 		}
 	}
+}
+
+// Verify reports how many zones the token can read, and fails if it cannot read at all.
+//
+// One call, made while an operator is watching. Saving a credential that turns out to be
+// wrong used to be indistinguishable from saving one that works — the console said
+// "saved" either way and the failure surfaced, if at all, in a worker log an hour later.
+// A token that lists zero zones is refused too: it authenticates but can see nothing, so
+// it would produce an empty table and no error anywhere.
+func (c *Client) Verify(ctx context.Context) (int, error) {
+	zones, err := c.Zones(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if len(zones) == 0 {
+		return 0, errors.New("the token is valid but can see no zones")
+	}
+	return len(zones), nil
 }
 
 // Rulesets lists the rulesets on a zone.

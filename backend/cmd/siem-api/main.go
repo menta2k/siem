@@ -175,7 +175,7 @@ func buildServices(
 		Admin: service.NewAdminService(users, tenants, auditLog,
 			retentionWorker(deps, ch, locker, tenants, events),
 			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL),
-			secrets.NewRedisStore(rdb)),
+			secrets.NewRedisStore(rdb), cfg.CloudflareRules.APIBase, deps.Log),
 		Alerts: service.NewAlertsService(
 			alertingRepo,
 			alerting.NewEvaluator(alerting.NewRepoStore(alertingRepo)),

@@ -15,6 +15,7 @@ import (
 	pb "github.com/menta2k/siem/api/gen/siem/v1"
 	"github.com/menta2k/siem/internal/audit"
 	"github.com/menta2k/siem/internal/auth"
+	"github.com/menta2k/siem/internal/cfrules"
 	"github.com/menta2k/siem/internal/correlate"
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
 	"github.com/menta2k/siem/internal/ingest/filter"
@@ -46,16 +47,22 @@ type AdminService struct {
 	invalidator SettingsInvalidator
 	// secrets holds the Cloudflare API token, so the database stores only a reference.
 	secrets secrets.Store
-	now     func() time.Time
+	// cloudflareAPIBase is overridable so a test can verify a token against a stub
+	// rather than reaching Cloudflare.
+	cloudflareAPIBase string
+	log               mw.Logger
+	now               func() time.Time
 }
 
 // NewAdminService constructs the service.
 func NewAdminService(
 	users *chdata.UserRepo, tenants *chdata.TenantRepo, auditLog *chdata.AuditRepo,
 	purger Purger, invalidator SettingsInvalidator, secretStore secrets.Store,
+	cloudflareAPIBase string, log mw.Logger,
 ) *AdminService {
 	return &AdminService{
 		users: users, tenants: tenants, auditLog: auditLog, secrets: secretStore,
+		cloudflareAPIBase: cloudflareAPIBase, log: log,
 		purger: purger, invalidator: invalidator, now: time.Now,
 	}
 }
@@ -595,6 +602,17 @@ func (s *AdminService) storeCloudflareToken(
 		return "", false, mw.Internal().WithCause(
 			errors.New("no secret store configured for the cloudflare token"))
 	}
+
+	// VERIFIED BEFORE IT IS STORED, while the operator is still looking at the screen.
+	// A token that cannot read zones is rejected here rather than accepted and left to
+	// fail in a worker log an hour later, which is what made a mistyped credential look
+	// exactly like a working one.
+	zones, err := cfrules.NewClient(token, s.cloudflareAPIBase).Verify(ctx)
+	if err != nil {
+		return "", false, mw.ValidationFailed(
+			"Cloudflare rejected this token, or it cannot read any zone. It needs Zone WAF Read.")
+	}
+	s.log.Info(ctx, "cloudflare token accepted", "zones", zones)
 
 	ref, err = s.secrets.Put(ctx, "cloudflare-api-token", token)
 	if err != nil {

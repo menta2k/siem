@@ -146,7 +146,7 @@ func buildTestServer(
 				},
 				auditLog, mw.NewLogger("error", "json")),
 			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL),
-			secrets.NewMemoryStore()),
+			secrets.NewMemoryStore(), "", mw.NewLogger("error", "json")),
 		Alerts: service.NewAlertsService(
 			chdata.NewAlertingRepo(f.ClickHouse, locker),
 			alerting.NewEvaluator(alerting.NewRepoStore(

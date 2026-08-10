@@ -181,8 +181,11 @@ async function saveCloudflareToken(token: string): Promise<void> {
   notice.value = ''
   try {
     await api.PATCH('/api/v1/admin/tenant', { body: { cloudflareApiToken: token } })
+    // The API verifies the token against Cloudflare before storing it, so reaching here
+    // means it actually works — and the refresh picks a changed token up within a minute
+    // rather than at the next hourly pass.
     notice.value = token
-      ? 'Cloudflare token saved. Rule names appear once the next refresh runs.'
+      ? 'Cloudflare token verified and saved. Rule names appear within a minute.'
       : 'Cloudflare token cleared. Rules will show their ids only.'
     cloudflareToken.value = ''
     await load()
@@ -516,7 +519,7 @@ const canManage = computed(() => auth.can.manageUsers)
               label="Cloudflare API token"
               type="password"
               autocomplete="off"
-              hint="Needs Zone WAF Read. Stored in the secret store, never in the database."
+              hint="Needs Zone WAF Read. Verified against Cloudflare before it is stored, and kept in the secret store rather than the database."
               persistent-hint
               density="compact"
               variant="outlined"
