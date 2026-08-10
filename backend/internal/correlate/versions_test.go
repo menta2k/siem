@@ -63,7 +63,16 @@ func TestAmendmentsSurviveChunking(t *testing.T) {
 	first := &countingCorrelatedStore{}
 	// More than one chunk, so an amendment necessarily lands in a later batch.
 	const windows = correlate.VersionLookupChunk*2 + 500
-	fileAndClose(t, windows, windowStore, first)
+
+	// Built ONCE and replayed below. A correlation id is derived from the event's window
+	// start, and recordBatch stamps its events at call time, so rebuilding the batch for
+	// the second pass produces different ids whenever the two calls fall either side of
+	// a five-second window boundary. This test files 2,500 windows and closes them
+	// first, which takes long enough that crossing one is a coin flip: on CI it failed
+	// with "no seeded record closed again" roughly half the time, reporting a broken
+	// amendment path when nothing was broken but the clock.
+	batch := recordBatch(t, windows)
+	fileAndCloseBatch(t, batch, windowStore, first)
 
 	stored := map[uuid.UUID]uint64{}
 	for _, record := range first.written {
@@ -74,8 +83,9 @@ func TestAmendmentsSurviveChunking(t *testing.T) {
 	}
 
 	second := &countingCorrelatedStore{existing: stored}
+	// The SAME events again, as a redelivery would present them.
 	if _, err := newBatchWorker(windowStore).
-		HandleBatch(context.Background(), recordBatch(t, windows)); err != nil {
+		HandleBatch(context.Background(), batch); err != nil {
 		t.Fatalf("HandleBatch: %v", err)
 	}
 	if err := newCloser(windowStore, second).

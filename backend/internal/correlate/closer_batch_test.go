@@ -12,6 +12,7 @@ import (
 	"github.com/menta2k/siem/internal/correlate/keys"
 	"github.com/menta2k/siem/internal/correlate/window"
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
+	"github.com/menta2k/siem/internal/data/stream"
 	mw "github.com/menta2k/siem/internal/middleware"
 )
 
@@ -68,9 +69,24 @@ func fileAndClose(
 	t *testing.T, n int, windowStore *countingWindowStore, records correlate.CorrelatedStore,
 ) {
 	t.Helper()
+	fileAndCloseBatch(t, recordBatch(t, n), windowStore, records)
+}
+
+// fileAndCloseBatch runs one PARTICULAR batch through the pipeline.
+//
+// Exists so a test can put the SAME events through twice. recordBatch stamps its events
+// at call time and a correlation id is derived from the event's window start, so two
+// calls either side of a five-second boundary describe different requests entirely — and
+// a test that redelivers a batch by rebuilding it silently stops testing redelivery
+// whenever the clock crosses that line mid-run.
+func fileAndCloseBatch(
+	t *testing.T, batch []stream.Record, windowStore *countingWindowStore,
+	records correlate.CorrelatedStore,
+) {
+	t.Helper()
 
 	if _, err := newBatchWorker(windowStore).
-		HandleBatch(context.Background(), recordBatch(t, n)); err != nil {
+		HandleBatch(context.Background(), batch); err != nil {
 		t.Fatalf("HandleBatch: %v", err)
 	}
 
@@ -174,9 +190,12 @@ func TestANewRecordIsVersionOne(t *testing.T) {
 func TestAnExistingRecordIsAmendedAtTheNextVersion(t *testing.T) {
 	windowStore := newCountingWindowStore()
 
-	// Close once to learn the ids the closer assigns.
+	// Close once to learn the ids the closer assigns. The batch is kept so the second
+	// pass replays the SAME events — rebuilding it would re-stamp them at the current
+	// instant, and a correlation id derives from the window that instant falls in.
+	batch := recordBatch(t, 5)
 	first := &countingCorrelatedStore{}
-	fileAndClose(t, 5, windowStore, first)
+	fileAndCloseBatch(t, batch, windowStore, first)
 
 	stored := map[uuid.UUID]uint64{}
 	for _, record := range first.written {
@@ -187,7 +206,7 @@ func TestAnExistingRecordIsAmendedAtTheNextVersion(t *testing.T) {
 	// this time against a store that already holds them at version 3.
 	second := &countingCorrelatedStore{existing: stored}
 	if _, err := newBatchWorker(windowStore).
-		HandleBatch(context.Background(), recordBatch(t, 5)); err != nil {
+		HandleBatch(context.Background(), batch); err != nil {
 		t.Fatalf("HandleBatch: %v", err)
 	}
 	future := time.Now().UTC().Add(2 * time.Hour)
