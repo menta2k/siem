@@ -466,7 +466,10 @@ type SourceCount struct {
 	ClientIp string                 `protobuf:"bytes,1,opt,name=client_ip,json=clientIp,proto3" json:"client_ip,omitempty"`
 	Country  string                 `protobuf:"bytes,2,opt,name=country,proto3" json:"country,omitempty"`
 	Asn      uint32                 `protobuf:"varint,3,opt,name=asn,proto3" json:"asn,omitempty"`
-	Events   uint64                 `protobuf:"varint,4,opt,name=events,proto3" json:"events,omitempty"`
+	// The network's registered name. See ClientInfo.asn_owner for why it is resolved on
+	// read rather than stored.
+	AsnOwner string `protobuf:"bytes,6,opt,name=asn_owner,json=asnOwner,proto3" json:"asn_owner,omitempty"`
+	Events   uint64 `protobuf:"varint,4,opt,name=events,proto3" json:"events,omitempty"`
 	// A subset of events, never a separate tally: a source showing more blocks than
 	// requests is nonsense an analyst cannot act on.
 	Blocked       uint64 `protobuf:"varint,5,opt,name=blocked,proto3" json:"blocked,omitempty"`
@@ -525,6 +528,13 @@ func (x *SourceCount) GetAsn() uint32 {
 	return 0
 }
 
+func (x *SourceCount) GetAsnOwner() string {
+	if x != nil {
+		return x.AsnOwner
+	}
+	return ""
+}
+
 func (x *SourceCount) GetEvents() uint64 {
 	if x != nil {
 		return x.Events
@@ -548,6 +558,9 @@ func (x *SourceCount) GetBlocked() uint64 {
 type AsnCount struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Asn   uint32                 `protobuf:"varint,1,opt,name=asn,proto3" json:"asn,omitempty"`
+	// The network's registered name, e.g. "VIVACOM-AS". Empty when the published table
+	// does not list the number, in which case the console shows the bare ASN.
+	Owner string `protobuf:"bytes,6,opt,name=owner,proto3" json:"owner,omitempty"`
 	// The country most of this network's traffic came from. An ASN can span several, so
 	// this names the majority rather than claiming the network sits in one place.
 	Country string `protobuf:"bytes,2,opt,name=country,proto3" json:"country,omitempty"`
@@ -597,6 +610,13 @@ func (x *AsnCount) GetAsn() uint32 {
 		return x.Asn
 	}
 	return 0
+}
+
+func (x *AsnCount) GetOwner() string {
+	if x != nil {
+		return x.Owner
+	}
+	return ""
 }
 
 func (x *AsnCount) GetCountry() string {
@@ -887,15 +907,17 @@ const file_siem_v1_dashboards_proto_rawDesc = "" +
 	"\x06events\x18\x03 \x01(\x04R\x06events\"6\n" +
 	"\n" +
 	"RulesPanel\x12(\n" +
-	"\x05rules\x18\x01 \x03(\v2\x12.siem.v1.RuleCountR\x05rules\"\x88\x01\n" +
+	"\x05rules\x18\x01 \x03(\v2\x12.siem.v1.RuleCountR\x05rules\"\xa5\x01\n" +
 	"\vSourceCount\x12\x1b\n" +
 	"\tclient_ip\x18\x01 \x01(\tR\bclientIp\x12\x18\n" +
 	"\acountry\x18\x02 \x01(\tR\acountry\x12\x10\n" +
-	"\x03asn\x18\x03 \x01(\rR\x03asn\x12\x16\n" +
+	"\x03asn\x18\x03 \x01(\rR\x03asn\x12\x1b\n" +
+	"\tasn_owner\x18\x06 \x01(\tR\basnOwner\x12\x16\n" +
 	"\x06events\x18\x04 \x01(\x04R\x06events\x12\x18\n" +
-	"\ablocked\x18\x05 \x01(\x04R\ablocked\"\x82\x01\n" +
+	"\ablocked\x18\x05 \x01(\x04R\ablocked\"\x98\x01\n" +
 	"\bAsnCount\x12\x10\n" +
-	"\x03asn\x18\x01 \x01(\rR\x03asn\x12\x18\n" +
+	"\x03asn\x18\x01 \x01(\rR\x03asn\x12\x14\n" +
+	"\x05owner\x18\x06 \x01(\tR\x05owner\x12\x18\n" +
 	"\acountry\x18\x02 \x01(\tR\acountry\x12\x16\n" +
 	"\x06events\x18\x03 \x01(\x04R\x06events\x12\x18\n" +
 	"\ablocked\x18\x04 \x01(\x04R\ablocked\x12\x18\n" +

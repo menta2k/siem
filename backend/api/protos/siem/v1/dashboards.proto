@@ -98,6 +98,9 @@ message SourceCount {
   string client_ip = 1;
   string country = 2;
   uint32 asn = 3;
+  // The network's registered name. See ClientInfo.asn_owner for why it is resolved on
+  // read rather than stored.
+  string asn_owner = 6;
   uint64 events = 4;
   // A subset of events, never a separate tally: a source showing more blocks than
   // requests is nonsense an analyst cannot act on.
@@ -112,6 +115,9 @@ message SourceCount {
 // ASN the same traffic is one row near the top.
 message AsnCount {
   uint32 asn = 1;
+  // The network's registered name, e.g. "VIVACOM-AS". Empty when the published table
+  // does not list the number, in which case the console shows the bare ASN.
+  string owner = 6;
   // The country most of this network's traffic came from. An ASN can span several, so
   // this names the majority rather than claiming the network sits in one place.
   string country = 2;

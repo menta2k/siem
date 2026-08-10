@@ -37,11 +37,16 @@ type CorrelatedReader interface {
 // CorrelationService implements the Correlation proto service.
 type CorrelationService struct {
 	correlated CorrelatedReader
+	// networks names the client's ASN on read. Optional: nil where the lookup is
+	// disabled, in which case records carry the bare number.
+	networks NetworkNamer
 }
 
 // NewCorrelationService constructs the service.
-func NewCorrelationService(correlated CorrelatedReader) *CorrelationService {
-	return &CorrelationService{correlated: correlated}
+func NewCorrelationService(
+	correlated CorrelatedReader, networks NetworkNamer,
+) *CorrelationService {
+	return &CorrelationService{correlated: correlated, networks: networks}
 }
 
 // GetCorrelatedRequest returns one correlated record with its full join provenance.
@@ -60,7 +65,9 @@ func (s *CorrelationService) GetCorrelatedRequest(
 	case err != nil:
 		return nil, mw.Internal().WithCause(err)
 	}
-	return toCorrelatedProto(record), nil
+	out := toCorrelatedProto(record)
+	nameClients(ctx, s.networks, out.GetClient())
+	return out, nil
 }
 
 // ListCorrelatedRequests returns correlated records inside a time range.
@@ -99,6 +106,8 @@ func (s *CorrelationService) ListCorrelatedRequests(
 	for _, record := range records {
 		out.Requests = append(out.Requests, toCorrelatedProto(record))
 	}
+	// One lookup for the whole page, as in SearchEvents.
+	nameClients(ctx, s.networks, correlatedClientsOf(out.GetRequests())...)
 	return out, nil
 }
 

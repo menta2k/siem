@@ -155,7 +155,10 @@ function vendorOf(v: VendorVerdict): string {
           </div>
 
           <div class="mt-3 text-body-1">
-            <code>{{ record.request?.method }} {{ record.request?.host }}{{ record.request?.path }}</code>
+            <code
+              >{{ record.request?.method }} {{ record.request?.host
+              }}{{ record.request?.path }}</code
+            >
           </div>
         </v-card-text>
       </v-card>
@@ -187,8 +190,8 @@ function vendorOf(v: VendorVerdict): string {
                 density="compact"
                 class="mt-4"
               >
-                Only one vendor reported this request. That is normal for hostnames
-                behind a single vendor — it is not a correlation failure.
+                Only one vendor reported this request. That is normal for hostnames behind a single
+                vendor — it is not a correlation failure.
               </v-alert>
             </v-card-text>
           </v-card>
@@ -201,11 +204,7 @@ function vendorOf(v: VendorVerdict): string {
               <div class="mb-3 text-body-2">{{ joinTierLabel }}</div>
 
               <v-list density="compact" class="pa-0">
-                <v-list-item
-                  v-for="signal in record.joinSignals ?? []"
-                  :key="signal"
-                  class="px-0"
-                >
+                <v-list-item v-for="signal in record.joinSignals ?? []" :key="signal" class="px-0">
                   <template #prepend>
                     <v-icon icon="mdi-check" size="small" class="mr-2" />
                   </template>
@@ -222,8 +221,8 @@ function vendorOf(v: VendorVerdict): string {
                 density="compact"
                 class="mt-3"
               >
-                {{ record.candidateCount }} events from a single vendor competed for this
-                join, so the partner chosen here may be the wrong one.
+                {{ record.candidateCount }} events from a single vendor competed for this join, so
+                the partner chosen here may be the wrong one.
               </v-alert>
 
               <v-alert
@@ -233,8 +232,8 @@ function vendorOf(v: VendorVerdict): string {
                 density="compact"
                 class="mt-3"
               >
-                The client address is shared — NAT, a proxy, or a carrier range — so
-                several distinct clients could produce this same match.
+                The client address is shared — NAT, a proxy, or a carrier range — so several
+                distinct clients could produce this same match.
               </v-alert>
             </v-card-text>
           </v-card>
@@ -248,15 +247,26 @@ function vendorOf(v: VendorVerdict): string {
                 <tbody>
                   <tr>
                     <td class="text-medium-emphasis">Client</td>
-                    <td><code>{{ record.client?.ip || '—' }}</code></td>
+                    <td>
+                      <code>{{ record.client?.ip || '—' }}</code>
+                    </td>
                   </tr>
                   <tr>
                     <td class="text-medium-emphasis">Country</td>
                     <td>{{ record.client?.country || '—' }}</td>
                   </tr>
                   <tr v-if="record.client?.asn">
-                    <td class="text-medium-emphasis">ASN</td>
-                    <td>{{ record.client.asn }}</td>
+                    <td class="text-medium-emphasis">Network</td>
+                    <!-- The owner is what makes the number mean something: whether this
+                         request came from a residential ISP or a hosting provider is
+                         usually the next question. Absent when the published table does
+                         not list the ASN, leaving the bare number. -->
+                    <td>
+                      AS{{ record.client.asn }}
+                      <span v-if="record.client.asnOwner" class="text-medium-emphasis ml-1">
+                        {{ record.client.asnOwner }}
+                      </span>
+                    </td>
                   </tr>
                   <tr>
                     <td class="text-medium-emphasis">First seen</td>
@@ -279,15 +289,12 @@ function vendorOf(v: VendorVerdict): string {
                expandable to the vendor's own fields and the payload as received
                (FR-024). A bare list of ids answered "which events" but never "what did
                they say", which is the question a disagreement actually raises. -->
-          <CorrelationChain
-            :event-ids="record.eventIds ?? []"
-            :conflicting="disagreeingVendors"
-          />
+          <CorrelationChain :event-ids="record.eventIds ?? []" :conflicting="disagreeingVendors" />
 
           <div class="mt-3 text-caption text-medium-emphasis">
             Correlation id <code>{{ record.correlationId }}</code>
           </div>
-</v-col>
+        </v-col>
       </v-row>
     </template>
 

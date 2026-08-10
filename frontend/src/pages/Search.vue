@@ -259,6 +259,17 @@ function downloadExport(base64: string, contentType: string, filename: string): 
                     <code>{{ detail.summary?.eventId }}</code>
                   </td>
                 </tr>
+                <tr v-if="detail.summary?.client?.asn">
+                  <td class="text-medium-emphasis">Network</td>
+                  <!-- The owner names the number. Absent when the published table does
+                       not list the ASN, which leaves the bare number as before. -->
+                  <td>
+                    AS{{ detail.summary.client.asn }}
+                    <span v-if="detail.summary.client.asnOwner" class="text-medium-emphasis ml-1">
+                      {{ detail.summary.client.asnOwner }}
+                    </span>
+                  </td>
+                </tr>
                 <tr>
                   <td class="text-medium-emphasis">User agent</td>
                   <!-- Rendered as text. This is the field an XSS payload arrives in. -->

@@ -183,7 +183,7 @@ func TestCorrelatedEndpointIsPublished(t *testing.T) {
 // The handler's actual output must carry every field the contract advertises.
 func TestCorrelatedResponseMatchesTheDocumentedSchema(t *testing.T) {
 	spec := loadGeneratedSpec(t)
-	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()})
+	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()}, nil)
 
 	resp, err := svc.GetCorrelatedRequest(context.Background(),
 		&pb.GetCorrelatedRequestRequest{CorrelationId: contractCorrelationID.String()})
@@ -213,7 +213,7 @@ func TestCorrelatedResponseMatchesTheDocumentedSchema(t *testing.T) {
 // them as `number`, and every consumer ends up hard-coding ordinals that a proto
 // reordering would silently invalidate.
 func TestCorrelatedEnumsSerializeAsStrings(t *testing.T) {
-	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()})
+	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()}, nil)
 
 	resp, err := svc.GetCorrelatedRequest(context.Background(),
 		&pb.GetCorrelatedRequestRequest{CorrelationId: contractCorrelationID.String()})
@@ -242,7 +242,7 @@ func TestCorrelatedEnumsSerializeAsStrings(t *testing.T) {
 // The join provenance is the point of the endpoint (FR-015, FR-024): an analyst who
 // cannot see WHY two events were joined cannot act on the record.
 func TestCorrelatedResponseCarriesJoinProvenance(t *testing.T) {
-	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()})
+	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()}, nil)
 
 	resp, err := svc.GetCorrelatedRequest(context.Background(),
 		&pb.GetCorrelatedRequestRequest{CorrelationId: contractCorrelationID.String()})
@@ -274,7 +274,7 @@ func TestCorrelatedResponseCarriesJoinProvenance(t *testing.T) {
 // Per-vendor detail is what makes a disagreement actionable; a flattened summary would
 // tell an analyst that vendors disagreed without saying which said what.
 func TestCorrelatedResponseKeepsPerVendorDetail(t *testing.T) {
-	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()})
+	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()}, nil)
 
 	resp, err := svc.GetCorrelatedRequest(context.Background(),
 		&pb.GetCorrelatedRequestRequest{CorrelationId: contractCorrelationID.String()})
@@ -313,7 +313,7 @@ func TestCorrelatedResponseKeepsPerVendorDetail(t *testing.T) {
 // Ordering must be stable: a response that reshuffles itself between identical calls
 // is unusable for diffing and for caching alike.
 func TestVendorVerdictOrderIsStable(t *testing.T) {
-	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()})
+	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()}, nil)
 
 	var first []pb.Vendor
 	for i := range 20 {
@@ -342,7 +342,7 @@ func TestVendorVerdictOrderIsStable(t *testing.T) {
 }
 
 func TestMalformedCorrelationIDIsRejected(t *testing.T) {
-	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()})
+	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()}, nil)
 
 	_, err := svc.GetCorrelatedRequest(context.Background(),
 		&pb.GetCorrelatedRequestRequest{CorrelationId: "not-a-uuid"})
@@ -355,7 +355,7 @@ func TestMalformedCorrelationIDIsRejected(t *testing.T) {
 }
 
 func TestUnknownCorrelationIDIsNotFound(t *testing.T) {
-	svc := service.NewCorrelationService(stubCorrelated{err: chdata.ErrCorrelatedNotFound})
+	svc := service.NewCorrelationService(stubCorrelated{err: chdata.ErrCorrelatedNotFound}, nil)
 
 	_, err := svc.GetCorrelatedRequest(context.Background(),
 		&pb.GetCorrelatedRequestRequest{CorrelationId: contractCorrelationID.String()})
@@ -370,7 +370,7 @@ func TestUnknownCorrelationIDIsNotFound(t *testing.T) {
 // An unbounded correlated scan reads every partition the tenant has ever written, so
 // it is rejected rather than queued.
 func TestListRequiresATimeRange(t *testing.T) {
-	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()})
+	svc := service.NewCorrelationService(stubCorrelated{record: fullRecord()}, nil)
 
 	_, err := svc.ListCorrelatedRequests(context.Background(),
 		&pb.ListCorrelatedRequestsRequest{})

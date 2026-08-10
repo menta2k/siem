@@ -131,8 +131,10 @@ func newSearchService(t *testing.T, stub *stubSearch) (*service.SearchService, *
 		t.Fatalf("build adapter registry: %v", err)
 	}
 
+	// A nil network namer: this suite pins the response SHAPE, and the owner name is
+	// optional decoration on it. Naming itself is asserted in the service tests.
 	return service.NewSearchService(
-		stub, stubEvents{}, auditLog, query.DefaultLimits(), registry, stubTenants{},
+		stub, stubEvents{}, auditLog, query.DefaultLimits(), registry, stubTenants{}, nil,
 	), auditLog
 }
 

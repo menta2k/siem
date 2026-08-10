@@ -35,15 +35,20 @@ type DashboardsService struct {
 	feeds  *chdata.FeedRepo
 	health FeedHealthReader
 	limits query.Limits
-	now    func() time.Time
+	// networks names the ASNs the source panels rank. Optional: nil where the lookup is
+	// disabled, in which case the panels show bare numbers.
+	networks NetworkNamer
+	now      func() time.Time
 }
 
 // NewDashboardsService constructs the service.
 func NewDashboardsService(
-	panels PanelReader, feeds *chdata.FeedRepo, health FeedHealthReader, limits query.Limits,
+	panels PanelReader, feeds *chdata.FeedRepo, health FeedHealthReader,
+	limits query.Limits, networks NetworkNamer,
 ) *DashboardsService {
 	return &DashboardsService{
-		panels: panels, feeds: feeds, health: health, limits: limits, now: time.Now,
+		panels: panels, feeds: feeds, health: health, limits: limits,
+		networks: networks, now: time.Now,
 	}
 }
 
@@ -167,7 +172,40 @@ func (s *DashboardsService) GetSources(
 			Blocked: a.Blocked, Clients: a.Clients,
 		})
 	}
+
+	// Both tables name their networks from ONE lookup. The two panels rank the same
+	// traffic at different scales, so they overlap heavily — resolving them separately
+	// would ask for most of the same numbers twice.
+	s.nameNetworks(ctx, out)
 	return out, nil
+}
+
+// nameNetworks fills in the owner name on both source panels.
+func (s *DashboardsService) nameNetworks(ctx context.Context, panel *pb.SourcesPanel) {
+	if s.networks == nil {
+		return
+	}
+
+	asns := make([]uint32, 0, len(panel.GetSources())+len(panel.GetAsns()))
+	for _, source := range panel.GetSources() {
+		if source.GetAsn() != 0 {
+			asns = append(asns, source.GetAsn())
+		}
+	}
+	for _, network := range panel.GetAsns() {
+		asns = append(asns, network.GetAsn())
+	}
+	if len(asns) == 0 {
+		return
+	}
+
+	names := s.networks.Names(ctx, asns)
+	for _, source := range panel.GetSources() {
+		source.AsnOwner = names[source.GetAsn()]
+	}
+	for _, network := range panel.GetAsns() {
+		network.Owner = names[network.GetAsn()]
+	}
 }
 
 // GetDisagreements returns the disagreement rate and breakdown.

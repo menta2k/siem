@@ -16,6 +16,7 @@ import (
 	khttp "github.com/go-kratos/kratos/v2/transport/http"
 
 	"github.com/menta2k/siem/internal/alerting"
+	"github.com/menta2k/siem/internal/asnowner"
 	"github.com/menta2k/siem/internal/auth"
 	"github.com/menta2k/siem/internal/conf"
 	"github.com/menta2k/siem/internal/correlate"
@@ -141,6 +142,12 @@ func buildServices(
 	correlated := clickhouse.NewCorrelatedRepo(ch)
 	panels := clickhouse.NewDashboardRepo(ch)
 
+	// Names the client's network on read. The table is filled by the processor's
+	// refresh worker; the API only reads it, so an API that starts before the first
+	// refresh serves bare AS numbers rather than failing.
+	networks := asnowner.NewResolver(
+		clickhouse.NewASNOwnerRepo(ch), asnowner.DefaultCacheTTL)
+
 	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New(), nginx.New())
 	if err != nil {
 		// The registry is built from compile-time constants; a failure here is a
@@ -153,9 +160,10 @@ func buildServices(
 			cfg.Auth.MFAIssuer),
 		Feeds: service.NewFeedsService(feeds, events, health,
 			secrets.NewRedisStore(rdb), auditLog, adapters),
-		Search:      service.NewSearchService(searchRepo, events, auditLog, limits, adapters, tenants),
-		Correlation: service.NewCorrelationService(correlated),
-		Dashboards:  service.NewDashboardsService(panels, feeds, health, limits),
+		Search: service.NewSearchService(
+			searchRepo, events, auditLog, limits, adapters, tenants, networks),
+		Correlation: service.NewCorrelationService(correlated, networks),
+		Dashboards:  service.NewDashboardsService(panels, feeds, health, limits, networks),
 		Admin: service.NewAdminService(users, tenants, auditLog,
 			retentionWorker(deps, ch, locker, tenants, events),
 			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL)),

@@ -24,6 +24,7 @@ type Config struct {
 	Server      Server
 	Limits      Limits
 	Correlation Correlation
+	ASNOwners   ASNOwners
 	Log         Log
 }
 
@@ -99,6 +100,17 @@ type Correlation struct {
 	LatenessBound time.Duration
 }
 
+// ASNOwners holds the AS-number-to-owner lookup table settings.
+//
+// The one place this platform reaches out to the public internet on a schedule, so it
+// is configurable in full and can be switched off outright — an air-gapped deployment
+// gets bare AS numbers rather than a worker that retries a host it can never reach.
+type ASNOwners struct {
+	Enabled   bool
+	SourceURL string
+	Interval  time.Duration
+}
+
 // Log holds observability settings.
 type Log struct {
 	Level  string
@@ -120,6 +132,7 @@ func Load() (*Config, error) {
 	cfg.Redis, cfg.Auth = loadRedis(collect), loadAuth(collect)
 	cfg.Secrets, cfg.Server = loadSecrets(collect), loadServer(collect)
 	cfg.Limits, cfg.Correlation = loadLimits(collect), loadCorrelation(collect)
+	cfg.ASNOwners = loadASNOwners(collect)
 	cfg.Log = Log{
 		Level:  optional("LOG_LEVEL", "info"),
 		Format: optional("LOG_FORMAT", "json"),
@@ -250,6 +263,24 @@ func loadLimits(collect func(error)) Limits {
 		QueryMaxResultRows:   rows,
 		QueryMaxRangeDays:    rangeDays,
 		ExportMaxRows:        exportRows,
+	}
+}
+
+// loadASNOwners reads the AS-owner lookup settings.
+//
+// Enabled by DEFAULT. The data is public domain and the failure mode is a logged
+// warning with the previous table still being served, so the cost of it being on for a
+// deployment that did not want it is one failed request a day — while the cost of it
+// being off by default is that every install shows bare AS numbers until someone finds
+// the flag.
+func loadASNOwners(collect func(error)) ASNOwners {
+	interval, err := durationHours("ASN_OWNERS_REFRESH_HOURS", 24)
+	collect(err)
+
+	return ASNOwners{
+		Enabled:   optional("ASN_OWNERS_ENABLED", "true") != "false",
+		SourceURL: optional("ASN_OWNERS_SOURCE_URL", ""),
+		Interval:  interval,
 	}
 }
 

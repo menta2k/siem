@@ -296,7 +296,14 @@ function asnSearch(asn?: number): { name: string; query: Record<string, string> 
                   <td>
                     <code>{{ source.clientIp }}</code>
                   </td>
-                  <td>{{ source.country || '—' }}</td>
+                  <td>
+                    {{ source.country || '—' }}
+                    <!-- The address's network, so the two source tables agree about what
+                         a client belongs to without the analyst switching between them. -->
+                    <div v-if="source.asnOwner" class="text-caption text-medium-emphasis">
+                      {{ source.asnOwner }}
+                    </div>
+                  </td>
                   <td class="text-right">{{ source.events }}</td>
                   <td class="text-right">{{ blockRate(source.events, source.blocked) }}</td>
                 </tr>
@@ -333,6 +340,19 @@ function asnSearch(asn?: number): { name: string; query: Record<string, string> 
                 <tr v-for="net in sources.asns" :key="net.asn">
                   <td>
                     <router-link :to="asnSearch(net.asn)">AS{{ net.asn }}</router-link>
+                    <!--
+                      The name is what makes the number actionable: it says whether the
+                      traffic came from a residential ISP or a hosting provider, which
+                      decides what an analyst does next. Rendered as TEXT, like every
+                      other externally-sourced string in this console — it arrives from a
+                      third-party file.
+
+                      Absent when the published table does not list the number, and the
+                      row is simply the bare ASN then, exactly as it was before.
+                    -->
+                    <div v-if="net.owner" class="text-caption text-medium-emphasis">
+                      {{ net.owner }}
+                    </div>
                   </td>
                   <td>{{ net.country || '—' }}</td>
                   <td class="text-right">{{ net.clients }}</td>

@@ -663,6 +663,11 @@ export interface components {
             /** Format: uint32 */
             asn?: number;
             /**
+             * @description The network's registered name, e.g. "VIVACOM-AS". Empty when the published table
+             *      does not list the number, in which case the console shows the bare ASN.
+             */
+            owner?: string;
+            /**
              * @description The country most of this network's traffic came from. An ASN can span several, so
              *      this names the majority rather than claiming the network sits in one place.
              */
@@ -714,6 +719,16 @@ export interface components {
             asn?: number;
             country?: string;
             userAgent?: string;
+            /**
+             * @description The network's registered name, e.g. "VIVACOM-AS" for AS8866. Resolved on read from
+             *      the public iptoasn table rather than stored on the event: ownership is a fact about
+             *      the internet that changes independently of the traffic, and copying it onto a
+             *      hundred million rows would freeze whatever it said the day they were written.
+             *
+             *      EMPTY when the number is unknown to the table, which is not an error — the console
+             *      shows the bare ASN, as it did before names existed.
+             */
+            asnOwner?: string;
         };
         /** @description CorrelatedFilters add the join-level facets to the event filters. */
         CorrelatedFilters: {
@@ -1341,6 +1356,11 @@ export interface components {
             country?: string;
             /** Format: uint32 */
             asn?: number;
+            /**
+             * @description The network's registered name. See ClientInfo.asn_owner for why it is resolved on
+             *      read rather than stored.
+             */
+            asnOwner?: string;
             events?: string;
             /**
              * @description A subset of events, never a separate tally: a source showing more blocks than

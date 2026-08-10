@@ -1180,6 +1180,11 @@ components:
                 asn:
                     type: integer
                     format: uint32
+                owner:
+                    type: string
+                    description: |-
+                        The network's registered name, e.g. "VIVACOM-AS". Empty when the published table
+                         does not list the number, in which case the console shows the bare ASN.
                 country:
                     type: string
                     description: |-
@@ -1258,6 +1263,16 @@ components:
                     type: string
                 userAgent:
                     type: string
+                asnOwner:
+                    type: string
+                    description: |-
+                        The network's registered name, e.g. "VIVACOM-AS" for AS8866. Resolved on read from
+                         the public iptoasn table rather than stored on the event: ownership is a fact about
+                         the internet that changes independently of the traffic, and copying it onto a
+                         hundred million rows would freeze whatever it said the day they were written.
+
+                         EMPTY when the number is unknown to the table, which is not an error — the console
+                         shows the bare ASN, as it did before names existed.
             description: ClientInfo describes the requesting client as normalized across vendors.
         CorrelatedFilters:
             type: object
@@ -2252,6 +2267,11 @@ components:
                 asn:
                     type: integer
                     format: uint32
+                asnOwner:
+                    type: string
+                    description: |-
+                        The network's registered name. See ClientInfo.asn_owner for why it is resolved on
+                         read rather than stored.
                 events:
                     type: string
                 blocked:

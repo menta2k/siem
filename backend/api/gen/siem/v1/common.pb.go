@@ -729,10 +729,18 @@ type ClientInfo struct {
 	Ip    string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
 	// True when the address looks like NAT, a proxy chain, or a carrier range. This
 	// downgrades join confidence rather than silently weakening the match.
-	IpShared      bool   `protobuf:"varint,2,opt,name=ip_shared,json=ipShared,proto3" json:"ip_shared,omitempty"`
-	Asn           uint32 `protobuf:"varint,3,opt,name=asn,proto3" json:"asn,omitempty"`
-	Country       string `protobuf:"bytes,4,opt,name=country,proto3" json:"country,omitempty"`
-	UserAgent     string `protobuf:"bytes,5,opt,name=user_agent,json=userAgent,proto3" json:"user_agent,omitempty"`
+	IpShared  bool   `protobuf:"varint,2,opt,name=ip_shared,json=ipShared,proto3" json:"ip_shared,omitempty"`
+	Asn       uint32 `protobuf:"varint,3,opt,name=asn,proto3" json:"asn,omitempty"`
+	Country   string `protobuf:"bytes,4,opt,name=country,proto3" json:"country,omitempty"`
+	UserAgent string `protobuf:"bytes,5,opt,name=user_agent,json=userAgent,proto3" json:"user_agent,omitempty"`
+	// The network's registered name, e.g. "VIVACOM-AS" for AS8866. Resolved on read from
+	// the public iptoasn table rather than stored on the event: ownership is a fact about
+	// the internet that changes independently of the traffic, and copying it onto a
+	// hundred million rows would freeze whatever it said the day they were written.
+	//
+	// EMPTY when the number is unknown to the table, which is not an error — the console
+	// shows the bare ASN, as it did before names existed.
+	AsnOwner      string `protobuf:"bytes,6,opt,name=asn_owner,json=asnOwner,proto3" json:"asn_owner,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -798,6 +806,13 @@ func (x *ClientInfo) GetCountry() string {
 func (x *ClientInfo) GetUserAgent() string {
 	if x != nil {
 		return x.UserAgent
+	}
+	return ""
+}
+
+func (x *ClientInfo) GetAsnOwner() string {
+	if x != nil {
+		return x.AsnOwner
 	}
 	return ""
 }
@@ -915,7 +930,7 @@ const file_siem_v1_common_proto_rawDesc = "" +
 	"\bevent_id\x18\b \x01(\tR\aeventId\x129\n" +
 	"\n" +
 	"event_time\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\teventTimeB\b\n" +
-	"\x06_score\"\x84\x01\n" +
+	"\x06_score\"\xa1\x01\n" +
 	"\n" +
 	"ClientInfo\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x1b\n" +
@@ -923,7 +938,8 @@ const file_siem_v1_common_proto_rawDesc = "" +
 	"\x03asn\x18\x03 \x01(\rR\x03asn\x12\x18\n" +
 	"\acountry\x18\x04 \x01(\tR\acountry\x12\x1d\n" +
 	"\n" +
-	"user_agent\x18\x05 \x01(\tR\tuserAgent\"{\n" +
+	"user_agent\x18\x05 \x01(\tR\tuserAgent\x12\x1b\n" +
+	"\tasn_owner\x18\x06 \x01(\tR\basnOwner\"{\n" +
 	"\vRequestInfo\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x14\n" +

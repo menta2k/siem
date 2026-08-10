@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/menta2k/siem/internal/alerting"
+	"github.com/menta2k/siem/internal/asnowner"
 	"github.com/menta2k/siem/internal/conf"
 	"github.com/menta2k/siem/internal/correlate"
 	"github.com/menta2k/siem/internal/correlate/window"
@@ -199,6 +200,18 @@ func buildWorkers(
 
 		// Flushes accumulated feed-health counters once a minute.
 		healthAggregator,
+	}
+
+	// Keeps the AS-number-to-owner table current, so the console can say "AS8866
+	// VIVACOM-AS" rather than a bare number. Registered on the PROCESSOR because it is
+	// a scheduled background job; the API only reads what it writes.
+	//
+	// Omitted entirely when disabled, rather than started and made to do nothing: a
+	// worker in the list that never works is a worker an operator has to investigate.
+	if cfg.ASNOwners.Enabled {
+		workers = append(workers, asnowner.NewWorker(
+			clickhouse.NewASNOwnerRepo(chClient),
+			cfg.ASNOwners.SourceURL, cfg.ASNOwners.Interval, deps.Log))
 	}
 
 	return append(workers,

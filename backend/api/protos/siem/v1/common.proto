@@ -136,6 +136,14 @@ message ClientInfo {
   uint32 asn = 3;
   string country = 4;
   string user_agent = 5;
+  // The network's registered name, e.g. "VIVACOM-AS" for AS8866. Resolved on read from
+  // the public iptoasn table rather than stored on the event: ownership is a fact about
+  // the internet that changes independently of the traffic, and copying it onto a
+  // hundred million rows would freeze whatever it said the day they were written.
+  //
+  // EMPTY when the number is unknown to the table, which is not an error — the console
+  // shows the bare ASN, as it did before names existed.
+  string asn_owner = 6;
 }
 
 // RequestInfo describes the HTTP request as normalized across vendors.

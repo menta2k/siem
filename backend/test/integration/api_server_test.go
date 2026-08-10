@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/menta2k/siem/internal/alerting"
+	"github.com/menta2k/siem/internal/asnowner"
 	"github.com/menta2k/siem/internal/auth"
 	"github.com/menta2k/siem/internal/conf"
 	"github.com/menta2k/siem/internal/correlate"
@@ -107,6 +108,10 @@ func buildTestServer(
 	feeds := chdata.NewFeedRepo(f.ClickHouse, locker)
 	events := chdata.NewEventRepo(f.ClickHouse)
 	health := chdata.NewHealthRepo(f.ClickHouse)
+	// A real resolver over the real table, so the wiring that names a client's network
+	// is exercised end to end. The table is empty unless a test fills it, which is the
+	// ordinary case: names are decoration and every path degrades to the bare number.
+	networks := asnowner.NewResolver(chdata.NewASNOwnerRepo(f.ClickHouse), time.Minute)
 
 	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New())
 	if err != nil {
@@ -125,8 +130,9 @@ func buildTestServer(
 		Feeds: service.NewFeedsService(feeds, events, health,
 			secrets.NewMemoryStore(), auditLog, adapters),
 		Search: service.NewSearchService(
-			chdata.NewSearchRepo(f.ClickHouse), events, auditLog, limits, adapters, tenants),
-		Correlation: service.NewCorrelationService(chdata.NewCorrelatedRepo(f.ClickHouse)),
+			chdata.NewSearchRepo(f.ClickHouse), events, auditLog, limits, adapters, tenants,
+			networks),
+		Correlation: service.NewCorrelationService(chdata.NewCorrelatedRepo(f.ClickHouse), networks),
 		Admin: service.NewAdminService(users, tenants, auditLog,
 			retention.NewWorker(tenants,
 				retention.Repos{
@@ -141,7 +147,7 @@ func buildTestServer(
 				chdata.NewAlertingRepo(f.ClickHouse, locker))),
 			secrets.NewMemoryStore(), auditLog),
 		Dashboards: service.NewDashboardsService(
-			chdata.NewDashboardRepo(f.ClickHouse), feeds, health, limits),
+			chdata.NewDashboardRepo(f.ClickHouse), feeds, health, limits, networks),
 	}, server.HTTPOptions{
 		Config:      cfg,
 		Health:      server.NewHealth(),
