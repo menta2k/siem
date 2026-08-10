@@ -6,9 +6,12 @@ import { api, toDisplayMessage } from '@/api/client'
 import { RANGE_PRESETS, useSearchStore } from '@/stores/search'
 import { useAuthStore } from '@/stores/auth'
 import type { components } from '@/api/schema'
+import { usePreferencesStore } from '@/stores/preferences'
 import EventTable from '@/components/EventTable.vue'
 import SearchFilters from '@/components/SearchFilters.vue'
 import { formatPayload } from '@/lib/json-format'
+
+const prefs = usePreferencesStore()
 
 type EventSummary = components['schemas']['EventSummary']
 type EventDetail = components['schemas']['EventDetail']
@@ -34,7 +37,7 @@ const exportNotice = ref('')
 const rangeLabel = computed(() => {
   const from = new Date(store.from)
   const to = new Date(store.to)
-  return `${from.toLocaleString()} — ${to.toLocaleString()}`
+  return `${prefs.dateTime(from)} — ${prefs.dateTime(to)}`
 })
 
 function applyPreset(minutes: number): void {

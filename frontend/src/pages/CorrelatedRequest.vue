@@ -3,9 +3,12 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
+import { usePreferencesStore } from '@/stores/preferences'
 import ConfidenceChip from '@/components/ConfidenceChip.vue'
 import VendorVerdictBadge from '@/components/VendorVerdictBadge.vue'
 import CorrelationChain from '@/components/CorrelationChain.vue'
+
+const prefs = usePreferencesStore()
 
 type CorrelatedRequest = components['schemas']['CorrelatedRequest']
 type VendorVerdict = components['schemas']['VendorVerdict']
@@ -91,7 +94,7 @@ const outcomeLabels: Record<string, string> = {
 }
 
 function formatTime(value?: string): string {
-  return value ? new Date(value).toLocaleString() : '—'
+  return prefs.dateTime(value)
 }
 
 /** How long the vendors' observations were spread across. */

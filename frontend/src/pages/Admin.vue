@@ -5,6 +5,9 @@ import { useAuthStore } from '@/stores/auth'
 import type { components } from '@/api/schema'
 import IngestFilterRules from '@/components/IngestFilterRules.vue'
 import { cleanRules, type IngestFilterRule } from '@/lib/ingest-filters'
+import { usePreferencesStore } from '@/stores/preferences'
+
+const prefs = usePreferencesStore()
 
 type UserProfile = components['schemas']['UserProfile']
 type TenantSettings = components['schemas']['TenantSettings']
@@ -42,12 +45,7 @@ const savingSettings = ref(false)
 const ingestFilters = ref<IngestFilterRule[]>([])
 const savingFilters = ref(false)
 
-const redactableFields = [
-  'user_agent',
-  'request_query',
-  'client_ip',
-  'verdict_reason',
-]
+const redactableFields = ['user_agent', 'request_query', 'client_ip', 'verdict_reason']
 
 async function load(): Promise<void> {
   loading.value = true
@@ -285,7 +283,7 @@ const canManage = computed(() => auth.can.manageUsers)
                   </v-chip>
                 </td>
                 <td>
-                  {{ user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never' }}
+                  {{ prefs.dateTime(user.lastLoginAt, 'Never') }}
                 </td>
                 <td class="text-no-wrap">
                   <v-btn
@@ -428,8 +426,8 @@ const canManage = computed(() => auth.can.manageUsers)
             </v-row>
 
             <v-alert type="info" variant="tonal" density="compact" class="mt-3">
-              Widening the window raises the join rate and the false-join rate together.
-              A tenant behind heavy NAT needs different tuning from one that is not.
+              Widening the window raises the join rate and the false-join rate together. A tenant
+              behind heavy NAT needs different tuning from one that is not.
             </v-alert>
 
             <v-btn

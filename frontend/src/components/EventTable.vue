@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { components } from '@/api/schema'
+import { usePreferencesStore } from '@/stores/preferences'
+
+const prefs = usePreferencesStore()
 
 type EventSummary = components['schemas']['EventSummary']
 
@@ -38,7 +41,7 @@ function verdictOf(item: EventSummary) {
 }
 
 function formatTime(value?: string): string {
-  return value ? new Date(value).toLocaleString() : '—'
+  return prefs.dateTime(value)
 }
 
 const countLabel = computed(() => {
@@ -136,9 +139,7 @@ const countLabel = computed(() => {
       the list changed because they scrolled or because the data did.
     -->
     <div v-if="hasMore" class="d-flex justify-center mt-3">
-      <v-btn variant="tonal" :loading="loading" @click="emit('loadMore')">
-        Load more
-      </v-btn>
+      <v-btn variant="tonal" :loading="loading" @click="emit('loadMore')"> Load more </v-btn>
     </div>
   </div>
 </template>

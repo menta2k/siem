@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import TimeFormatMenu from '@/components/TimeFormatMenu.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -80,6 +81,11 @@ async function signOut(): Promise<void> {
   <v-app-bar flat density="comfortable">
     <v-app-bar-nav-icon @click="drawer = !drawer" />
     <v-app-bar-title>{{ $route.meta.title }}</v-app-bar-title>
+
+    <v-spacer />
+
+    <!-- Which clock the page is in, stated where every page can see it. -->
+    <TimeFormatMenu />
   </v-app-bar>
 
   <v-main>

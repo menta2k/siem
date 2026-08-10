@@ -2,6 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import type { components, operations } from '@/api/schema'
+import { usePreferencesStore } from '@/stores/preferences'
+
+const prefs = usePreferencesStore()
 
 type AuditEntry = components['schemas']['AuditEntry']
 
@@ -89,7 +92,7 @@ const chainStatus = computed(() => {
 })
 
 function formatTime(value?: string): string {
-  return value ? new Date(value).toLocaleString() : '—'
+  return prefs.dateTime(value)
 }
 
 /** Truncates a hash for display; the full value stays in the title attribute. */

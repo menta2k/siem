@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { usePreferencesStore } from '@/stores/preferences'
+
+const prefs = usePreferencesStore()
 
 interface Health {
   silent?: boolean
@@ -52,7 +55,7 @@ const tooltip = computed(() => {
     return 'The vendor is sending fields we do not recognise. Ingestion continues; the new fields are preserved.'
   }
   if (!props.health?.lastEventAt) return 'Configured, but no events have arrived yet.'
-  return `Last event ${new Date(props.health.lastEventAt).toLocaleString()}`
+  return `Last event ${prefs.dateTime(props.health.lastEventAt)}`
 })
 </script>
 

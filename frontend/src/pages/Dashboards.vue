@@ -2,7 +2,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
+import { usePreferencesStore } from '@/stores/preferences'
 import FeedHealthChip from '@/components/FeedHealthChip.vue'
+
+const prefs = usePreferencesStore()
 
 type OverviewPanel = components['schemas']['OverviewPanel']
 type RulesPanel = components['schemas']['RulesPanel']
@@ -46,7 +49,7 @@ function currentRange(): { from: string; to: string } {
 
 const rangeLabel = computed(() => {
   const { from, to } = currentRange()
-  return `${new Date(from).toLocaleString()} — ${new Date(to).toLocaleString()}`
+  return `${prefs.dateTime(from)} — ${prefs.dateTime(to)}`
 })
 
 async function load(): Promise<void> {

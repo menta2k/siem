@@ -2,8 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import type { components, operations } from '@/api/schema'
+import { usePreferencesStore } from '@/stores/preferences'
 
 /** The query this endpoint accepts, named so the literal below is checked against it. */
+const prefs = usePreferencesStore()
+
 type AlertsQuery = NonNullable<operations['Alerts_ListAlerts']['parameters']['query']>
 
 type Alert = components['schemas']['Alert']
@@ -99,7 +102,7 @@ const failedDeliveryCount = computed(
 )
 
 function formatTime(value?: string): string {
-  return value ? new Date(value).toLocaleString() : '—'
+  return prefs.dateTime(value)
 }
 
 /** A short description of what tripped, so the row is readable without opening it. */

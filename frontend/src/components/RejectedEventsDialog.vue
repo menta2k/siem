@@ -2,6 +2,9 @@
 import { ref, watch } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import type { operations } from '@/api/schema'
+import { usePreferencesStore } from '@/stores/preferences'
+
+const prefs = usePreferencesStore()
 
 /** The query this endpoint accepts, named so the literal below is checked against it. */
 type RejectedQuery = NonNullable<operations['Feeds_ListRejectedEvents']['parameters']['query']>
@@ -127,7 +130,7 @@ function reasonColor(code: string | undefined): string {
                   {{ event.reasonCode }}
                 </v-chip>
                 <span class="text-body-2 text-medium-emphasis">
-                  {{ event.rejectedAt ? new Date(event.rejectedAt).toLocaleString() : '' }}
+                  {{ prefs.dateTime(event.rejectedAt, '') }}
                 </span>
                 <span class="text-body-2 text-truncate">{{ event.reasonDetail }}</span>
               </div>
