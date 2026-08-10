@@ -12,6 +12,7 @@ const props = defineProps<{
   vendor?: Vendor
   verdict?: Verdict
   ruleId?: string
+  ruleDescription?: string
   score?: number
   /**
    * Set when this vendor's verdict differs from another's on the same request. The
@@ -62,9 +63,7 @@ const state = computed(() => {
   }
 })
 
-const scoreLabel = computed(() =>
-  typeof props.score === 'number' ? props.score.toFixed(2) : null,
-)
+const scoreLabel = computed(() => (typeof props.score === 'number' ? props.score.toFixed(2) : null))
 </script>
 
 <template>
@@ -100,7 +99,17 @@ const scoreLabel = computed(() =>
 
       <div v-if="ruleId || scoreLabel" class="mt-2 text-caption text-medium-emphasis">
         <div v-if="ruleId">
-          Rule <code>{{ ruleId }}</code>
+          <!-- Named where the platform could resolve it, which turns an opaque uuid into
+               something an analyst can act on without opening Cloudflare. -->
+          <template v-if="ruleDescription">
+            Rule {{ ruleDescription }}
+            <code class="d-block">{{ ruleId }}</code>
+          </template>
+          <template v-else
+            >
+Rule <code>{{ ruleId }}</code>
+</template
+          >
         </div>
         <div v-if="scoreLabel">Score {{ scoreLabel }}</div>
       </div>

@@ -115,6 +115,11 @@ message TenantSettings {
   float score_conflict_threshold = 8;
   // Events matching any of these are never ingested at all.
   repeated IngestFilterRule ingest_filters = 9;
+  // Whether a Cloudflare API token is configured, so the console can say whether rule
+  // names will resolve. The TOKEN ITSELF IS NEVER RETURNED -- not masked, not truncated,
+  // not once: it is write-only by design, and a settings endpoint that echoes a
+  // credential turns every screenshot and browser cache into a leak.
+  bool cloudflare_token_configured = 10;
 }
 
 // IngestFilterRule excludes matching events from ingestion entirely.
@@ -144,6 +149,12 @@ message UpdateTenantSettingsRequest {
   // meaning for a list, and "remove this one rule" must not require knowing which
   // position it occupies.
   repeated IngestFilterRule ingest_filters = 6;
+  // The Cloudflare API token used to read WAF rule names, needing Zone WAF Read. Sent
+  // once and stored by reference in the secret store, never in the database.
+  //
+  // Absent leaves the current token alone -- so an operator changing retention does not
+  // have to re-enter it. An EMPTY STRING clears it, which is how a token is revoked.
+  optional string cloudflare_api_token = 7;
 }
 
 message GetCorrelationSettingsRequest {}

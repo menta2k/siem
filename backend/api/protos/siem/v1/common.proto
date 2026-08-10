@@ -119,6 +119,8 @@ message VendorVerdict {
   Verdict verdict = 2;
   string verdict_reason = 3;
   string rule_id = 4;
+  // The rule's name, resolved on read. See EventSummary.rule_description.
+  string rule_description = 10;
   repeated string rule_ids = 5;
   // Absent when the vendor does not score requests.
   optional float score = 6;

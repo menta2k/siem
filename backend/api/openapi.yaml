@@ -1747,6 +1747,18 @@ components:
                     type: string
                 ruleId:
                     type: string
+                ruleDescription:
+                    type: string
+                    description: |-
+                        What the rule is CALLED. Cloudflare's Logpush reports the rule that matched as an
+                         opaque id and nothing else, so this is resolved on read from the tenant's own rule
+                         table -- see the cfrules package. Empty when the id cannot be named: the rule may
+                         have been deleted since the event was logged, the token may not cover its zone, or
+                         no token may be configured at all.
+
+                         NOT STORED on the event. A rule's name is the customer's configuration and changes
+                         independently of the traffic, so copying it onto a hundred million rows would freeze
+                         whatever it said the day they were written.
                 ruleIds:
                     type: array
                     items:
@@ -2251,6 +2263,11 @@ components:
                     type: string
                 events:
                     type: string
+                ruleDescription:
+                    type: string
+                    description: |-
+                        The rule's name, resolved on read. The panel this feeds is a ranking of opaque ids
+                         without it, which is the least useful form of a top-ten list.
         RulesPanel:
             type: object
             properties:
@@ -2416,6 +2433,13 @@ components:
                     items:
                         $ref: '#/components/schemas/IngestFilterRule'
                     description: Events matching any of these are never ingested at all.
+                cloudflareTokenConfigured:
+                    type: boolean
+                    description: |-
+                        Whether a Cloudflare API token is configured, so the console can say whether rule
+                         names will resolve. The TOKEN ITSELF IS NEVER RETURNED -- not masked, not truncated,
+                         not once: it is write-only by design, and a settings endpoint that echoes a
+                         credential turns every screenshot and browser cache into a leak.
         TestFeedRequest:
             type: object
             properties:
@@ -2546,6 +2570,14 @@ components:
                         Replaces the whole rule set rather than merging: a partial update has no obvious
                          meaning for a list, and "remove this one rule" must not require knowing which
                          position it occupies.
+                cloudflareApiToken:
+                    type: string
+                    description: |-
+                        The Cloudflare API token used to read WAF rule names, needing Zone WAF Read. Sent
+                         once and stored by reference in the secret store, never in the database.
+
+                         Absent leaves the current token alone -- so an operator changing retention does not
+                         have to re-enter it. An EMPTY STRING clears it, which is how a token is revoked.
         UpdateUserRequest:
             type: object
             properties:
@@ -2604,6 +2636,9 @@ components:
                     type: string
                 ruleId:
                     type: string
+                ruleDescription:
+                    type: string
+                    description: The rule's name, resolved on read. See EventSummary.rule_description.
                 ruleIds:
                     type: array
                     items:

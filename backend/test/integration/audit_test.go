@@ -15,6 +15,7 @@ import (
 	pb "github.com/menta2k/siem/api/gen/siem/v1"
 	"github.com/menta2k/siem/internal/audit"
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
+	"github.com/menta2k/siem/internal/secrets"
 	"github.com/menta2k/siem/internal/service"
 	"github.com/menta2k/siem/test/support"
 )
@@ -315,7 +316,7 @@ func TestAuditListReportsAnIntactChainAsIntact(t *testing.T) {
 		}
 	}
 
-	admin := service.NewAdminService(f.Users, f.Tenants, f.Audit, nil, nil)
+	admin := service.NewAdminService(f.Users, f.Tenants, f.Audit, nil, nil, secrets.NewMemoryStore())
 	resp, err := admin.ListAuditEntries(ctx, &pb.ListAuditEntriesRequest{
 		Range: &pb.TimeRange{
 			From: timestamppb.New(time.Now().Add(-time.Hour)),

@@ -380,8 +380,13 @@ type TenantSettings struct {
 	ScoreConflictThreshold float32  `protobuf:"fixed32,8,opt,name=score_conflict_threshold,json=scoreConflictThreshold,proto3" json:"score_conflict_threshold,omitempty"`
 	// Events matching any of these are never ingested at all.
 	IngestFilters []*IngestFilterRule `protobuf:"bytes,9,rep,name=ingest_filters,json=ingestFilters,proto3" json:"ingest_filters,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Whether a Cloudflare API token is configured, so the console can say whether rule
+	// names will resolve. The TOKEN ITSELF IS NEVER RETURNED -- not masked, not truncated,
+	// not once: it is write-only by design, and a settings endpoint that echoes a
+	// credential turns every screenshot and browser cache into a leak.
+	CloudflareTokenConfigured bool `protobuf:"varint,10,opt,name=cloudflare_token_configured,json=cloudflareTokenConfigured,proto3" json:"cloudflare_token_configured,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *TenantSettings) Reset() {
@@ -477,6 +482,13 @@ func (x *TenantSettings) GetIngestFilters() []*IngestFilterRule {
 	return nil
 }
 
+func (x *TenantSettings) GetCloudflareTokenConfigured() bool {
+	if x != nil {
+		return x.CloudflareTokenConfigured
+	}
+	return false
+}
+
 // IngestFilterRule excludes matching events from ingestion entirely.
 //
 // A matched event is stored NOWHERE — no raw payload, no normalized row, no rejection —
@@ -559,8 +571,14 @@ type UpdateTenantSettingsRequest struct {
 	// meaning for a list, and "remove this one rule" must not require knowing which
 	// position it occupies.
 	IngestFilters []*IngestFilterRule `protobuf:"bytes,6,rep,name=ingest_filters,json=ingestFilters,proto3" json:"ingest_filters,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// The Cloudflare API token used to read WAF rule names, needing Zone WAF Read. Sent
+	// once and stored by reference in the secret store, never in the database.
+	//
+	// Absent leaves the current token alone -- so an operator changing retention does not
+	// have to re-enter it. An EMPTY STRING clears it, which is how a token is revoked.
+	CloudflareApiToken *string `protobuf:"bytes,7,opt,name=cloudflare_api_token,json=cloudflareApiToken,proto3,oneof" json:"cloudflare_api_token,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UpdateTenantSettingsRequest) Reset() {
@@ -633,6 +651,13 @@ func (x *UpdateTenantSettingsRequest) GetIngestFilters() []*IngestFilterRule {
 		return x.IngestFilters
 	}
 	return nil
+}
+
+func (x *UpdateTenantSettingsRequest) GetCloudflareApiToken() string {
+	if x != nil && x.CloudflareApiToken != nil {
+		return *x.CloudflareApiToken
+	}
+	return ""
 }
 
 type GetCorrelationSettingsRequest struct {
@@ -1203,7 +1228,7 @@ const file_siem_v1_admin_proto_rawDesc = "" +
 	"\x11DeleteUserRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"\x14\n" +
 	"\x12DeleteUserResponse\"\x1a\n" +
-	"\x18GetTenantSettingsRequest\"\x9a\x03\n" +
+	"\x18GetTenantSettingsRequest\"\xda\x03\n" +
 	"\x0eTenantSettings\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
@@ -1213,22 +1238,26 @@ const file_siem_v1_admin_proto_rawDesc = "" +
 	"\x14alert_retention_days\x18\x06 \x01(\rR\x12alertRetentionDays\x12'\n" +
 	"\x0fredacted_fields\x18\a \x03(\tR\x0eredactedFields\x128\n" +
 	"\x18score_conflict_threshold\x18\b \x01(\x02R\x16scoreConflictThreshold\x12@\n" +
-	"\x0eingest_filters\x18\t \x03(\v2\x19.siem.v1.IngestFilterRuleR\ringestFilters\"P\n" +
+	"\x0eingest_filters\x18\t \x03(\v2\x19.siem.v1.IngestFilterRuleR\ringestFilters\x12>\n" +
+	"\x1bcloudflare_token_configured\x18\n" +
+	" \x01(\bR\x19cloudflareTokenConfigured\"P\n" +
 	"\x10IngestFilterRule\x12\x14\n" +
 	"\x05field\x18\x01 \x01(\tR\x05field\x12\x0e\n" +
 	"\x02op\x18\x02 \x01(\tR\x02op\x12\x16\n" +
-	"\x06values\x18\x03 \x03(\tR\x06values\"\xdd\x03\n" +
+	"\x06values\x18\x03 \x03(\tR\x06values\"\xad\x04\n" +
 	"\x1bUpdateTenantSettingsRequest\x121\n" +
 	"\x12raw_retention_days\x18\x01 \x01(\rH\x00R\x10rawRetentionDays\x88\x01\x01\x12?\n" +
 	"\x19correlated_retention_days\x18\x02 \x01(\rH\x01R\x17correlatedRetentionDays\x88\x01\x01\x125\n" +
 	"\x14alert_retention_days\x18\x03 \x01(\rH\x02R\x12alertRetentionDays\x88\x01\x01\x12'\n" +
 	"\x0fredacted_fields\x18\x04 \x03(\tR\x0eredactedFields\x12=\n" +
 	"\x18score_conflict_threshold\x18\x05 \x01(\x02H\x03R\x16scoreConflictThreshold\x88\x01\x01\x12@\n" +
-	"\x0eingest_filters\x18\x06 \x03(\v2\x19.siem.v1.IngestFilterRuleR\ringestFiltersB\x15\n" +
+	"\x0eingest_filters\x18\x06 \x03(\v2\x19.siem.v1.IngestFilterRuleR\ringestFilters\x125\n" +
+	"\x14cloudflare_api_token\x18\a \x01(\tH\x04R\x12cloudflareApiToken\x88\x01\x01B\x15\n" +
 	"\x13_raw_retention_daysB\x1c\n" +
 	"\x1a_correlated_retention_daysB\x17\n" +
 	"\x15_alert_retention_daysB\x1b\n" +
-	"\x19_score_conflict_threshold\"\x1f\n" +
+	"\x19_score_conflict_thresholdB\x17\n" +
+	"\x15_cloudflare_api_token\"\x1f\n" +
 	"\x1dGetCorrelationSettingsRequest\"\xb1\x01\n" +
 	"\x13CorrelationSettings\x122\n" +
 	"\x15correlation_window_ms\x18\x01 \x01(\rR\x13correlationWindowMs\x12*\n" +

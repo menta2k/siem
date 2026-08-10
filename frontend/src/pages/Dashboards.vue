@@ -291,7 +291,13 @@ function asnSearch(asn?: number): { name: string; query: Record<string, string> 
               <tbody>
                 <tr v-for="rule in rules.rules" :key="`${rule.vendor}-${rule.ruleId}`">
                   <td>{{ vendorLabels[rule.vendor ?? ''] ?? 'Unknown' }}</td>
-                  <td>{{ rule.ruleId }}</td>
+                  <td>
+                    <template v-if="rule.ruleDescription">
+                      <div>{{ rule.ruleDescription }}</div>
+                      <code class="text-caption text-medium-emphasis">{{ rule.ruleId }}</code>
+                    </template>
+                    <template v-else>{{ rule.ruleId }}</template>
+                  </td>
                   <td class="text-right">{{ rule.events }}</td>
                 </tr>
               </tbody>

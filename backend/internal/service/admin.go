@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,7 @@ import (
 	"github.com/menta2k/siem/internal/ingest/filter"
 	mw "github.com/menta2k/siem/internal/middleware"
 	"github.com/menta2k/siem/internal/retention"
+	"github.com/menta2k/siem/internal/secrets"
 )
 
 // Purger performs the audited explicit deletion.
@@ -42,16 +44,18 @@ type AdminService struct {
 	auditLog    *chdata.AuditRepo
 	purger      Purger
 	invalidator SettingsInvalidator
-	now         func() time.Time
+	// secrets holds the Cloudflare API token, so the database stores only a reference.
+	secrets secrets.Store
+	now     func() time.Time
 }
 
 // NewAdminService constructs the service.
 func NewAdminService(
 	users *chdata.UserRepo, tenants *chdata.TenantRepo, auditLog *chdata.AuditRepo,
-	purger Purger, invalidator SettingsInvalidator,
+	purger Purger, invalidator SettingsInvalidator, secretStore secrets.Store,
 ) *AdminService {
 	return &AdminService{
-		users: users, tenants: tenants, auditLog: auditLog,
+		users: users, tenants: tenants, auditLog: auditLog, secrets: secretStore,
 		purger: purger, invalidator: invalidator, now: time.Now,
 	}
 }
@@ -279,27 +283,16 @@ func (s *AdminService) UpdateTenantSettings(
 		return nil, err
 	}
 
-	updated, err := s.tenants.Update(ctx, func(current chdata.Tenant) chdata.Tenant {
-		if req.RawRetentionDays != nil {
-			current.RawRetentionDays = clampRetention(req.GetRawRetentionDays())
-		}
-		if req.CorrelatedRetentionDays != nil {
-			current.CorrelatedRetentionDays = clampRetention(req.GetCorrelatedRetentionDays())
-		}
-		if req.AlertRetentionDays != nil {
-			current.AlertRetentionDays = clampRetention(req.GetAlertRetentionDays())
-		}
-		if req.RedactedFields != nil {
-			current.RedactedFields = req.GetRedactedFields()
-		}
-		if req.ScoreConflictThreshold != nil {
-			current.ScoreConflictThreshold = req.GetScoreConflictThreshold()
-		}
-		if req.IngestFilters != nil {
-			current.IngestFilters = encodedFilters
-		}
-		return current
-	})
+	// Stored BEFORE the tenant update, so the reference written below always points at a
+	// secret that exists. Doing it the other way round would leave a tenant referring to
+	// a token that was never stored if the second step failed.
+	tokenRef, changeToken, err := s.storeCloudflareToken(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	updated, err := s.tenants.Update(ctx, applyTenantSettings(
+		req, encodedFilters, tokenRef, changeToken))
 	if err != nil {
 		return nil, mw.Internal().WithCause(err)
 	}
@@ -536,7 +529,78 @@ func toTenantSettings(t chdata.Tenant) *pb.TenantSettings {
 		RedactedFields:          t.RedactedFields,
 		ScoreConflictThreshold:  t.ScoreConflictThreshold,
 		IngestFilters:           toIngestFilterRules(t.IngestFilters),
+		// Whether one is set, never what it is.
+		CloudflareTokenConfigured: t.CloudflareTokenRef != "",
 	}
+}
+
+// applyTenantSettings builds the mutation the update applies.
+//
+// Every field is optional and absent means UNCHANGED, so an operator editing retention
+// cannot blank a redaction policy or a credential they never mentioned.
+func applyTenantSettings(
+	req *pb.UpdateTenantSettingsRequest, encodedFilters, tokenRef string, changeToken bool,
+) func(chdata.Tenant) chdata.Tenant {
+	return func(current chdata.Tenant) chdata.Tenant {
+		if req.RawRetentionDays != nil {
+			current.RawRetentionDays = clampRetention(req.GetRawRetentionDays())
+		}
+		if req.CorrelatedRetentionDays != nil {
+			current.CorrelatedRetentionDays = clampRetention(req.GetCorrelatedRetentionDays())
+		}
+		if req.AlertRetentionDays != nil {
+			current.AlertRetentionDays = clampRetention(req.GetAlertRetentionDays())
+		}
+		if req.RedactedFields != nil {
+			current.RedactedFields = req.GetRedactedFields()
+		}
+		if req.ScoreConflictThreshold != nil {
+			current.ScoreConflictThreshold = req.GetScoreConflictThreshold()
+		}
+		if req.IngestFilters != nil {
+			current.IngestFilters = encodedFilters
+		}
+		if changeToken {
+			current.CloudflareTokenRef = tokenRef
+		}
+		return current
+	}
+}
+
+// storeCloudflareToken puts a supplied token in the secret store and returns its
+// reference, reporting whether the tenant's reference should change at all.
+//
+// Three cases, and the distinction between the last two matters:
+//
+//	absent  — leave the existing token alone, so an operator changing retention does not
+//	          have to re-enter a credential they are not touching
+//	empty   — clear it, which is how a token is revoked
+//	present — store it and point the tenant at the new reference
+//
+// The OLD reference is deliberately not deleted. The secret store is shared and a
+// reference may be in flight in a worker that read the tenant a moment ago; leaving it
+// to expire on its own TTL is safer than pulling it out from under a running refresh.
+func (s *AdminService) storeCloudflareToken(
+	ctx context.Context, req *pb.UpdateTenantSettingsRequest,
+) (ref string, change bool, err error) {
+	if req.CloudflareApiToken == nil {
+		return "", false, nil
+	}
+
+	token := strings.TrimSpace(req.GetCloudflareApiToken())
+	if token == "" {
+		return "", true, nil
+	}
+	if s.secrets == nil {
+		return "", false, mw.Internal().WithCause(
+			errors.New("no secret store configured for the cloudflare token"))
+	}
+
+	ref, err = s.secrets.Put(ctx, "cloudflare-api-token", token)
+	if err != nil {
+		return "", false, mw.Internal().WithCause(err)
+	}
+	return ref, true, nil
 }
 
 // encodeIngestFilters validates a rule set and renders it for storage.

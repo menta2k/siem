@@ -1020,6 +1020,18 @@ export interface components {
             verdict?: "VERDICT_UNSPECIFIED" | "VERDICT_ALLOWED" | "VERDICT_BLOCKED" | "VERDICT_CHALLENGED" | "VERDICT_RATE_LIMITED" | "VERDICT_MONITORED" | "VERDICT_UNKNOWN";
             verdictReason?: string;
             ruleId?: string;
+            /**
+             * @description What the rule is CALLED. Cloudflare's Logpush reports the rule that matched as an
+             *      opaque id and nothing else, so this is resolved on read from the tenant's own rule
+             *      table -- see the cfrules package. Empty when the id cannot be named: the rule may
+             *      have been deleted since the event was logged, the token may not cover its zone, or
+             *      no token may be configured at all.
+             *
+             *      NOT STORED on the event. A rule's name is the customer's configuration and changes
+             *      independently of the traffic, so copying it onto a hundred million rows would freeze
+             *      whatever it said the day they were written.
+             */
+            ruleDescription?: string;
             ruleIds?: string[];
             /** Format: float */
             score?: number;
@@ -1345,6 +1357,11 @@ export interface components {
             vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             ruleId?: string;
             events?: string;
+            /**
+             * @description The rule's name, resolved on read. The panel this feeds is a ranking of opaque ids
+             *      without it, which is the least useful form of a top-ten list.
+             */
+            ruleDescription?: string;
         };
         RulesPanel: {
             rules?: components["schemas"]["RuleCount"][];
@@ -1450,6 +1467,13 @@ export interface components {
             scoreConflictThreshold?: number;
             /** @description Events matching any of these are never ingested at all. */
             ingestFilters?: components["schemas"]["IngestFilterRule"][];
+            /**
+             * @description Whether a Cloudflare API token is configured, so the console can say whether rule
+             *      names will resolve. The TOKEN ITSELF IS NEVER RETURNED -- not masked, not truncated,
+             *      not once: it is write-only by design, and a settings endpoint that echoes a
+             *      credential turns every screenshot and browser cache into a leak.
+             */
+            cloudflareTokenConfigured?: boolean;
         };
         TestFeedRequest: {
             feedId?: string;
@@ -1525,6 +1549,14 @@ export interface components {
              *      position it occupies.
              */
             ingestFilters?: components["schemas"]["IngestFilterRule"][];
+            /**
+             * @description The Cloudflare API token used to read WAF rule names, needing Zone WAF Read. Sent
+             *      once and stored by reference in the secret store, never in the database.
+             *
+             *      Absent leaves the current token alone -- so an operator changing retention does not
+             *      have to re-enter it. An EMPTY STRING clears it, which is how a token is revoked.
+             */
+            cloudflareApiToken?: string;
         };
         UpdateUserRequest: {
             userId?: string;
@@ -1558,6 +1590,8 @@ export interface components {
             verdict?: "VERDICT_UNSPECIFIED" | "VERDICT_ALLOWED" | "VERDICT_BLOCKED" | "VERDICT_CHALLENGED" | "VERDICT_RATE_LIMITED" | "VERDICT_MONITORED" | "VERDICT_UNKNOWN";
             verdictReason?: string;
             ruleId?: string;
+            /** @description The rule's name, resolved on read. See EventSummary.rule_description. */
+            ruleDescription?: string;
             ruleIds?: string[];
             /**
              * Format: float

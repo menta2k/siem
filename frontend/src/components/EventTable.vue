@@ -106,7 +106,17 @@ const countLabel = computed(() => {
           <td class="request-cell">
             <code>{{ item.request?.method }} {{ item.request?.host }}{{ item.request?.path }}</code>
           </td>
-          <td>{{ item.ruleId || '—' }}</td>
+          <!-- The rule's NAME where there is one, with the id under it: an analyst
+               scanning a list needs "SQLi - Body detection", and the id only when they
+               go looking for the rule itself. Both are vendor-supplied text and both are
+               interpolated. -->
+          <td>
+            <template v-if="item.ruleDescription">
+              <div>{{ item.ruleDescription }}</div>
+              <code class="text-caption text-medium-emphasis">{{ item.ruleId }}</code>
+            </template>
+            <template v-else>{{ item.ruleId || '—' }}</template>
+          </td>
           <td>{{ typeof item.score === 'number' ? item.score.toFixed(2) : '—' }}</td>
           <!-- Drill-through to the whole request. An event does not carry a correlation
                id — the record stores event ids, not the reverse — so this links by the

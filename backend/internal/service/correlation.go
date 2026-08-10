@@ -40,13 +40,15 @@ type CorrelationService struct {
 	// networks names the client's ASN on read. Optional: nil where the lookup is
 	// disabled, in which case records carry the bare number.
 	networks NetworkNamer
+	// rules names the WAF rule each vendor reported. Optional in the same way.
+	rules RuleNamer
 }
 
 // NewCorrelationService constructs the service.
 func NewCorrelationService(
-	correlated CorrelatedReader, networks NetworkNamer,
+	correlated CorrelatedReader, networks NetworkNamer, rules RuleNamer,
 ) *CorrelationService {
-	return &CorrelationService{correlated: correlated, networks: networks}
+	return &CorrelationService{correlated: correlated, networks: networks, rules: rules}
 }
 
 // GetCorrelatedRequest returns one correlated record with its full join provenance.
@@ -67,6 +69,7 @@ func (s *CorrelationService) GetCorrelatedRequest(
 	}
 	out := toCorrelatedProto(record)
 	nameClients(ctx, s.networks, out.GetClient())
+	describeVerdicts(ctx, s.rules, []*pb.CorrelatedRequest{out})
 	return out, nil
 }
 
@@ -108,6 +111,7 @@ func (s *CorrelationService) ListCorrelatedRequests(
 	}
 	// One lookup for the whole page, as in SearchEvents.
 	nameClients(ctx, s.networks, correlatedClientsOf(out.GetRequests())...)
+	describeVerdicts(ctx, s.rules, out.GetRequests())
 	return out, nil
 }
 

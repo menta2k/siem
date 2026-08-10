@@ -101,6 +101,16 @@ message EventSummary {
   Verdict verdict = 8;
   string verdict_reason = 9;
   string rule_id = 10;
+  // What the rule is CALLED. Cloudflare's Logpush reports the rule that matched as an
+  // opaque id and nothing else, so this is resolved on read from the tenant's own rule
+  // table -- see the cfrules package. Empty when the id cannot be named: the rule may
+  // have been deleted since the event was logged, the token may not cover its zone, or
+  // no token may be configured at all.
+  //
+  // NOT STORED on the event. A rule's name is the customer's configuration and changes
+  // independently of the traffic, so copying it onto a hundred million rows would freeze
+  // whatever it said the day they were written.
+  string rule_description = 16;
   repeated string rule_ids = 11;
   optional float score = 12;
   string score_kind = 13;

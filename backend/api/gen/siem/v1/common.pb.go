@@ -620,7 +620,9 @@ type VendorVerdict struct {
 	Verdict       Verdict                `protobuf:"varint,2,opt,name=verdict,proto3,enum=siem.v1.Verdict" json:"verdict,omitempty"`
 	VerdictReason string                 `protobuf:"bytes,3,opt,name=verdict_reason,json=verdictReason,proto3" json:"verdict_reason,omitempty"`
 	RuleId        string                 `protobuf:"bytes,4,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
-	RuleIds       []string               `protobuf:"bytes,5,rep,name=rule_ids,json=ruleIds,proto3" json:"rule_ids,omitempty"`
+	// The rule's name, resolved on read. See EventSummary.rule_description.
+	RuleDescription string   `protobuf:"bytes,10,opt,name=rule_description,json=ruleDescription,proto3" json:"rule_description,omitempty"`
+	RuleIds         []string `protobuf:"bytes,5,rep,name=rule_ids,json=ruleIds,proto3" json:"rule_ids,omitempty"`
 	// Absent when the vendor does not score requests.
 	Score         *float32               `protobuf:"fixed32,6,opt,name=score,proto3,oneof" json:"score,omitempty"`
 	ScoreKind     string                 `protobuf:"bytes,7,opt,name=score_kind,json=scoreKind,proto3" json:"score_kind,omitempty"`
@@ -684,6 +686,13 @@ func (x *VendorVerdict) GetVerdictReason() string {
 func (x *VendorVerdict) GetRuleId() string {
 	if x != nil {
 		return x.RuleId
+	}
+	return ""
+}
+
+func (x *VendorVerdict) GetRuleDescription() string {
+	if x != nil {
+		return x.RuleDescription
 	}
 	return ""
 }
@@ -917,12 +926,14 @@ const file_siem_v1_common_proto_rawDesc = "" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12.\n" +
 	"\adetails\x18\x03 \x03(\v2\x14.siem.v1.ErrorDetailR\adetails\x12\x19\n" +
-	"\btrace_id\x18\x04 \x01(\tR\atraceId\"\xd9\x02\n" +
+	"\btrace_id\x18\x04 \x01(\tR\atraceId\"\x84\x03\n" +
 	"\rVendorVerdict\x12'\n" +
 	"\x06vendor\x18\x01 \x01(\x0e2\x0f.siem.v1.VendorR\x06vendor\x12*\n" +
 	"\averdict\x18\x02 \x01(\x0e2\x10.siem.v1.VerdictR\averdict\x12%\n" +
 	"\x0everdict_reason\x18\x03 \x01(\tR\rverdictReason\x12\x17\n" +
-	"\arule_id\x18\x04 \x01(\tR\x06ruleId\x12\x19\n" +
+	"\arule_id\x18\x04 \x01(\tR\x06ruleId\x12)\n" +
+	"\x10rule_description\x18\n" +
+	" \x01(\tR\x0fruleDescription\x12\x19\n" +
 	"\brule_ids\x18\x05 \x03(\tR\aruleIds\x12\x19\n" +
 	"\x05score\x18\x06 \x01(\x02H\x00R\x05score\x88\x01\x01\x12\x1d\n" +
 	"\n" +

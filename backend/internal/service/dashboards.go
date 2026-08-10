@@ -42,6 +42,8 @@ type DashboardsService struct {
 	health  FeedHealthReader
 	limits  query.Limits
 	storage StorageReader
+	// rules names the WAF rule the top-rules panel ranks.
+	rules RuleNamer
 	// networks names the ASNs the source panels rank. Optional: nil where the lookup is
 	// disabled, in which case the panels show bare numbers.
 	networks NetworkNamer
@@ -51,11 +53,11 @@ type DashboardsService struct {
 // NewDashboardsService constructs the service.
 func NewDashboardsService(
 	panels PanelReader, feeds *chdata.FeedRepo, health FeedHealthReader,
-	limits query.Limits, networks NetworkNamer, storage StorageReader,
+	limits query.Limits, networks NetworkNamer, storage StorageReader, rules RuleNamer,
 ) *DashboardsService {
 	return &DashboardsService{
 		panels: panels, feeds: feeds, health: health, limits: limits,
-		networks: networks, storage: storage, now: time.Now,
+		networks: networks, storage: storage, rules: rules, now: time.Now,
 	}
 }
 
@@ -171,6 +173,8 @@ func (s *DashboardsService) GetRules(
 			Vendor: vendorToProto(r.Vendor), RuleId: r.RuleID, Events: r.Events,
 		})
 	}
+	// A ranking of opaque ids is the least useful form of a top-ten list.
+	describeRuleCounts(ctx, s.rules, out.Rules)
 	return out, nil
 }
 

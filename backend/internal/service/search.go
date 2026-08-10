@@ -63,7 +63,10 @@ type SearchService struct {
 	// networks names the client's ASN on read. Optional: nil where the lookup is
 	// disabled, in which case results carry the bare number.
 	networks NetworkNamer
-	now      func() time.Time
+	// rules names the WAF rule that matched. Optional in the same way, and empty until a
+	// tenant configures a Cloudflare token.
+	rules RuleNamer
+	now   func() time.Time
 }
 
 // NewSearchService constructs the service.
@@ -73,12 +76,12 @@ type SearchService struct {
 func NewSearchService(
 	search EventSearcher, events EventDetailReader, auditLog AuditWriter,
 	limits query.Limits, adapters *vendors.Registry, tenants TenantPolicyReader,
-	networks NetworkNamer,
+	networks NetworkNamer, rules RuleNamer,
 ) *SearchService {
 	return &SearchService{
 		search: search, events: events, auditLog: auditLog,
 		limits: limits, adapters: adapters, tenants: tenants,
-		networks: networks, now: time.Now,
+		networks: networks, rules: rules, now: time.Now,
 	}
 }
 
@@ -135,6 +138,7 @@ func (s *SearchService) SearchEvents(
 	// One lookup for the whole page: the same network carries most of the rows of a
 	// typical search, so resolving per row would multiply one query by the page size.
 	nameClients(ctx, s.networks, clientsOf(out.Items)...)
+	describeEvents(ctx, s.rules, out.Items)
 	return out, nil
 }
 
@@ -190,6 +194,7 @@ func (s *SearchService) SearchCorrelated(
 
 	out := correlatedResponse(page)
 	nameClients(ctx, s.networks, correlatedClientsOf(out.GetItems())...)
+	describeVerdicts(ctx, s.rules, out.GetItems())
 	return out, nil
 }
 
@@ -228,6 +233,7 @@ func (s *SearchService) GetEvent(
 
 	detail := &pb.EventDetail{Summary: toEventSummary(toSearchResult(event))}
 	nameClients(ctx, s.networks, detail.GetSummary().GetClient())
+	describeEvents(ctx, s.rules, []*pb.EventSummary{detail.GetSummary()})
 
 	// A missing raw payload is not an error worth failing the whole read for: retention
 	// may have expired it while the normalized row survives under a longer TTL, and the

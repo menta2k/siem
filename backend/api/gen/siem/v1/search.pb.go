@@ -333,9 +333,19 @@ type EventSummary struct {
 	Verdict         Verdict                `protobuf:"varint,8,opt,name=verdict,proto3,enum=siem.v1.Verdict" json:"verdict,omitempty"`
 	VerdictReason   string                 `protobuf:"bytes,9,opt,name=verdict_reason,json=verdictReason,proto3" json:"verdict_reason,omitempty"`
 	RuleId          string                 `protobuf:"bytes,10,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
-	RuleIds         []string               `protobuf:"bytes,11,rep,name=rule_ids,json=ruleIds,proto3" json:"rule_ids,omitempty"`
-	Score           *float32               `protobuf:"fixed32,12,opt,name=score,proto3,oneof" json:"score,omitempty"`
-	ScoreKind       string                 `protobuf:"bytes,13,opt,name=score_kind,json=scoreKind,proto3" json:"score_kind,omitempty"`
+	// What the rule is CALLED. Cloudflare's Logpush reports the rule that matched as an
+	// opaque id and nothing else, so this is resolved on read from the tenant's own rule
+	// table -- see the cfrules package. Empty when the id cannot be named: the rule may
+	// have been deleted since the event was logged, the token may not cover its zone, or
+	// no token may be configured at all.
+	//
+	// NOT STORED on the event. A rule's name is the customer's configuration and changes
+	// independently of the traffic, so copying it onto a hundred million rows would freeze
+	// whatever it said the day they were written.
+	RuleDescription string   `protobuf:"bytes,16,opt,name=rule_description,json=ruleDescription,proto3" json:"rule_description,omitempty"`
+	RuleIds         []string `protobuf:"bytes,11,rep,name=rule_ids,json=ruleIds,proto3" json:"rule_ids,omitempty"`
+	Score           *float32 `protobuf:"fixed32,12,opt,name=score,proto3,oneof" json:"score,omitempty"`
+	ScoreKind       string   `protobuf:"bytes,13,opt,name=score_kind,json=scoreKind,proto3" json:"score_kind,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -443,6 +453,13 @@ func (x *EventSummary) GetVerdictReason() string {
 func (x *EventSummary) GetRuleId() string {
 	if x != nil {
 		return x.RuleId
+	}
+	return ""
+}
+
+func (x *EventSummary) GetRuleDescription() string {
+	if x != nil {
+		return x.RuleDescription
 	}
 	return ""
 }
@@ -1097,7 +1114,7 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12/\n" +
 	"\afilters\x18\x02 \x01(\v2\x15.siem.v1.EventFiltersR\afilters\x12(\n" +
-	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\xa8\x04\n" +
+	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\xd3\x04\n" +
 	"\fEventSummary\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x129\n" +
 	"\n" +
@@ -1111,7 +1128,8 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\averdict\x18\b \x01(\x0e2\x10.siem.v1.VerdictR\averdict\x12%\n" +
 	"\x0everdict_reason\x18\t \x01(\tR\rverdictReason\x12\x17\n" +
 	"\arule_id\x18\n" +
-	" \x01(\tR\x06ruleId\x12\x19\n" +
+	" \x01(\tR\x06ruleId\x12)\n" +
+	"\x10rule_description\x18\x10 \x01(\tR\x0fruleDescription\x12\x19\n" +
 	"\brule_ids\x18\v \x03(\tR\aruleIds\x12\x19\n" +
 	"\x05score\x18\f \x01(\x02H\x00R\x05score\x88\x01\x01\x12\x1d\n" +
 	"\n" +

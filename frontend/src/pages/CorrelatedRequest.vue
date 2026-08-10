@@ -181,6 +181,7 @@ function vendorOf(v: VendorVerdict): string {
                   :vendor="v.vendor"
                   :verdict="v.verdict"
                   :rule-id="v.ruleId"
+                  :rule-description="v.ruleDescription"
                   :score="v.score"
                   :disagreeing="disagreeingVendors.has(vendorOf(v))"
                 />

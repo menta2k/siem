@@ -16,6 +16,7 @@ import (
 
 	"github.com/menta2k/siem/internal/alerting"
 	"github.com/menta2k/siem/internal/asnowner"
+	"github.com/menta2k/siem/internal/cfrules"
 	"github.com/menta2k/siem/internal/conf"
 	"github.com/menta2k/siem/internal/correlate"
 	"github.com/menta2k/siem/internal/correlate/window"
@@ -208,14 +209,41 @@ func buildWorkers(
 	//
 	// Omitted entirely when disabled, rather than started and made to do nothing: a
 	// worker in the list that never works is a worker an operator has to investigate.
+
+	workers = append(workers, buildLookupWorkers(cfg, deps, chClient, redisClient, tenants)...)
+
+	return append(workers,
+		buildCorrelationWorkers(cfg, deps, chClient, redisClient, tenants)...), nil
+}
+
+// buildLookupWorkers builds the workers that keep the console's REFERENCE tables
+// current — the names put in front of an analyst next to an identifier.
+//
+// Neither is on the request path and neither holds anything: a failure costs a label and
+// the last good copy keeps being served.
+func buildLookupWorkers(
+	cfg *conf.Config, deps *server.Deps, chClient *clickhouse.Client,
+	redisClient *redis.Client, tenants *clickhouse.TenantRepo,
+) []Worker {
+	var workers []Worker
+
+	// Public data, one copy for the platform, so it is switchable off for an air-gapped
+	// deployment that cannot reach iptoasn.com at all.
 	if cfg.ASNOwners.Enabled {
 		workers = append(workers, asnowner.NewWorker(
 			clickhouse.NewASNOwnerRepo(chClient),
 			cfg.ASNOwners.SourceURL, cfg.ASNOwners.Interval, deps.Log))
 	}
 
-	return append(workers,
-		buildCorrelationWorkers(cfg, deps, chClient, redisClient, tenants)...), nil
+	// Per-tenant data, read with each tenant's own Cloudflare token. Registered
+	// unconditionally because it does nothing at all for a tenant that has configured no
+	// token — which is every tenant until someone adds one.
+	workers = append(workers, cfrules.NewWorker(
+		tenants, clickhouse.NewCloudflareRuleRepo(chClient),
+		secrets.NewRedisStore(redisClient),
+		cfg.CloudflareRules.APIBase, cfg.CloudflareRules.Interval, deps.Log))
+
+	return workers
 }
 
 // buildCorrelationWorkers builds the two halves of correlation.

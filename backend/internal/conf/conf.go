@@ -16,16 +16,17 @@ import (
 // Config is the complete configuration for any of the three services. Each binary
 // validates only the sections it uses, via the Require* methods.
 type Config struct {
-	ClickHouse  ClickHouse
-	Redpanda    Redpanda
-	Redis       Redis
-	Auth        Auth
-	Secrets     Secrets
-	Server      Server
-	Limits      Limits
-	Correlation Correlation
-	ASNOwners   ASNOwners
-	Log         Log
+	ClickHouse      ClickHouse
+	Redpanda        Redpanda
+	Redis           Redis
+	Auth            Auth
+	Secrets         Secrets
+	Server          Server
+	Limits          Limits
+	Correlation     Correlation
+	ASNOwners       ASNOwners
+	CloudflareRules CloudflareRules
+	Log             Log
 }
 
 // ClickHouse holds the analytical store connection settings.
@@ -111,6 +112,16 @@ type ASNOwners struct {
 	Interval  time.Duration
 }
 
+// CloudflareRules holds the WAF rule-name lookup settings.
+//
+// No enable flag, unlike ASNOwners: the refresh does nothing for a tenant that has not
+// configured a token, so "off" is the default state without a switch to set.
+type CloudflareRules struct {
+	// APIBase overrides Cloudflare's API, for a test or an enterprise gateway.
+	APIBase  string
+	Interval time.Duration
+}
+
 // Log holds observability settings.
 type Log struct {
 	Level  string
@@ -133,6 +144,7 @@ func Load() (*Config, error) {
 	cfg.Secrets, cfg.Server = loadSecrets(collect), loadServer(collect)
 	cfg.Limits, cfg.Correlation = loadLimits(collect), loadCorrelation(collect)
 	cfg.ASNOwners = loadASNOwners(collect)
+	cfg.CloudflareRules = loadCloudflareRules(collect)
 	cfg.Log = Log{
 		Level:  optional("LOG_LEVEL", "info"),
 		Format: optional("LOG_FORMAT", "json"),
@@ -281,6 +293,17 @@ func loadASNOwners(collect func(error)) ASNOwners {
 		Enabled:   optional("ASN_OWNERS_ENABLED", "true") != "false",
 		SourceURL: optional("ASN_OWNERS_SOURCE_URL", ""),
 		Interval:  interval,
+	}
+}
+
+// loadCloudflareRules reads the rule-name refresh settings.
+func loadCloudflareRules(collect func(error)) CloudflareRules {
+	interval, err := durationMinutes("CLOUDFLARE_RULES_REFRESH_MINUTES", 60)
+	collect(err)
+
+	return CloudflareRules{
+		APIBase:  optional("CLOUDFLARE_API_BASE", ""),
+		Interval: interval,
 	}
 }
 

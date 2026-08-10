@@ -18,6 +18,7 @@ import (
 	"github.com/menta2k/siem/internal/alerting"
 	"github.com/menta2k/siem/internal/asnowner"
 	"github.com/menta2k/siem/internal/auth"
+	"github.com/menta2k/siem/internal/cfrules"
 	"github.com/menta2k/siem/internal/conf"
 	"github.com/menta2k/siem/internal/correlate"
 	"github.com/menta2k/siem/internal/data/clickhouse"
@@ -148,6 +149,12 @@ func buildServices(
 	networks := asnowner.NewResolver(
 		clickhouse.NewASNOwnerRepo(ch), asnowner.DefaultCacheTTL)
 
+	// Names the WAF rule that matched. The table is filled by the processor's refresh
+	// worker from the tenant's own Cloudflare token, so an API running before the first
+	// refresh — or for a tenant with no token — serves bare rule ids.
+	ruleNames := cfrules.NewResolver(
+		clickhouse.NewCloudflareRuleRepo(ch), cfrules.DefaultCacheTTL)
+
 	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New(), nginx.New())
 	if err != nil {
 		// The registry is built from compile-time constants; a failure here is a
@@ -161,13 +168,14 @@ func buildServices(
 		Feeds: service.NewFeedsService(feeds, events, health,
 			secrets.NewRedisStore(rdb), auditLog, adapters),
 		Search: service.NewSearchService(
-			searchRepo, events, auditLog, limits, adapters, tenants, networks),
-		Correlation: service.NewCorrelationService(correlated, networks),
+			searchRepo, events, auditLog, limits, adapters, tenants, networks, ruleNames),
+		Correlation: service.NewCorrelationService(correlated, networks, ruleNames),
 		Dashboards: service.NewDashboardsService(panels, feeds, health, limits, networks,
-			clickhouse.NewStorageRepo(ch, cfg.ClickHouse.Database)),
+			clickhouse.NewStorageRepo(ch, cfg.ClickHouse.Database), ruleNames),
 		Admin: service.NewAdminService(users, tenants, auditLog,
 			retentionWorker(deps, ch, locker, tenants, events),
-			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL)),
+			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL),
+			secrets.NewRedisStore(rdb)),
 		Alerts: service.NewAlertsService(
 			alertingRepo,
 			alerting.NewEvaluator(alerting.NewRepoStore(alertingRepo)),

@@ -42,6 +42,12 @@ const retentionForm = ref({
 const correlationForm = ref({ correlationWindowMs: 5000, latenessBoundMs: 900_000 })
 const savingSettings = ref(false)
 
+// Held separately from the retention form and never pre-filled: the API does not return
+// the token, by design, so there is nothing to populate it with. An empty box means
+// "leave it alone", which is also why saving retention cannot blank it.
+const cloudflareToken = ref('')
+const savingToken = ref(false)
+
 const ingestFilters = ref<IngestFilterRule[]>([])
 const savingFilters = ref(false)
 
@@ -162,6 +168,31 @@ async function saveRetention(): Promise<void> {
   }
 }
 
+/**
+ * Stores or clears the Cloudflare API token.
+ *
+ * Sent on its own rather than with the retention form, so a token cannot be changed by
+ * an operator who only meant to edit a retention day count — and so clearing it is a
+ * deliberate act rather than a side effect of an empty field.
+ */
+async function saveCloudflareToken(token: string): Promise<void> {
+  savingToken.value = true
+  errorMessage.value = ''
+  notice.value = ''
+  try {
+    await api.PATCH('/api/v1/admin/tenant', { body: { cloudflareApiToken: token } })
+    notice.value = token
+      ? 'Cloudflare token saved. Rule names appear once the next refresh runs.'
+      : 'Cloudflare token cleared. Rules will show their ids only.'
+    cloudflareToken.value = ''
+    await load()
+  } catch (err) {
+    errorMessage.value = toDisplayMessage(err)
+  } finally {
+    savingToken.value = false
+  }
+}
+
 async function saveCorrelation(): Promise<void> {
   savingSettings.value = true
   errorMessage.value = ''
@@ -210,6 +241,7 @@ const canManage = computed(() => auth.can.manageUsers)
       <v-tab value="retention">Retention &amp; redaction</v-tab>
       <v-tab value="correlation">Correlation</v-tab>
       <v-tab value="filters">Ingest filters</v-tab>
+      <v-tab value="integrations">Integrations</v-tab>
     </v-tabs>
 
     <v-window v-model="tab">
@@ -450,6 +482,68 @@ const canManage = computed(() => auth.can.manageUsers)
           :disabled="!canManage"
           @save="saveFilters"
         />
+      </v-window-item>
+
+      <v-window-item value="integrations">
+        <v-card>
+          <v-card-title class="text-subtitle-1">Cloudflare rule names</v-card-title>
+          <v-card-text>
+            <p class="text-body-2 mb-3">
+              Logpush reports the rule that matched as an id and nothing else. With a read-only API
+              token the platform fetches the rule names from your zones, so the console can show
+              what a rule actually is instead of a bare identifier.
+            </p>
+
+            <v-alert
+              :type="tenant?.cloudflareTokenConfigured ? 'success' : 'info'"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+            >
+              <template v-if="tenant?.cloudflareTokenConfigured">
+                A token is configured. Rule names refresh hourly.
+              </template>
+              <template v-else> No token configured — rules show their ids only. </template>
+            </v-alert>
+
+            <!--
+              Never pre-filled, and the API never returns it. A settings screen that echoes
+              a credential turns every screenshot and browser cache into a leak, so the box
+              is write-only: empty means "leave the current token alone".
+            -->
+            <v-text-field
+              v-model="cloudflareToken"
+              label="Cloudflare API token"
+              type="password"
+              autocomplete="off"
+              hint="Needs Zone WAF Read. Stored in the secret store, never in the database."
+              persistent-hint
+              density="compact"
+              variant="outlined"
+              :disabled="!canManage"
+            />
+
+            <div class="d-flex ga-2 mt-4">
+              <v-btn
+                v-if="canManage"
+                color="primary"
+                :loading="savingToken"
+                :disabled="!cloudflareToken"
+                @click="saveCloudflareToken(cloudflareToken)"
+              >
+                Save token
+              </v-btn>
+              <v-btn
+                v-if="canManage && tenant?.cloudflareTokenConfigured"
+                variant="tonal"
+                :loading="savingToken"
+                @click="saveCloudflareToken('')"
+              >
+                Remove token
+              </v-btn>
+            </div>
+          </v-card-text>
+        </v-card>
       </v-window-item>
     </v-window>
   </div>

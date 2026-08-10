@@ -19,6 +19,7 @@ import (
 	"github.com/menta2k/siem/internal/alerting"
 	"github.com/menta2k/siem/internal/asnowner"
 	"github.com/menta2k/siem/internal/auth"
+	"github.com/menta2k/siem/internal/cfrules"
 	"github.com/menta2k/siem/internal/conf"
 	"github.com/menta2k/siem/internal/correlate"
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
@@ -112,6 +113,9 @@ func buildTestServer(
 	// is exercised end to end. The table is empty unless a test fills it, which is the
 	// ordinary case: names are decoration and every path degrades to the bare number.
 	networks := asnowner.NewResolver(chdata.NewASNOwnerRepo(f.ClickHouse), time.Minute)
+	// Likewise real, over the real table: a tenant with no Cloudflare token simply
+	// resolves nothing, which is the ordinary case and the one worth exercising.
+	ruleNames := cfrules.NewResolver(chdata.NewCloudflareRuleRepo(f.ClickHouse), time.Minute)
 
 	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New())
 	if err != nil {
@@ -131,8 +135,9 @@ func buildTestServer(
 			secrets.NewMemoryStore(), auditLog, adapters),
 		Search: service.NewSearchService(
 			chdata.NewSearchRepo(f.ClickHouse), events, auditLog, limits, adapters, tenants,
-			networks),
-		Correlation: service.NewCorrelationService(chdata.NewCorrelatedRepo(f.ClickHouse), networks),
+			networks, ruleNames),
+		Correlation: service.NewCorrelationService(
+			chdata.NewCorrelatedRepo(f.ClickHouse), networks, ruleNames),
 		Admin: service.NewAdminService(users, tenants, auditLog,
 			retention.NewWorker(tenants,
 				retention.Repos{
@@ -140,7 +145,8 @@ func buildTestServer(
 					Correlated: chdata.NewCorrelatedRepo(f.ClickHouse),
 				},
 				auditLog, mw.NewLogger("error", "json")),
-			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL)),
+			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL),
+			secrets.NewMemoryStore()),
 		Alerts: service.NewAlertsService(
 			chdata.NewAlertingRepo(f.ClickHouse, locker),
 			alerting.NewEvaluator(alerting.NewRepoStore(
@@ -148,7 +154,7 @@ func buildTestServer(
 			secrets.NewMemoryStore(), auditLog),
 		Dashboards: service.NewDashboardsService(
 			chdata.NewDashboardRepo(f.ClickHouse), feeds, health, limits, networks,
-			chdata.NewStorageRepo(f.ClickHouse, f.Database)),
+			chdata.NewStorageRepo(f.ClickHouse, f.Database), ruleNames),
 	}, server.HTTPOptions{
 		Config:      cfg,
 		Health:      server.NewHealth(),

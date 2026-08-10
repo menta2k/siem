@@ -96,6 +96,9 @@ message RuleCount {
   Vendor vendor = 1;
   string rule_id = 2;
   uint64 events = 3;
+  // The rule's name, resolved on read. The panel this feeds is a ranking of opaque ids
+  // without it, which is the least useful form of a top-ten list.
+  string rule_description = 4;
 }
 
 message RulesPanel {

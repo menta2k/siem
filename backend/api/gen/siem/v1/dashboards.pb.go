@@ -358,12 +358,15 @@ func (x *OverviewPanel) GetTotalChallenged() uint64 {
 }
 
 type RuleCount struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Vendor        Vendor                 `protobuf:"varint,1,opt,name=vendor,proto3,enum=siem.v1.Vendor" json:"vendor,omitempty"`
-	RuleId        string                 `protobuf:"bytes,2,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
-	Events        uint64                 `protobuf:"varint,3,opt,name=events,proto3" json:"events,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Vendor Vendor                 `protobuf:"varint,1,opt,name=vendor,proto3,enum=siem.v1.Vendor" json:"vendor,omitempty"`
+	RuleId string                 `protobuf:"bytes,2,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	Events uint64                 `protobuf:"varint,3,opt,name=events,proto3" json:"events,omitempty"`
+	// The rule's name, resolved on read. The panel this feeds is a ranking of opaque ids
+	// without it, which is the least useful form of a top-ten list.
+	RuleDescription string `protobuf:"bytes,4,opt,name=rule_description,json=ruleDescription,proto3" json:"rule_description,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RuleCount) Reset() {
@@ -415,6 +418,13 @@ func (x *RuleCount) GetEvents() uint64 {
 		return x.Events
 	}
 	return 0
+}
+
+func (x *RuleCount) GetRuleDescription() string {
+	if x != nil {
+		return x.RuleDescription
+	}
+	return ""
 }
 
 type RulesPanel struct {
@@ -1073,11 +1083,12 @@ const file_siem_v1_dashboards_proto_rawDesc = "" +
 	"\bverdicts\x18\x02 \x03(\v2\x15.siem.v1.VerdictPointR\bverdicts\x12!\n" +
 	"\ftotal_events\x18\x03 \x01(\x04R\vtotalEvents\x12#\n" +
 	"\rtotal_blocked\x18\x04 \x01(\x04R\ftotalBlocked\x12)\n" +
-	"\x10total_challenged\x18\x05 \x01(\x04R\x0ftotalChallenged\"e\n" +
+	"\x10total_challenged\x18\x05 \x01(\x04R\x0ftotalChallenged\"\x90\x01\n" +
 	"\tRuleCount\x12'\n" +
 	"\x06vendor\x18\x01 \x01(\x0e2\x0f.siem.v1.VendorR\x06vendor\x12\x17\n" +
 	"\arule_id\x18\x02 \x01(\tR\x06ruleId\x12\x16\n" +
-	"\x06events\x18\x03 \x01(\x04R\x06events\"6\n" +
+	"\x06events\x18\x03 \x01(\x04R\x06events\x12)\n" +
+	"\x10rule_description\x18\x04 \x01(\tR\x0fruleDescription\"6\n" +
 	"\n" +
 	"RulesPanel\x12(\n" +
 	"\x05rules\x18\x01 \x03(\v2\x12.siem.v1.RuleCountR\x05rules\"\xa5\x01\n" +

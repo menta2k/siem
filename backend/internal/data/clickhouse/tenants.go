@@ -27,13 +27,18 @@ type Tenant struct {
 	CorrelatedRetentionDays uint16
 	AlertRetentionDays      uint16
 	RedactedFields          []string
-	IngestFilters           string
-	CorrelationWindowMS     uint32
-	LatenessBoundMS         uint32
-	ScoreConflictThreshold  float32
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
-	Version                 uint64
+	// CloudflareTokenRef points at the API token the rule-name refresh reads with. A
+	// REFERENCE, never the token: it lives in the secret store, exactly as feed
+	// credentials do, so a database backup cannot leak a credential that can read a
+	// customer's WAF configuration.
+	CloudflareTokenRef     string
+	IngestFilters          string
+	CorrelationWindowMS    uint32
+	LatenessBoundMS        uint32
+	ScoreConflictThreshold float32
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	Version                uint64
 }
 
 // Active reports whether the tenant may currently operate.
@@ -62,7 +67,8 @@ func NewTenantRepo(client *Client, locker Locker) *TenantRepo {
 
 const tenantColumns = `tenant_id, name, status, raw_retention_days, correlated_retention_days,
 	alert_retention_days, redacted_fields, correlation_window_ms, lateness_bound_ms,
-	score_conflict_threshold, created_at, updated_at, version, ingest_filters`
+	score_conflict_threshold, created_at, updated_at, version, ingest_filters,
+	cloudflare_token_ref`
 
 // Get loads the tenant in context. It takes no tenant argument by design: the caller
 // cannot ask for a tenant other than its own.
@@ -100,7 +106,8 @@ func scanTenant(row rowScanner) (Tenant, error) {
 	var t Tenant
 	err := row.Scan(&t.ID, &t.Name, &t.Status, &t.RawRetentionDays, &t.CorrelatedRetentionDays,
 		&t.AlertRetentionDays, &t.RedactedFields, &t.CorrelationWindowMS, &t.LatenessBoundMS,
-		&t.ScoreConflictThreshold, &t.CreatedAt, &t.UpdatedAt, &t.Version, &t.IngestFilters)
+		&t.ScoreConflictThreshold, &t.CreatedAt, &t.UpdatedAt, &t.Version, &t.IngestFilters,
+		&t.CloudflareTokenRef)
 	return t, err
 }
 
@@ -192,6 +199,7 @@ func (r *TenantRepo) insert(ctx context.Context, t Tenant) error {
 		t.ID, t.Name, t.Status, t.RawRetentionDays, t.CorrelatedRetentionDays,
 		t.AlertRetentionDays, t.RedactedFields, t.CorrelationWindowMS, t.LatenessBoundMS,
 		t.ScoreConflictThreshold, t.CreatedAt, t.UpdatedAt, t.Version, ingestFilters(t),
+		t.CloudflareTokenRef,
 	); err != nil {
 		return fmt.Errorf("append tenant %s: %w", t.ID, err)
 	}
