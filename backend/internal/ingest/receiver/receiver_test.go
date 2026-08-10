@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/google/uuid"
@@ -714,5 +715,31 @@ func TestAnOversizedDeliveryIsRefusedAndRecorded(t *testing.T) {
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("status = %d, want 413", rec.Code)
+	}
+}
+
+// A sender that abandons its upload must leave a trace HERE. This was silent: the read
+// failed, a 400 went back, and nothing was recorded — so the vendor's console was the
+// only place the failure existed, which is how three separate delivery faults survived
+// rounds of investigation.
+func TestAnAbandonedUploadIsRecorded(t *testing.T) {
+	h := newHarness(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost,
+		"/ingest/v1/cloudflare/"+h.feedID.String(), iotest.ErrReader(context.Canceled))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	cancel()
+
+	rec := httptest.NewRecorder()
+	h.receiver.Handler().ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusAccepted {
+		t.Errorf("status = %d, want a failure for a body that never arrived", rec.Code)
+	}
+	// Health carries the delivery attempt, so a feed losing traffic shows as unhealthy
+	// rather than as a gap someone notices days later.
+	if len(h.health.samples) == 0 {
+		t.Error("an abandoned upload recorded nothing against feed health")
 	}
 }

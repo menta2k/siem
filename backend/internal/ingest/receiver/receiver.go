@@ -142,21 +142,7 @@ func (r *Receiver) handleDelivery(w http.ResponseWriter, req *http.Request) {
 
 	body, err := r.readBody(req)
 	if err != nil {
-		// A REFUSED DELIVERY MUST BE VISIBLE HERE, not only in the vendor's console.
-		// An oversized batch is answered 413 and dropped, and the sender retries the
-		// same bytes forever — so if the platform says nothing, an operator watching
-		// our logs sees a healthy service while the vendor sees a wall. That is exactly
-		// how a backlog went undiagnosed: our side was silent, Cloudflare reported the
-		// error, and only the vendor knew.
-		//
-		// ContentLength is logged rather than the bytes read, because the reader stops
-		// AT the limit and cannot say how far over the batch actually was. It is what
-		// an operator needs to size the limit correctly.
-		if mw.AsError(err).Code == mw.CodePayloadTooLarge {
-			r.log.Warn(ctx, "delivery refused as too large",
-				"feed_id", feed.ID.String(), "vendor", feed.Vendor,
-				"content_length", req.ContentLength, "limit_bytes", r.opts.MaxBodyBytes)
-		}
+		r.logRefusedDelivery(ctx, req, feed, err)
 		writeError(w, mw.AsError(err))
 		return
 	}
@@ -222,6 +208,44 @@ func (r *Receiver) commitDelivery(
 		status = http.StatusMultiStatus
 	}
 	writeJSON(w, status, outcome)
+}
+
+// logRefusedDelivery records a delivery that never became events.
+//
+// EVERY refusal, not just the tidy ones. Three separate delivery faults on this platform
+// were invisible from its own logs while the vendor's console showed errors, and each
+// cost a full round of investigation: an oversized batch answered 413, a body the sender
+// abandoned mid-upload, and a proxy rejecting before the request arrived at all. An
+// operator looking in the obvious place saw a healthy service every time.
+//
+// The vendor's console must never be the only place the truth lives.
+//
+// ContentLength is reported rather than the bytes read, because the reader stops AT the
+// limit and cannot say how far over a batch was — and on an abandoned upload it is the
+// only measure of what the sender was attempting. It is the number that sizing a limit
+// depends on.
+func (r *Receiver) logRefusedDelivery(
+	ctx context.Context, req *http.Request, feed chdata.Feed, err error,
+) {
+	// A cancelled context means the SENDER went away, not that anything here failed.
+	// Naming the two apart matters because they lead to opposite fixes: raising a
+	// ceiling, versus shrinking the vendor's batch so it can finish sending it.
+	reason := "rejected by this platform"
+	if ctx.Err() != nil {
+		reason = "sender disconnected before the body arrived"
+	}
+
+	r.log.Warn(ctx, "delivery refused",
+		"feed_id", feed.ID.String(), "vendor", feed.Vendor,
+		"code", mw.AsError(err).Code, "reason", reason,
+		"content_length", req.ContentLength, "limit_bytes", r.opts.MaxBodyBytes,
+		"cause", err.Error())
+
+	// Health-relevant: a feed losing deliveries has to show as unhealthy in the console
+	// rather than as a gap somebody notices days later.
+	r.health.Record(ctx, ingest.HealthSample{
+		TenantID: feed.TenantID, FeedID: feed.ID, CredentialValid: true,
+	})
 }
 
 // commitTimeout is the configured bound, or the default when unset.
