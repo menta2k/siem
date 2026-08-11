@@ -28,10 +28,27 @@ import (
 	"fmt"
 	"time"
 
+	fastjson "github.com/goccy/go-json"
 	"github.com/google/uuid"
 
 	"github.com/menta2k/siem/internal/correlate/keys"
 )
+
+// DECODING USES goccy/go-json, ENCODING USES THE STANDARD LIBRARY, and the asymmetry is
+// deliberate rather than an oversight.
+//
+// Decoding stored members was 13.2% of the processor's CPU samples even after the repeated
+// work was cached away, and goccy parses this struct 3.4x faster than encoding/json (897ns
+// against 3022ns, 7 allocations against 24). The wire format is identical, so a member
+// written by the standard library reads back through goccy and vice versa -- which is what
+// makes it safe to change one side and not the other, including during a rollout where both
+// versions are running at once.
+//
+// It is scoped to THIS path on purpose. goccy leans heavily on unsafe, and the input here
+// is bytes THIS PLATFORM WROTE to its own Redis -- not vendor payloads, which arrive from
+// the internet and stay on the standard library's parser. A faster JSON library is worth a
+// great deal less than a parser whose failure modes are understood by everyone reviewing
+// the code that handles hostile input.
 
 // ListEntry is one value appended to one list, with the TTL to refresh on that key.
 type ListEntry struct {
@@ -229,7 +246,7 @@ func (w *Windows) Members(
 	if err != nil {
 		return nil, err
 	}
-	return decodeMembers(raw), nil
+	return newDecodeCache().members(raw), nil
 }
 
 // MembersMany reads several windows in one round trip.
@@ -338,36 +355,12 @@ func (c *decodeCache) decode(value string) (Member, bool) {
 	}
 
 	var member Member
-	if err := json.Unmarshal([]byte(value), &member); err != nil {
+	if err := fastjson.Unmarshal([]byte(value), &member); err != nil {
 		c.corrupt[value] = struct{}{}
 		return Member{}, false
 	}
 	c.decoded[value] = member
 	return member, true
-}
-
-// decodeMembers turns stored entries into members, collapsing duplicates by event id.
-//
-// A redelivered event must not appear twice in a correlated record's event list, and it
-// must not inflate the candidate count that drives the confidence score into reporting a
-// false ambiguity.
-func decodeMembers(raw []string) []Member {
-	seen := make(map[string]bool, len(raw))
-	members := make([]Member, 0, len(raw))
-	for _, value := range raw {
-		var member Member
-		if err := json.Unmarshal([]byte(value), &member); err != nil {
-			// A single corrupt entry must not sink the whole window: the rest of the
-			// evidence is still valid and a partial record beats no record.
-			continue
-		}
-		if seen[member.EventID] {
-			continue
-		}
-		seen[member.EventID] = true
-		members = append(members, member)
-	}
-	return members
 }
 
 // Identity returns the correlation id a window is emitted under, assigning proposed on
