@@ -268,10 +268,82 @@ func (w *Windows) MembersMany(
 		return nil, err
 	}
 
+	// ONE DECODE PER DISTINCT ENTRY, not one per entry per key. The buckets read together
+	// overlap heavily by construction: an event is filed under its window key AND under
+	// every identifier it carries, and the partner walk reads a level's buckets together —
+	// so a request's members appear in several of them at once. In production a tier-1
+	// record spans 4.75 events contributing up to two identifiers each, which is roughly
+	// nine buckets holding subsets of the same handful of members.
+	//
+	// Parsing one is ~3.2us; recognising one already parsed is a map lookup on its bytes.
+	// This is the second-largest cost in the closer after the round trips it just stopped
+	// paying, at 13.2% of the processor's CPU samples.
+	cache := newDecodeCache()
 	for redisKey, values := range raw {
-		out[byRedisKey[redisKey]] = decodeMembers(values)
+		out[byRedisKey[redisKey]] = cache.members(values)
 	}
 	return out, nil
+}
+
+// decodeCache decodes each distinct stored entry once for the life of one batched read.
+//
+// Keyed by the STORED BYTES rather than by event id, which is what makes it safe: two
+// entries that differ in any way decode separately, so a member can never be served a
+// neighbour's contents. Identical bytes decode to identical members by definition.
+type decodeCache struct {
+	decoded map[string]Member
+	corrupt map[string]struct{}
+}
+
+func newDecodeCache() *decodeCache {
+	return &decodeCache{
+		decoded: map[string]Member{},
+		corrupt: map[string]struct{}{},
+	}
+}
+
+// members turns one bucket's stored entries into members, collapsing duplicates by event
+// id exactly as an unbatched read does.
+func (c *decodeCache) members(raw []string) []Member {
+	seen := make(map[string]bool, len(raw))
+	members := make([]Member, 0, len(raw))
+
+	for _, value := range raw {
+		member, ok := c.decode(value)
+		if !ok {
+			continue
+		}
+		if seen[member.EventID] {
+			continue
+		}
+		seen[member.EventID] = true
+		members = append(members, member)
+	}
+	return members
+}
+
+// decode returns the member for one stored entry, reporting false for one that cannot be
+// parsed.
+//
+// A corrupt entry is remembered as corrupt rather than retried per bucket, so a bad value
+// costs one failed parse for the whole read instead of one per bucket it appears in. It is
+// still SKIPPED rather than raised: the rest of the evidence is valid and a partial record
+// beats no record.
+func (c *decodeCache) decode(value string) (Member, bool) {
+	if member, done := c.decoded[value]; done {
+		return member, true
+	}
+	if _, bad := c.corrupt[value]; bad {
+		return Member{}, false
+	}
+
+	var member Member
+	if err := json.Unmarshal([]byte(value), &member); err != nil {
+		c.corrupt[value] = struct{}{}
+		return Member{}, false
+	}
+	c.decoded[value] = member
+	return member, true
 }
 
 // decodeMembers turns stored entries into members, collapsing duplicates by event id.
