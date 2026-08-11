@@ -169,6 +169,34 @@ func (c *stubCounter) Exists(_ context.Context, keys ...string) (int64, error) {
 	return count, nil
 }
 
+// The batched forms share the same map and lock as the singular ones, so the contract a
+// vendor sees -- how many events were accepted and how many suppressed -- cannot depend on
+// whether dedup asked about one key or a thousand.
+func (c *stubCounter) ExistsMany(
+	_ context.Context, keys []string,
+) (map[string]bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	present := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if c.counts[key] > 0 {
+			present[key] = true
+		}
+	}
+	return present, nil
+}
+
+func (c *stubCounter) SetMany(
+	_ context.Context, keys []string, _ string, _ time.Duration,
+) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, key := range keys {
+		c.counts[key] = 1
+	}
+	return nil
+}
+
 func (c *stubCounter) Set(_ context.Context, key, _ string, _ time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
