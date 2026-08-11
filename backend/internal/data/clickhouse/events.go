@@ -193,8 +193,21 @@ const normalizedColumns = `tenant_id, event_id, event_time, event_time_original,
 
 // GetNormalized loads one normalized event within the context's tenant.
 //
-// FINAL is required: normalized_events is a ReplacingMergeTree, so a read without it
-// can return both a pre- and post-reprocessing version of the same event.
+// normalized_events is a ReplacingMergeTree, so the winning row has to be chosen
+// explicitly: an unmerged read can return both a pre- and post-reprocessing version of the
+// same event. ORDER BY ingest_version DESC LIMIT 1 chooses it, and FINAL does not, because
+// FINAL merges the parts it touches to produce the answer.
+//
+// THIS QUERY SPENT 1 GiB READING 2 MILLION ROWS TO RETURN ONE. The sort key is
+// (tenant_id, event_date, vendor, event_id) and the detail view knows only the event id, so
+// there is no way to seek: everything after tenant_id is scanned. FINAL then merged all of
+// it. Five events in a correlation chain load in parallel, so opening one detail page asked
+// for ~5 GiB at once and the server killed whichever queries the OvercommitTracker picked
+// -- which the analyst sees as a raw payload that is simply blank.
+//
+// Dropping FINAL removes the merge; the scan remains, and remains the real fix. It is
+// bounded here rather than solved: see the note on max_server_memory_usage in
+// deploy/clickhouse/config/memory.xml.
 func (r *EventRepo) GetNormalized(ctx context.Context, eventID string) (NormalizedEvent, error) {
 	tenantID, err := tenancy.MustID(ctx)
 	if err != nil {
@@ -202,7 +215,8 @@ func (r *EventRepo) GetNormalized(ctx context.Context, eventID string) (Normaliz
 	}
 
 	query := fmt.Sprintf(
-		`SELECT %s FROM normalized_events FINAL WHERE tenant_id = ? AND event_id = ? LIMIT 1`,
+		`SELECT %s FROM normalized_events WHERE tenant_id = ? AND event_id = ? `+
+			`ORDER BY ingest_version DESC LIMIT 1`,
 		normalizedColumns)
 
 	rows, err := r.client.Query(ctx, query, tenantID, eventID)

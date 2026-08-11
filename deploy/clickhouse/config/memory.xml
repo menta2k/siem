@@ -31,18 +31,21 @@
     <uncompressed_cache_size>0</uncompressed_cache_size>
 
     <!--
-      16 GiB, a hard ceiling replacing the default 90%-of-RAM.
+      6 GiB, a hard ceiling replacing the default 90%-of-RAM.
 
-      The 4 GiB it replaces was sized against 888 MiB resident under ~650 events/sec, and
-      the reasoning was right: ClickHouse must never squeeze the broker or the services out
-      of memory. What has changed is what the number has to cover. The closer's lookups
-      scan ~11M rows on every tick, and a query that trips this ceiling does not
-      degrade. It fails with MEMORY_LIMIT_EXCEEDED and takes the close pass with it.
+      RAISED TO 16 GiB AND PUT BACK, WHICH IS WORTH RECORDING. The reasoning for raising it
+      was that the closer scans ~11M rows a tick and a query tripping the ceiling fails
+      rather than degrades. What that missed is that a ceiling is not headroom: with 16 GiB
+      to grow into, total usage climbed to meet it and ClickHouse began killing queries by
+      OvercommitTracker. Event detail lookups that had all succeeded under the 4 GiB budget
+      started failing within the hour, which an analyst sees as a blank raw payload.
 
-      The guarantee still holds with room to spare. Measured on production: 31 GiB total,
-      5.6 GiB used across everything, 25.8 GiB available, and memory pressure flat at 0.00
-      across every PSI window. ClickHouse itself sits at 1.13 GiB, so this is headroom for
-      the peaks rather than an allocation.
+      The lesson is that the ceiling was never the constraint. One point lookup was reading
+      2 million rows for one row, and raising the limit bought that query room to waste
+      instead of making it stop. It was fixed where it lived, in GetNormalized.
+
+      6 GiB rather than the original 4 GiB only because the mark cache below now accounts
+      for 2 GiB of the total. Everything else is unchanged.
     -->
-    <max_server_memory_usage>17179869184</max_server_memory_usage>
+    <max_server_memory_usage>6442450944</max_server_memory_usage>
 </clickhouse>
