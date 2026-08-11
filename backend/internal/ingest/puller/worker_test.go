@@ -121,6 +121,29 @@ func (m *memStore) Exists(_ context.Context, keys ...string) (int64, error) {
 	return count, nil
 }
 
+// Batched forms over the same map, so the puller's dedup behaves identically whether it
+// asks for one key or a thousand.
+func (m *memStore) ExistsMany(
+	_ context.Context, keys []string,
+) (map[string]bool, error) {
+	present := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if m.seen[key] {
+			present[key] = true
+		}
+	}
+	return present, nil
+}
+
+func (m *memStore) SetMany(
+	_ context.Context, keys []string, _ string, _ time.Duration,
+) error {
+	for _, key := range keys {
+		m.seen[key] = true
+	}
+	return nil
+}
+
 func (m *memStore) Set(_ context.Context, key, _ string, _ time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

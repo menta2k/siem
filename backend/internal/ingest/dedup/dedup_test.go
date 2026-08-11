@@ -3,6 +3,7 @@ package dedup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -15,6 +16,8 @@ type memStore struct {
 	// can be exercised mid-stream rather than only on the first call.
 	failAfter int
 	calls     int
+	// setCalls counts marking round trips, separately from lookups.
+	setCalls int
 }
 
 func newMemStore() *memStore {
@@ -36,6 +39,41 @@ func (m *memStore) Exists(_ context.Context, keys ...string) (int64, error) {
 		}
 	}
 	return count, nil
+}
+
+// ExistsMany answers from the same map the singular form uses, so a batched caller sees
+// exactly what an unbatched one would. It counts as ONE call, which is what lets a test
+// assert that a batch costs one round trip rather than one per event.
+func (m *memStore) ExistsMany(
+	_ context.Context, keys []string,
+) (map[string]bool, error) {
+	m.calls++
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.failAfter >= 0 && m.calls > m.failAfter {
+		return nil, errors.New("redis unavailable")
+	}
+	present := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if m.seen[key] {
+			present[key] = true
+		}
+	}
+	return present, nil
+}
+
+func (m *memStore) SetMany(
+	_ context.Context, keys []string, _ string, _ time.Duration,
+) error {
+	m.setCalls++
+	if m.err != nil {
+		return m.err
+	}
+	for _, key := range keys {
+		m.seen[key] = true
+	}
+	return nil
 }
 
 func (m *memStore) Set(_ context.Context, key, _ string, _ time.Duration) error {
@@ -151,16 +189,23 @@ func TestFailsOpenWhenStoreIsUnavailable(t *testing.T) {
 	}
 }
 
-// A failure partway through must not drop the events after it.
-func TestFailsOpenMidBatch(t *testing.T) {
+// A STORE FAILURE ACCEPTS THE WHOLE BATCH, with every index still aligned to the input.
+//
+// This used to be phrased as "a failure PARTWAY THROUGH must not drop the events after
+// it", because the lookup ran one Redis call per event and could fail on any of them.
+// The lookup is now a single batched call, so there is no partway: it either answers for
+// the batch or fails for the batch. The property that survives is the one that always
+// mattered — a store that cannot answer must never cost a customer their logs, and the
+// indices handed back must still point at the right parsed records.
+func TestAStoreFailureAcceptsTheWholeBatch(t *testing.T) {
 	store := newMemStore()
-	store.failAfter = 2
+	store.failAfter = 0 // the very first lookup fails
 	d := New(store, time.Minute)
 
 	result, err := d.Filter(context.Background(), "tenant-a", []string{"e1", "e2", "e3", "e4", "e5"})
 
 	if err == nil {
-		t.Error("Filter() hid a mid-batch store failure")
+		t.Error("Filter() hid a store failure")
 	}
 	if len(result.Fresh) != 5 {
 		t.Errorf("Fresh = %v, want all 5 events accepted after the failure", result.Fresh)
@@ -169,6 +214,35 @@ func TestFailsOpenMidBatch(t *testing.T) {
 		if idx != i {
 			t.Errorf("Fresh[%d] = %d, want %d — indices must stay aligned to the input", i, idx, i)
 		}
+	}
+}
+
+// The batched lookup must cost ONE round trip regardless of batch size. A Cloudflare
+// delivery carries 7,605 events on average, and asking per event put 17.5% of the ingest
+// service's CPU into blocking Redis calls.
+func TestFilteringABatchCostsOneRoundTrip(t *testing.T) {
+	store := newMemStore()
+	d := New(store, time.Minute)
+
+	eventIDs := make([]string, 0, 500)
+	for i := range 500 {
+		eventIDs = append(eventIDs, fmt.Sprintf("e%d", i))
+	}
+
+	if _, err := d.Filter(context.Background(), "tenant-a", eventIDs); err != nil {
+		t.Fatalf("Filter() error = %v", err)
+	}
+	if store.calls != 1 {
+		t.Errorf("Filter() over %d events made %d lookup round trips, want 1",
+			len(eventIDs), store.calls)
+	}
+
+	if err := d.Mark(context.Background(), "tenant-a", eventIDs); err != nil {
+		t.Fatalf("Mark() error = %v", err)
+	}
+	if store.setCalls != 1 {
+		t.Errorf("Mark() over %d events made %d write round trips, want 1",
+			len(eventIDs), store.setCalls)
 	}
 }
 

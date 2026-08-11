@@ -174,6 +174,70 @@ func (c *Client) Exists(ctx context.Context, keys ...string) (int64, error) {
 	return n, nil
 }
 
+// ExistsMany reports WHICH of the given keys are present, one round trip per chunk.
+//
+// Exists cannot serve this. It returns how MANY of its arguments exist, which answers
+// nothing when the caller needs to know which ones — so the dedup path called it once per
+// key, and a Cloudflare delivery of 7,605 events became 7,605 blocking round trips. A
+// production profile put 17.5% of the ingest service's CPU in that loop.
+//
+// Only keys that exist appear in the map, so a caller reads absence as a missing entry
+// rather than a false value.
+func (c *Client) ExistsMany(ctx context.Context, keys []string) (map[string]bool, error) {
+	present := make(map[string]bool, len(keys))
+	if len(keys) == 0 {
+		return present, nil
+	}
+
+	for chunk := range slices.Chunk(keys, pipelineChunk) {
+		pipe := c.rdb.Pipeline()
+		cmds := make([]*goredis.IntCmd, len(chunk))
+		for i, key := range chunk {
+			cmds[i] = pipe.Exists(ctx, key)
+		}
+		if _, err := pipe.Exec(ctx); err != nil {
+			return nil, fmt.Errorf("redis exists %d keys: %w", len(chunk), err)
+		}
+		for i, cmd := range cmds {
+			n, err := cmd.Result()
+			if err != nil {
+				return nil, fmt.Errorf("redis exists %s: %w", chunk[i], err)
+			}
+			if n > 0 {
+				present[chunk[i]] = true
+			}
+		}
+	}
+	return present, nil
+}
+
+// SetMany writes many keys sharing one value and one TTL, one round trip per chunk.
+//
+// The shared value and TTL are not a simplification: every key this writes is a dedup
+// marker, which carries no information beyond its own existence and expires on one
+// window. A per-entry variant would be a more general API with no caller.
+func (c *Client) SetMany(
+	ctx context.Context, keys []string, value string, ttl time.Duration,
+) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	if ttl <= 0 {
+		return fmt.Errorf("redis set %d keys: a positive TTL is required", len(keys))
+	}
+
+	for chunk := range slices.Chunk(keys, pipelineChunk) {
+		pipe := c.rdb.Pipeline()
+		for _, key := range chunk {
+			pipe.Set(ctx, key, value, ttl)
+		}
+		if _, err := pipe.Exec(ctx); err != nil {
+			return fmt.Errorf("redis set %d keys: %w", len(chunk), err)
+		}
+	}
+	return nil
+}
+
 // RPush appends a value to a list and applies the TTL on every write.
 //
 // The TTL is refreshed rather than set once, because a correlation window must stay

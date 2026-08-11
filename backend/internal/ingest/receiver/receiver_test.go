@@ -132,6 +132,39 @@ func (m *memCounter) Exists(_ context.Context, keys ...string) (int64, error) {
 	return count, nil
 }
 
+// The batched forms share the same map and the same lock as the singular ones, so a
+// batched caller can never observe state an unbatched one would not.
+func (m *memCounter) ExistsMany(
+	_ context.Context, keys []string,
+) (map[string]bool, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	present := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		if m.counts[key] > 0 {
+			present[key] = true
+		}
+	}
+	return present, nil
+}
+
+func (m *memCounter) SetMany(
+	_ context.Context, keys []string, _ string, _ time.Duration,
+) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, key := range keys {
+		m.counts[key] = 1
+	}
+	return nil
+}
+
 func (m *memCounter) Set(_ context.Context, key, _ string, _ time.Duration) error {
 	if m.err != nil {
 		return m.err
