@@ -77,6 +77,9 @@ type stubEvents struct {
 	event   chdata.NormalizedEvent
 	err     error
 	payload []byte
+	// rawVendor is the vendor that DELIVERED the bytes, which is not always the vendor the
+	// event is attributed to. Empty in most cases, where the two agree.
+	rawVendor string
 }
 
 func (s stubEvents) GetNormalized(context.Context, string) (chdata.NormalizedEvent, error) {
@@ -85,8 +88,10 @@ func (s stubEvents) GetNormalized(context.Context, string) (chdata.NormalizedEve
 
 func (s stubEvents) GetRawPayload(
 	context.Context, string, chdata.RawPayloadHint,
-) ([]byte, string, error) {
-	return s.payload, "application/json", nil
+) (chdata.RawPayload, error) {
+	return chdata.RawPayload{
+		Payload: s.payload, Format: "application/json", Vendor: s.rawVendor,
+	}, nil
 }
 
 // stubTenants supplies the redaction policy the service re-applies when it rebuilds a

@@ -234,6 +234,21 @@ func (r *EventRepo) GetNormalized(ctx context.Context, eventID string) (Normaliz
 	return scanNormalized(rows)
 }
 
+// RawPayload is one event's original bytes together with what produced them.
+//
+// THE VENDOR IS PART OF THE ANSWER, not a detail of the lookup. It is the vendor that
+// DELIVERED the bytes, which is not always the vendor the event is attributed to: a
+// DataDome verdict is normalized out of a Cloudflare Worker's log of its call to DataDome,
+// so the normalized row says datadome while these bytes are Cloudflare's. Anything that
+// parses them has to use this one — the detail view reconstructs its vendor-native fields
+// from here, and asking DataDome's adapter to read a Cloudflare payload yields nothing at
+// all, which showed up as an empty field list on 16% of events.
+type RawPayload struct {
+	Payload []byte
+	Format  string
+	Vendor  string
+}
+
 // RawPayloadHint narrows a payload lookup to the part of the table it is actually in.
 //
 // It is a HINT in name only: without it the query cannot prune at all. raw_events is
@@ -270,21 +285,20 @@ const rawPayloadWindow = time.Hour
 // "did the platform read this correctly" without leaving the console (FR-005).
 func (r *EventRepo) GetRawPayload(
 	ctx context.Context, eventID string, hint RawPayloadHint,
-) ([]byte, string, error) {
+) (RawPayload, error) {
 	tenantID, err := tenancy.MustID(ctx)
 	if err != nil {
-		return nil, "", err
+		return RawPayload{}, err
 	}
 
-	// Falls back to the unseekable form when the caller has no hint. It is slow rather
-	// than wrong, and a caller that cannot say which vendor an event came from still
-	// deserves an answer.
-	query := `SELECT payload, payload_format FROM raw_events
+	// Falls back to the unpruned form when the caller has no hint. It is slow rather than
+	// wrong, and a caller that cannot say when an event arrived still deserves an answer.
+	query := `SELECT payload, payload_format, vendor FROM raw_events
 		WHERE tenant_id = ? AND event_id = ? LIMIT 1`
 	args := []any{tenantID, eventID}
 
 	if !hint.ReceivedAt.IsZero() {
-		query = `SELECT payload, payload_format FROM raw_events
+		query = `SELECT payload, payload_format, vendor FROM raw_events
 			WHERE tenant_id = ?
 			  AND received_at >= ? AND received_at <= ?
 			  AND event_id = ? LIMIT 1`
@@ -298,22 +312,24 @@ func (r *EventRepo) GetRawPayload(
 
 	rows, err := r.client.Query(ctx, query, args...)
 	if err != nil {
-		return nil, "", err
+		return RawPayload{}, err
 	}
 	defer func() { _ = rows.Close() }()
 
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
-			return nil, "", fmt.Errorf("load raw payload: %w", err)
+			return RawPayload{}, fmt.Errorf("load raw payload: %w", err)
 		}
-		return nil, "", ErrNotFound
+		return RawPayload{}, ErrNotFound
 	}
 
-	var payload, format string
-	if err := rows.Scan(&payload, &format); err != nil {
-		return nil, "", fmt.Errorf("scan raw payload: %w", err)
+	var out RawPayload
+	var payload string
+	if err := rows.Scan(&payload, &out.Format, &out.Vendor); err != nil {
+		return RawPayload{}, fmt.Errorf("scan raw payload: %w", err)
 	}
-	return []byte(payload), format, nil
+	out.Payload = []byte(payload)
+	return out, nil
 }
 
 // RejectedFilter narrows a dead-letter query.

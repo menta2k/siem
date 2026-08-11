@@ -394,16 +394,21 @@ func TestRawPayloadIsPreservedByteForByte(t *testing.T) {
 	// the note in TestRedactionPolicyIsEnforcedAtStorage.
 	eventID := normalize.EventIDFor(h.feed.ID, vendors.Cloudflare, "verbatim-1", []byte(payload))
 
-	stored, format, err := h.fixture.Events.GetRawPayload(h.ctx, eventID, chdata.RawPayloadHint{})
+	stored, err := h.fixture.Events.GetRawPayload(h.ctx, eventID, chdata.RawPayloadHint{})
 	if err != nil {
 		t.Fatalf("GetRawPayload(): %v", err)
 	}
-	if string(stored) != payload {
+	if string(stored.Payload) != payload {
 		t.Errorf("the stored payload differs from what was delivered:\n got %q\nwant %q",
-			stored, payload)
+			stored.Payload, payload)
 	}
-	if format == "" {
+	if stored.Format == "" {
 		t.Error("the payload format was not recorded")
+	}
+	// The delivering vendor travels with the bytes, because it is what any parse of them
+	// must use. It is not always the vendor the event is attributed to.
+	if stored.Vendor != vendors.Cloudflare {
+		t.Errorf("raw vendor = %q, want %q", stored.Vendor, vendors.Cloudflare)
 	}
 }
 

@@ -43,7 +43,7 @@ type EventDetailReader interface {
 	GetNormalized(ctx context.Context, eventID string) (chdata.NormalizedEvent, error)
 	GetRawPayload(
 		ctx context.Context, eventID string, hint chdata.RawPayloadHint,
-	) ([]byte, string, error)
+	) (chdata.RawPayload, error)
 }
 
 // TenantPolicyReader supplies the redaction policy to re-apply when vendor fields are
@@ -256,17 +256,23 @@ func (s *SearchService) GetEvent(
 	// and `if err == nil` turned each cancellation into a 200 with an empty payload —
 	// indistinguishable from an expired one, with nothing written down. The hint below
 	// is what stops the scan; this is what would have made it visible a lot sooner.
-	payload, contentType, err := s.events.GetRawPayload(ctx, eventID, chdata.RawPayloadHint{
+	raw, err := s.events.GetRawPayload(ctx, eventID, chdata.RawPayloadHint{
 		ReceivedAt: event.ReceivedAt,
 	})
 	switch {
 	case err == nil:
-		detail.RawPayload = string(payload)
-		detail.RawContentType = contentType
+		detail.RawPayload = string(raw.Payload)
+		detail.RawContentType = raw.Format
 		// Rebuilt from those bytes rather than read from a column. Storing the parsed
 		// copy cost four times what the payload itself does, and this is the only view
 		// that ever asked for it.
-		detail.RawExtra, detail.UnknownFields = s.vendorFields(ctx, event.Vendor, payload)
+		//
+		// PARSED WITH THE VENDOR THAT DELIVERED THE BYTES, not the one the event is
+		// attributed to. They differ for every DataDome verdict, which is normalized out
+		// of a Cloudflare Worker payload — handing those bytes to DataDome's adapter
+		// returned nothing, so the parsed-field view was blank on 16% of events while the
+		// raw payload beside it rendered fine.
+		detail.RawExtra, detail.UnknownFields = s.vendorFields(ctx, raw.Vendor, raw.Payload)
 	case errors.Is(err, chdata.ErrNotFound):
 		// Expected: retention expired the payload while the normalized row survives.
 	case s.log != nil:

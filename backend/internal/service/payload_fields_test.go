@@ -111,3 +111,43 @@ func TestAnUnknownVendorIsNotAnError(t *testing.T) {
 		t.Errorf("an unknown vendor produced extra=%v unknown=%v, want both empty", extra, unknown)
 	}
 }
+
+// THE PARSE MUST USE THE VENDOR THAT DELIVERED THE BYTES, not the one the event is
+// attributed to.
+//
+// A DataDome verdict is normalized out of a Cloudflare Worker's log of its own call to
+// DataDome: the normalized row says datadome while the stored bytes are Cloudflare's
+// NDJSON. Handing those bytes to DataDome's adapter parses nothing, so the detail view
+// showed a full raw payload beside an empty field list — on 270,233 of 1,662,366 events in
+// half an hour of production, 16% of the total.
+//
+// The two cases are asserted together because only the contrast proves it: the same bytes
+// must yield fields under the delivering vendor and nothing under the attributed one.
+func TestVendorFieldsUseTheDeliveringVendorNotTheAttributedOne(t *testing.T) {
+	// A Cloudflare Worker's record of the DataDome validation call, trimmed from a real
+	// production payload — that host and URI are what makes it a DataDome-attributed
+	// event, and EdgeStartTimestamp is what makes it parseable at all.
+	payload := []byte(`{"ClientIP":"2a06:98c0:3600::103",` +
+		`"ClientRequestHost":"api-cloudflare.datadome.co",` +
+		`"ClientRequestMethod":"POST","ClientRequestURI":"/validate-request/",` +
+		`"EdgeStartTimestamp":"2026-08-11T07:15:39Z",` +
+		`"EdgeEndTimestamp":"2026-08-11T07:15:39Z",` +
+		`"RayID":"a27533e76c55d999","EdgeResponseStatus":200,"BotScore":7,` +
+		`"ZoneName":"jobs.bg","SecurityAction":"unknown"}`)
+
+	delivering, _ := payloadFields(testRegistry(t), "cloudflare", payload, nil)
+	if len(delivering) == 0 {
+		t.Fatal("parsed with the delivering vendor, the field list is empty — the fix " +
+			"cannot work, because these are the bytes the detail view has")
+	}
+	if got := delivering["BotScore"]; got != "7" {
+		t.Errorf("BotScore = %q, want 7", got)
+	}
+
+	// The bug, pinned. Were the attributed vendor used, this is what the analyst saw.
+	attributed, _ := payloadFields(testRegistry(t), "datadome", payload, nil)
+	if len(attributed) != 0 {
+		t.Skipf("datadome's adapter now parses a Cloudflare payload (%d fields); this "+
+			"test's premise no longer holds", len(attributed))
+	}
+}
