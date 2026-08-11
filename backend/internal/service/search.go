@@ -257,7 +257,8 @@ func (s *SearchService) GetEvent(
 	// indistinguishable from an expired one, with nothing written down. The hint below
 	// is what stops the scan; this is what would have made it visible a lot sooner.
 	raw, err := s.events.GetRawPayload(ctx, eventID, chdata.RawPayloadHint{
-		ReceivedAt: event.ReceivedAt,
+		ReceivedAt:   event.ReceivedAt,
+		SourceVendor: event.SourceVendor,
 	})
 	switch {
 	case err == nil:

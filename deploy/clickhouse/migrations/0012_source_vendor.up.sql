@@ -1,0 +1,29 @@
+-- Records WHICH VENDOR'S FEED DELIVERED an event, alongside the vendor it is attributed to.
+--
+-- These are not the same thing and the platform has been pretending they are. A DataDome
+-- verdict is normalized out of a Cloudflare Worker's log of its own call to the DataDome
+-- API: the event is attributed to datadome, while the bytes it was derived from arrived on
+-- a Cloudflare feed and are stored in raw_events under cloudflare. That is 270,233 of
+-- 1,662,366 events in half an hour of production, 16% of the traffic.
+--
+-- Only `vendor` was stored, so every read path that needed the other one had to rediscover
+-- it, and each rediscovered it wrongly in a different way. In a single session that cost
+-- four separate defects:
+--
+--   * the raw payload lookup filtered raw_events on the attributed vendor and matched
+--     nothing, which would have blanked the payload for all 16%
+--   * the detail view parsed Cloudflare bytes with DataDome's adapter and got no fields
+--   * a correlated record listed four vendors while only three had raw events, which reads
+--     as data loss and is not
+--   * the payload lookup could not use the sort key at all, because the leading column
+--     after tenant_id is exactly this vendor -- 50,246,418 rows read to return one row
+--
+-- The last one is why this is worth a column rather than a comment: with the delivering
+-- vendor known before the lookup, raw_events can finally be seeked instead of scanned.
+--
+-- DEFAULT '' rather than backfilled. Existing rows keep an empty value, which every reader
+-- must treat as "unknown, fall back to the slow path" -- a backfill would have to re-derive
+-- the answer from raw_events for 48 million rows to save a scan that only the detail view
+-- performs, and the value is correct for everything written from now on.
+ALTER TABLE normalized_events
+ADD COLUMN IF NOT EXISTS source_vendor LowCardinality(String) DEFAULT '' AFTER vendor

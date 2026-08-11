@@ -34,7 +34,15 @@ type NormalizedEvent struct {
 	EventTimeOriginal string
 	ReceivedAt        time.Time
 
-	Vendor        string
+	Vendor string
+	// SourceVendor is the vendor whose feed DELIVERED the bytes, which is not always the
+	// vendor above. A DataDome verdict is normalized out of a Cloudflare Worker's log, so
+	// it is attributed to datadome while its raw payload sits under cloudflare. Anything
+	// that goes back to raw_events, or parses those bytes, needs this one.
+	//
+	// Empty on rows written before it existed. Readers must treat that as "unknown" and
+	// fall back rather than assume it equals Vendor.
+	SourceVendor  string
 	FeedID        uuid.UUID
 	VendorAccount string
 	// VendorRequestID is the identifier shared BETWEEN vendors — the CF-Ray — and is
@@ -134,8 +142,8 @@ func (r *EventRepo) InsertNormalized(ctx context.Context, events []NormalizedEve
 	for _, e := range events {
 		if err := batch.Append(
 			e.TenantID, e.EventID, e.EventTime, e.EventTimeOriginal, e.ReceivedAt,
-			e.Vendor, e.FeedID, e.VendorAccount, e.VendorRequestID, e.VendorEventID,
-			e.LinkedRequestID,
+			e.Vendor, e.SourceVendor, e.FeedID, e.VendorAccount, e.VendorRequestID,
+			e.VendorEventID, e.LinkedRequestID,
 			ipOrZero(e.ClientIP), e.ClientIPShared, e.ClientASN, e.ClientCountry,
 			e.RequestHost, e.RequestPath, e.RequestQuery, e.RequestMethod,
 			e.UserAgent, e.HTTPStatus,
@@ -186,7 +194,8 @@ func (r *EventRepo) InsertRejected(ctx context.Context, events []RejectedEvent) 
 // be deployed in either order: an unmigrated database rejects the unknown column
 // outright, and a migrated one defaults it.
 const normalizedColumns = `tenant_id, event_id, event_time, event_time_original, received_at,
-	vendor, feed_id, vendor_account, vendor_request_id, vendor_event_id, linked_request_id,
+	vendor, source_vendor, feed_id, vendor_account, vendor_request_id, vendor_event_id,
+	linked_request_id,
 	client_ip, client_ip_shared, client_asn, client_country,
 	request_host, request_path, request_query, request_method, user_agent, http_status,
 	verdict, verdict_reason, rule_id, rule_ids, score, score_kind, ingest_version`
@@ -257,15 +266,19 @@ type RawPayload struct {
 // those reads were cancelled because the client gave up first, which the analyst saw as a
 // raw payload that was simply blank.
 //
-// IT DELIBERATELY CARRIES NO VENDOR, even though vendor leads the sort key and would
-// narrow this far more. The normalized event's vendor is NOT the vendor that delivered the
-// bytes: a DataDome verdict is normalized out of a Cloudflare Worker payload, so its
-// normalized row says datadome while its raw row says cloudflare. Filtering on the
-// normalized vendor finds nothing at all for those — 270,233 of 1,662,366 events in half
-// an hour of production, 16% of the total — which would turn an intermittent timeout into
-// a guaranteed blank. Partition pruning is the part that is safe to assume.
+// SourceVendor is the vendor that DELIVERED the bytes, and it is the only vendor that may
+// be used here. The event's own vendor must never be: a DataDome verdict is normalized out
+// of a Cloudflare Worker payload, so its normalized row says datadome while its raw row
+// says cloudflare, and filtering on the attributed vendor finds nothing at all for those —
+// 16% of production traffic, turned from an intermittent timeout into a guaranteed blank.
+// That is exactly the mistake this field exists to make impossible.
+//
+// It is optional because rows written before normalized_events carried the column have it
+// empty. Without it the query still prunes partitions by time, which is slower than a seek
+// and correct either way.
 type RawPayloadHint struct {
-	ReceivedAt time.Time
+	ReceivedAt   time.Time
+	SourceVendor string
 }
 
 // rawPayloadWindow is how far either side of the recorded arrival time to look.
@@ -275,10 +288,48 @@ type RawPayloadHint struct {
 // widening the scan beyond a partition or two, since raw_events is partitioned by day.
 const rawPayloadWindow = time.Hour
 
-// GetRawPayload returns the vendor's original bytes for an event.
+// rawPayloadQuery builds the narrowest lookup the caller's hint allows.
 //
-// The detail view shows this alongside the normalized fields so an analyst can settle
-// "did the platform read this correctly" without leaving the console (FR-005).
+// Three forms, in descending order of how much of the sort key they can use. raw_events is
+// ordered (tenant_id, vendor, received_at, event_id) and partitioned by toDate(received_at),
+// so what the caller knows decides whether this seeks, prunes, or scans everything.
+func rawPayloadQuery(
+	tenantID uuid.UUID, eventID string, hint RawPayloadHint,
+) (string, []any) {
+	switch {
+	case !hint.ReceivedAt.IsZero() && hint.SourceVendor != "":
+		// The full sort-key prefix: (tenant_id, vendor, received_at). This is a seek.
+		return `SELECT payload, payload_format, vendor FROM raw_events
+			WHERE tenant_id = ? AND vendor = ?
+			  AND received_at >= ? AND received_at <= ?
+			  AND event_id = ? LIMIT 1`, []any{
+				tenantID, hint.SourceVendor,
+				hint.ReceivedAt.Add(-rawPayloadWindow).UTC(),
+				hint.ReceivedAt.Add(rawPayloadWindow).UTC(),
+				eventID,
+			}
+
+	case !hint.ReceivedAt.IsZero():
+		// No delivering vendor recorded, which means a row older than the column. Time
+		// alone cannot seek the sort key, but it still prunes partitions.
+		return `SELECT payload, payload_format, vendor FROM raw_events
+			WHERE tenant_id = ?
+			  AND received_at >= ? AND received_at <= ?
+			  AND event_id = ? LIMIT 1`, []any{
+				tenantID,
+				hint.ReceivedAt.Add(-rawPayloadWindow).UTC(),
+				hint.ReceivedAt.Add(rawPayloadWindow).UTC(),
+				eventID,
+			}
+
+	default:
+		// Slow rather than wrong. A caller that can say nothing about when an event
+		// arrived still deserves an answer.
+		return `SELECT payload, payload_format, vendor FROM raw_events
+			WHERE tenant_id = ? AND event_id = ? LIMIT 1`, []any{tenantID, eventID}
+	}
+}
+
 // GetRawPayload returns the vendor's original bytes for an event.
 //
 // The detail view shows this alongside the normalized fields so an analyst can settle
@@ -291,24 +342,7 @@ func (r *EventRepo) GetRawPayload(
 		return RawPayload{}, err
 	}
 
-	// Falls back to the unpruned form when the caller has no hint. It is slow rather than
-	// wrong, and a caller that cannot say when an event arrived still deserves an answer.
-	query := `SELECT payload, payload_format, vendor FROM raw_events
-		WHERE tenant_id = ? AND event_id = ? LIMIT 1`
-	args := []any{tenantID, eventID}
-
-	if !hint.ReceivedAt.IsZero() {
-		query = `SELECT payload, payload_format, vendor FROM raw_events
-			WHERE tenant_id = ?
-			  AND received_at >= ? AND received_at <= ?
-			  AND event_id = ? LIMIT 1`
-		args = []any{
-			tenantID,
-			hint.ReceivedAt.Add(-rawPayloadWindow).UTC(),
-			hint.ReceivedAt.Add(rawPayloadWindow).UTC(),
-			eventID,
-		}
-	}
+	query, args := rawPayloadQuery(tenantID, eventID, hint)
 
 	rows, err := r.client.Query(ctx, query, args...)
 	if err != nil {
@@ -398,8 +432,8 @@ func scanNormalized(row rowScanner) (NormalizedEvent, error) {
 	var e NormalizedEvent
 	err := row.Scan(
 		&e.TenantID, &e.EventID, &e.EventTime, &e.EventTimeOriginal, &e.ReceivedAt,
-		&e.Vendor, &e.FeedID, &e.VendorAccount, &e.VendorRequestID, &e.VendorEventID,
-		&e.LinkedRequestID,
+		&e.Vendor, &e.SourceVendor, &e.FeedID, &e.VendorAccount, &e.VendorRequestID,
+		&e.VendorEventID, &e.LinkedRequestID,
 		&e.ClientIP, &e.ClientIPShared, &e.ClientASN, &e.ClientCountry,
 		&e.RequestHost, &e.RequestPath, &e.RequestQuery, &e.RequestMethod,
 		&e.UserAgent, &e.HTTPStatus,

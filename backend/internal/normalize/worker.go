@@ -236,7 +236,14 @@ func toRow(envelope ingest.Envelope, event vendors.Event) chdata.NormalizedEvent
 		EventTimeOriginal: event.EventTimeOriginal,
 		ReceivedAt:        envelope.ReceivedAt,
 
+		// The two vendors, side by side, and they are not always the same one.
+		//
+		// event.Vendor is what the adapter ATTRIBUTED the event to; envelope.Vendor is
+		// whose feed DELIVERED the bytes. A Cloudflare Worker's log of its call to the
+		// DataDome API normalizes to a datadome event carried on a cloudflare feed, and
+		// everything downstream that goes back to raw_events needs the second one.
 		Vendor:          event.Vendor,
+		SourceVendor:    envelope.Vendor,
 		FeedID:          envelope.FeedID,
 		VendorAccount:   event.VendorAccount,
 		VendorRequestID: event.VendorRequestID,
