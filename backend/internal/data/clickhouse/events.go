@@ -236,16 +236,20 @@ func (r *EventRepo) GetNormalized(ctx context.Context, eventID string) (Normaliz
 
 // RawPayloadHint narrows a payload lookup to the part of the table it is actually in.
 //
-// It is a HINT in name only: without it the query cannot seek at all. raw_events is sorted
-// (tenant_id, vendor, received_at, event_id), so an id on its own leaves everything after
-// tenant_id to be scanned — measured on production at 50,246,418 rows, the whole table, to
-// return one payload. Two thirds of those reads were cancelled because the client gave up
-// first, which the analyst saw as a raw payload that was simply blank.
+// It is a HINT in name only: without it the query cannot prune at all. raw_events is
+// partitioned by toDate(received_at), so an id on its own reads every partition — measured
+// on production at 50,246,418 rows, the whole table, to return one payload. Two thirds of
+// those reads were cancelled because the client gave up first, which the analyst saw as a
+// raw payload that was simply blank.
 //
-// The caller always has these: the detail view loads the normalized event before asking for
-// its payload, and that row carries both the vendor and the arrival time.
+// IT DELIBERATELY CARRIES NO VENDOR, even though vendor leads the sort key and would
+// narrow this far more. The normalized event's vendor is NOT the vendor that delivered the
+// bytes: a DataDome verdict is normalized out of a Cloudflare Worker payload, so its
+// normalized row says datadome while its raw row says cloudflare. Filtering on the
+// normalized vendor finds nothing at all for those — 270,233 of 1,662,366 events in half
+// an hour of production, 16% of the total — which would turn an intermittent timeout into
+// a guaranteed blank. Partition pruning is the part that is safe to assume.
 type RawPayloadHint struct {
-	Vendor     string
 	ReceivedAt time.Time
 }
 
@@ -279,13 +283,13 @@ func (r *EventRepo) GetRawPayload(
 		WHERE tenant_id = ? AND event_id = ? LIMIT 1`
 	args := []any{tenantID, eventID}
 
-	if hint.Vendor != "" && !hint.ReceivedAt.IsZero() {
+	if !hint.ReceivedAt.IsZero() {
 		query = `SELECT payload, payload_format FROM raw_events
-			WHERE tenant_id = ? AND vendor = ?
+			WHERE tenant_id = ?
 			  AND received_at >= ? AND received_at <= ?
 			  AND event_id = ? LIMIT 1`
 		args = []any{
-			tenantID, hint.Vendor,
+			tenantID,
 			hint.ReceivedAt.Add(-rawPayloadWindow).UTC(),
 			hint.ReceivedAt.Add(rawPayloadWindow).UTC(),
 			eventID,
