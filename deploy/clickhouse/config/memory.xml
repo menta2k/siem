@@ -9,20 +9,40 @@
       11 MiB and the uncompressed cache was untouched, so the defaults buy nothing and
       cost the headroom everything else needs.
     -->
-    <mark_cache_size>536870912</mark_cache_size>
+    <!--
+      2 GiB, raised from 512 MiB because the closer's lookups now come HERE.
+
+      The note below used to say the correlation closer was served from Redis. That stopped
+      being true when late arrivals began merging rather than replacing: every close pass
+      asks ClickHouse which correlation ids already exist and loads the stored records for
+      the ones that do. Those filter on correlation_id, which the sort key
+      (tenant_id, toDate(window_start), correlation_id) cannot serve without a date, so
+      each reads roughly 11 million rows of a 13.7M-row table. Marks are exactly what such
+      a scan re-reads, and a cache too small to hold them is re-read from disk every tick.
+    -->
+    <mark_cache_size>2147483648</mark_cache_size>
 
     <!--
       Disabled outright. It caches decompressed blocks for repeated point reads, which is
       a workload this platform does not have: the queries are analytical scans over time
-      ranges, and the correlation closer's lookups are served from Redis, not here.
+      ranges. The OS page cache is the better home for that here anyway: it was holding
+      24 GiB when this was measured, against a 31 GiB host.
     -->
     <uncompressed_cache_size>0</uncompressed_cache_size>
 
     <!--
-      A hard ceiling, replacing the default 90%-of-RAM. Resident usage measured at
-      888 MiB under ~650 events/sec, so this leaves substantial room for merges and
-      concurrent queries while guaranteeing ClickHouse can never squeeze the broker or
-      the services out of memory.
+      16 GiB, a hard ceiling replacing the default 90%-of-RAM.
+
+      The 4 GiB it replaces was sized against 888 MiB resident under ~650 events/sec, and
+      the reasoning was right: ClickHouse must never squeeze the broker or the services out
+      of memory. What has changed is what the number has to cover. The closer's lookups
+      scan ~11M rows on every tick, and a query that trips this ceiling does not
+      degrade. It fails with MEMORY_LIMIT_EXCEEDED and takes the close pass with it.
+
+      The guarantee still holds with room to spare. Measured on production: 31 GiB total,
+      5.6 GiB used across everything, 25.8 GiB available, and memory pressure flat at 0.00
+      across every PSI window. ClickHouse itself sits at 1.13 GiB, so this is headroom for
+      the peaks rather than an allocation.
     -->
-    <max_server_memory_usage>4294967296</max_server_memory_usage>
+    <max_server_memory_usage>17179869184</max_server_memory_usage>
 </clickhouse>

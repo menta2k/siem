@@ -78,7 +78,25 @@ services:
     image: redis:7.4-alpine
     # noeviction is deliberate. Redis holds correlation windows in flight; evicting them
     # under memory pressure would silently drop joins rather than fail loudly.
-    command: ["redis-server", "--appendonly", "no", "--maxmemory-policy", "noeviction"]
+    #
+    # --save "" TURNS OFF RDB SNAPSHOTTING, and --appendonly no was never enough on its
+    # own: it disables the AOF and leaves the RDB defaults (3600/1, 300/100, 60/10000)
+    # running. Measured on production, that fired every ~70 seconds and each snapshot took
+    # 16-17 seconds to write, so Redis spent roughly a quarter of its wall time forked and
+    # dumping 1.28 GB to disk. It is also why peak memory sat at 3.32 GB against a 1.28 GB
+    # steady state: the fork's copy-on-write dirties pages faster than the write drains.
+    #
+    # None of it bought anything. Nothing here is a store of record -- ClickHouse is -- and
+    # every key expires within the correlation window plus the lateness bound, so a
+    # restored snapshot is window state that is already too old to amend anything.
+    #
+    # --maxmemory is a SAFETY RAIL, not a target. Unbounded and noeviction together mean
+    # window state can grow into the host until the OOM killer picks a victim, which may
+    # well be ClickHouse rather than Redis. 8 GB against a 1.28 GB steady state leaves room
+    # for a traffic spike or a widened lateness bound while keeping the failure loud and
+    # local: noeviction makes Redis refuse writes rather than quietly drop joins.
+    command: ["redis-server", "--appendonly", "no", "--save", "",
+              "--maxmemory", "8gb", "--maxmemory-policy", "noeviction"]
     volumes:
       - redis-data:/data
     healthcheck:
