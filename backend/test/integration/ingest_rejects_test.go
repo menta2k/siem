@@ -291,7 +291,7 @@ func TestRedactionPolicyIsEnforcedAtStorage(t *testing.T) {
 
 	// The raw copy deliberately retains the original: redaction governs the derived,
 	// queryable view, and the vendor's evidence expires with the retention policy.
-	raw, _, err := h.fixture.Events.GetRawPayload(h.ctx, eventID)
+	raw, _, err := h.fixture.Events.GetRawPayload(h.ctx, eventID, chdata.RawPayloadHint{})
 	if err != nil {
 		t.Fatalf("GetRawPayload(): %v", err)
 	}

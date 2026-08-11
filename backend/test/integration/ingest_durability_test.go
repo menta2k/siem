@@ -394,7 +394,7 @@ func TestRawPayloadIsPreservedByteForByte(t *testing.T) {
 	// the note in TestRedactionPolicyIsEnforcedAtStorage.
 	eventID := normalize.EventIDFor(h.feed.ID, vendors.Cloudflare, "verbatim-1", []byte(payload))
 
-	stored, format, err := h.fixture.Events.GetRawPayload(h.ctx, eventID)
+	stored, format, err := h.fixture.Events.GetRawPayload(h.ctx, eventID, chdata.RawPayloadHint{})
 	if err != nil {
 		t.Fatalf("GetRawPayload(): %v", err)
 	}

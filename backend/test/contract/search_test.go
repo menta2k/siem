@@ -83,7 +83,9 @@ func (s stubEvents) GetNormalized(context.Context, string) (chdata.NormalizedEve
 	return s.event, s.err
 }
 
-func (s stubEvents) GetRawPayload(context.Context, string) ([]byte, string, error) {
+func (s stubEvents) GetRawPayload(
+	context.Context, string, chdata.RawPayloadHint,
+) ([]byte, string, error) {
 	return s.payload, "application/json", nil
 }
 

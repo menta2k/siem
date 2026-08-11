@@ -41,7 +41,9 @@ type EventSearcher interface {
 // EventDetailReader fetches one event with its raw payload.
 type EventDetailReader interface {
 	GetNormalized(ctx context.Context, eventID string) (chdata.NormalizedEvent, error)
-	GetRawPayload(ctx context.Context, eventID string) ([]byte, string, error)
+	GetRawPayload(
+		ctx context.Context, eventID string, hint chdata.RawPayloadHint,
+	) ([]byte, string, error)
 }
 
 // TenantPolicyReader supplies the redaction policy to re-apply when vendor fields are
@@ -66,7 +68,17 @@ type SearchService struct {
 	// rules names the WAF rule that matched. Optional in the same way, and empty until a
 	// tenant configures a Cloudflare token.
 	rules RuleNamer
-	now   func() time.Time
+	// log records a degraded read. Optional so existing constructions keep working; a
+	// nil logger simply means the degradation is not written down.
+	log mw.Logger
+	now func() time.Time
+}
+
+// WithLogger attaches a logger, so a raw payload that could not be read is recorded
+// rather than silently rendered blank. Returns the service for chaining at construction.
+func (s *SearchService) WithLogger(log mw.Logger) *SearchService {
+	s.log = log
+	return s
 }
 
 // NewSearchService constructs the service.
@@ -238,14 +250,29 @@ func (s *SearchService) GetEvent(
 	// A missing raw payload is not an error worth failing the whole read for: retention
 	// may have expired it while the normalized row survives under a longer TTL, and the
 	// normalized view is still the answer to the analyst's question.
-	payload, contentType, err := s.events.GetRawPayload(ctx, eventID)
-	if err == nil {
+	//
+	// EVERY OTHER FAILURE IS LOGGED, because degrading silently is how this hid. The
+	// lookup was scanning the whole table and being cancelled when the client gave up,
+	// and `if err == nil` turned each cancellation into a 200 with an empty payload —
+	// indistinguishable from an expired one, with nothing written down. The hint below
+	// is what stops the scan; this is what would have made it visible a lot sooner.
+	payload, contentType, err := s.events.GetRawPayload(ctx, eventID, chdata.RawPayloadHint{
+		Vendor:     event.Vendor,
+		ReceivedAt: event.ReceivedAt,
+	})
+	switch {
+	case err == nil:
 		detail.RawPayload = string(payload)
 		detail.RawContentType = contentType
 		// Rebuilt from those bytes rather than read from a column. Storing the parsed
 		// copy cost four times what the payload itself does, and this is the only view
 		// that ever asked for it.
 		detail.RawExtra, detail.UnknownFields = s.vendorFields(ctx, event.Vendor, payload)
+	case errors.Is(err, chdata.ErrNotFound):
+		// Expected: retention expired the payload while the normalized row survives.
+	case s.log != nil:
+		s.log.Error(ctx, "event detail: raw payload could not be read",
+			"event_id", eventID, "vendor", event.Vendor, "error", err.Error())
 	}
 	return detail, nil
 }

@@ -173,7 +173,8 @@ func buildServices(
 		Feeds: service.NewFeedsService(feeds, events, health,
 			secrets.NewRedisStore(rdb), auditLog, adapters),
 		Search: service.NewSearchService(
-			searchRepo, events, auditLog, limits, adapters, tenants, networks, ruleNames),
+			searchRepo, events, auditLog, limits, adapters, tenants, networks, ruleNames).
+			WithLogger(deps.Log),
 		Correlation: service.NewCorrelationService(correlated, networks, ruleNames),
 		Dashboards: service.NewDashboardsService(panels, feeds, health, limits, networks,
 			clickhouse.NewStorageRepo(ch, cfg.ClickHouse.Database), ruleNames),
