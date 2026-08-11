@@ -101,6 +101,7 @@ func normalizeDataDomeCall(fields map[string]any) (vendors.Event, error) {
 	}
 
 	status := vendors.ToStatus(fields["EdgeResponseStatus"])
+	extra, unknown := collectExtra(fields)
 
 	return vendors.Event{
 		Vendor: vendors.DataDome,
@@ -138,5 +139,19 @@ func normalizeDataDomeCall(fields map[string]any) (vendors.Event, error) {
 		// on the traffic examined — but that never reaches Cloudflare, and inventing a
 		// reason here would be a claim the data does not support.
 		ScoreKind: vendors.ScoreKindNone,
+
+		// THE PAYLOAD'S OWN FIELDS ARE KEPT, even though the mapped ones above are
+		// deliberately sparse. Those two decisions are unrelated and were previously
+		// conflated: leaving the request fields empty is about not attributing the
+		// Worker's egress address to the visitor, whereas raw_extra is the vendor's
+		// bytes rendered for a human — it makes no claim about whose request this was.
+		//
+		// Dropping it made the detail view show a full raw payload beside an empty
+		// field list on every DataDome-attributed event. The 49 fields on one of these
+		// records include the JA4 signals, the WAF attack scores and the matched rules
+		// of the surrounding request, which is exactly what an analyst opens this view
+		// to read.
+		RawExtra:      extra,
+		UnknownFields: unknown,
 	}, nil
 }

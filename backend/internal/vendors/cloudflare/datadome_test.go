@@ -190,3 +190,61 @@ func TestOrdinaryCloudflareTrafficIsUnaffected(t *testing.T) {
 			event.RequestHost, event.RequestPath)
 	}
 }
+
+// A DataDome-worker record keeps the payload's OWN fields, even though its mapped client
+// and request fields are deliberately empty.
+//
+// Those two decisions are unrelated and were previously conflated. Leaving the request
+// fields empty is about not attributing the Worker's egress address to the visitor;
+// raw_extra is the vendor's bytes rendered for a human and makes no such claim. Dropping
+// it showed the analyst a full raw payload beside an empty field list on every
+// DataDome-attributed event — 16% of production traffic.
+func TestADataDomeCallKeepsThePayloadsOwnFields(t *testing.T) {
+	// Trimmed from a real production record: the host and URI are what identify it as
+	// the Worker's call, and the rest is the surrounding request's evidence.
+	payload := []byte(`{"ClientIP":"2a06:98c0:3600::103",` +
+		`"ClientRequestHost":"api-cloudflare.datadome.co",` +
+		`"ClientRequestMethod":"POST","ClientRequestURI":"/validate-request/",` +
+		`"EdgeStartTimestamp":"2026-08-11T07:15:39Z","EdgeResponseStatus":200,` +
+		`"RayID":"a27533e76c55d999","ParentRayID":"a27533e76c55d101",` +
+		`"JA4":"t13d1516h2_8daaf6152771_b186095e22b6","WAFAttackScore":99,` +
+		`"BotScore":7,"ZoneName":"jobs.bg"}`)
+
+	adapter := New()
+	format, ok := adapter.Detect(payload)
+	if !ok {
+		t.Fatal("Detect rejected a Cloudflare NDJSON payload")
+	}
+	records, err := adapter.Parse(payload, format)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("Parse: %d records, err %v", len(records), err)
+	}
+
+	event, err := adapter.Normalize(records[0])
+	if err != nil {
+		t.Fatalf("Normalize: %v", err)
+	}
+
+	// Still a DataDome event with the client fields left alone — the point of the
+	// original design, which this must not undo.
+	if event.Vendor != vendors.DataDome {
+		t.Errorf("vendor = %q, want datadome", event.Vendor)
+	}
+	if event.ClientIP != nil {
+		t.Errorf("client ip = %v, want none: that address is Cloudflare's egress, not "+
+			"the visitor's", event.ClientIP)
+	}
+	if event.RequestHost != "" {
+		t.Errorf("request host = %q, want none", event.RequestHost)
+	}
+
+	// And now the evidence survives.
+	if len(event.RawExtra) == 0 {
+		t.Fatal("raw_extra is empty; the detail view shows a payload with no fields")
+	}
+	for _, key := range []string{"JA4", "WAFAttackScore", "BotScore", "ZoneName"} {
+		if event.RawExtra[key] == "" {
+			t.Errorf("raw_extra is missing %s, which an analyst opens this view to read", key)
+		}
+	}
+}
