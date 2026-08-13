@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
 	pb "github.com/menta2k/siem/api/gen/siem/v1"
@@ -44,6 +45,20 @@ func inviteServices(
 		f.Users, "siem")
 
 	return admin, authSvc
+}
+
+// actingAs returns a context carrying an authenticated admin, the way the auth
+// middleware would in a real request.
+//
+// Needed because recordAudit takes the actor from the claims on the context, and an
+// audit.Record with neither an actor id nor an actor email fails Validate() and is
+// dropped. A test that skips this sees every audited action silently write nothing —
+// which is exactly what made the erasure test below assert against an empty trail.
+func actingAs(ctx context.Context, actor *pb.UserProfile) context.Context {
+	return auth.WithClaims(ctx, &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{Subject: actor.GetUserId()},
+		Email:            actor.GetEmail(),
+	})
 }
 
 // invitedUser creates an account through the ordinary admin path and returns it.
@@ -495,6 +510,18 @@ func TestErasingAUserLeavesTheirAuditTrailIntact(t *testing.T) {
 	f, ctx := support.SharedTenant(t, "eraseaudit")
 	admin, _ := inviteServices(t, f)
 
+	// Every call below runs as an authenticated admin. Without claims on the context the
+	// audit writer has no actor, every record fails validation, and this test would pass
+	// or fail on an empty trail rather than on what erasure actually does.
+	actor, err := admin.CreateUser(ctx, &pb.CreateUserRequest{
+		Email: "auditor.admin@example.com", Role: auth.RoleAdmin,
+		Password: "a long enough passphrase",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	ctx = actingAs(ctx, actor)
+
 	profile := invitedUser(t, admin, ctx, "traceable@example.com")
 	before, err := f.Audit.List(ctx, chdata.ListFilter{
 		From: time.Now().Add(-time.Hour), To: time.Now().Add(time.Hour), Limit: 500,
@@ -528,5 +555,42 @@ func TestErasingAUserLeavesTheirAuditTrailIntact(t *testing.T) {
 	}
 	if !sawErase {
 		t.Error("no user_erase entry records the deletion")
+	}
+}
+
+// An admin erasing their own account destroys the identity their live token names, and
+// every request they make afterwards 401s. There is no way back through the API, so it
+// is refused rather than repaired.
+func TestErasingRefusesTheCallersOwnAccount(t *testing.T) {
+	f, ctx := support.SharedTenant(t, "eraseself")
+	admin, _ := inviteServices(t, f)
+
+	me, err := admin.CreateUser(ctx, &pb.CreateUserRequest{
+		Email: "self@example.com", Role: auth.RoleAdmin, Password: "a long enough passphrase",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	// A second admin, so the refusal below is attributable to the self-erase guard and
+	// not to the last-administrator one.
+	if _, err := admin.CreateUser(ctx, &pb.CreateUserRequest{
+		Email: "colleague@example.com", Role: auth.RoleAdmin,
+		Password: "another long passphrase",
+	}); err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+
+	if _, err := admin.EraseUser(actingAs(ctx, me), &pb.EraseUserRequest{
+		UserId: me.GetUserId(), ConfirmEmail: "self@example.com",
+	}); err == nil {
+		t.Fatal("an administrator erased their own account")
+	}
+
+	id, err := uuid.Parse(me.GetUserId())
+	if err != nil {
+		t.Fatalf("parse user id: %v", err)
+	}
+	if _, err := f.Users.Get(ctx, id); err != nil {
+		t.Errorf("the refused self-erase removed the account anyway: %v", err)
 	}
 }
