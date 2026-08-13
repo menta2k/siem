@@ -23,17 +23,30 @@
 # independent and re-running one is a no-op because the WHERE clause only selects rows
 # whose ja4 is still empty.
 #
-# The raw-side window is padded FORWARD because received_at trails event_time by 12s to
-# 402s in this deployment (p99.9 is 154s). The pad is an order of magnitude beyond the
-# observed maximum; a backward pad of 10 minutes covers clock variance that has not been
-# observed at all. Too small a window would silently under-fill rather than fail, which is
-# why the summary at the end reports what is left rather than declaring success.
+# THE PADDING IS THE WHOLE CORRECTNESS ARGUMENT, and it is the part that got this wrong
+# on the first run. The raw side is matched on received_at while the left side is
+# selected on event_time, so the window has to cover the delivery lag between them. That
+# lag was measured at 12s to 402s over the most recent two days and the pad was sized from
+# it — but a delivery backlog on 2026-08-10 pushed the lag to a median of 119 MINUTES for
+# eight hours, and every one of those hours silently matched nothing. 6 million rows were
+# left empty by a window that was correct for the data it was measured on.
+#
+# So: measure the lag over the RANGE BEING BACKFILLED, not over recent traffic, and pad
+# well past its maximum. The defaults below are deliberately generous rather than tight;
+# a wider window costs scan time, a narrow one costs correctness and says nothing.
+#
+# The failure is silent by nature — an unmatched row is simply not updated — which is why
+# the summary reports what is STILL EMPTY per day rather than declaring success. A day
+# that comes back below the others is a padding problem, not a data problem, and it is
+# fixed by re-running that range with a larger --pad-forward.
 #
 # Usage:
-#   ./backfill-ja4.sh --from 2026-08-09 --to 2026-08-14           # run it
-#   ./backfill-ja4.sh --from 2026-08-09 --to 2026-08-14 --dry-run # count only
+#   ./backfill-ja4.sh --from 2026-08-09 --to 2026-08-14
+#   ./backfill-ja4.sh --from 2026-08-09 --to 2026-08-14 --dry-run
+#   ./backfill-ja4.sh --from "2026-08-10 06:00:00" --to "2026-08-10 14:00:00" \
+#       --pad-forward 300            # re-run a range whose delivery ran late
 #
-# --to is EXCLUSIVE. Ranges are UTC, matching the stored timestamps.
+# --to is EXCLUSIVE. Ranges are UTC, matching the stored timestamps. Pads are in minutes.
 set -euo pipefail
 
 COMPOSE=${COMPOSE:-/srv/siem/docker-compose.prod.yml}
@@ -41,11 +54,18 @@ VENDOR=cloudflare
 DRY_RUN=0
 FROM_DAY=""
 TO_DAY=""
+# Minutes of raw-delivery lag to tolerate on each side. The forward default covers the
+# worst backlog seen in this deployment (~2 hours) with room to spare; the backward one
+# covers clock variance, which has not been observed at all.
+PAD_BACK=${PAD_BACK:-30}
+PAD_FORWARD=${PAD_FORWARD:-240}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --from) FROM_DAY="$2"; shift 2 ;;
     --to) TO_DAY="$2"; shift 2 ;;
+    --pad-back) PAD_BACK="$2"; shift 2 ;;
+    --pad-forward) PAD_FORWARD="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -90,6 +110,7 @@ RANGE_FROM=$(date -u -d "@$start_epoch" +'%Y-%m-%d %H:%M:%S')
 RANGE_TO=$(date -u -d "@$end_epoch" +'%Y-%m-%d %H:%M:%S')
 
 echo "backfilling ja4 for $VENDOR events in [$RANGE_FROM, $RANGE_TO) UTC"
+echo "raw-delivery window padded -${PAD_BACK}m / +${PAD_FORWARD}m"
 [[ $DRY_RUN -eq 1 ]] && echo "DRY RUN: counting only, nothing is written"
 
 cursor=$start_epoch
@@ -103,8 +124,8 @@ while [[ $cursor -lt $end_epoch ]]; do
       SELECT tenant_id, event_id, any($JA4_EXPR) AS ja4
       FROM raw_events
       WHERE vendor = '$VENDOR'
-        AND received_at >= toDateTime('$window_from', 'UTC') - INTERVAL 10 MINUTE
-        AND received_at <  toDateTime('$window_to', 'UTC') + INTERVAL 30 MINUTE
+        AND received_at >= toDateTime('$window_from', 'UTC') - INTERVAL $PAD_BACK MINUTE
+        AND received_at <  toDateTime('$window_to', 'UTC') + INTERVAL $PAD_FORWARD MINUTE
       GROUP BY tenant_id, event_id
       HAVING ja4 != ''
     ) AS r"
