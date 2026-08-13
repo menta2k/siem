@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { toDisplayMessage } from '@/api/client'
+import MfaEnrolment from '@/components/MfaEnrolment.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -87,14 +88,9 @@ async function submitCode(): Promise<void> {
 
             <!-- Step 2: TOTP. Only this step yields an access token. -->
             <v-form v-else @submit.prevent="submitCode">
-              <div v-if="auth.mfaProvisioningUri" class="mb-4">
-                <v-alert type="info" variant="tonal" density="compact" class="mb-3">
-                  Set up your authenticator app. This code is shown once and cannot be retrieved
-                  again.
-                </v-alert>
-                <!-- Interpolated, never v-html: this string is server-supplied. -->
-                <code class="text-caption d-block text-break">{{ auth.mfaProvisioningUri }}</code>
-              </div>
+              <!-- Shown on first sign-in, and again after an admin resets MFA. Both
+                   reach this same step, so enrolment has one presentation. -->
+              <MfaEnrolment v-if="auth.mfaProvisioningUri" :uri="auth.mfaProvisioningUri" />
 
               <v-text-field
                 v-model="code"

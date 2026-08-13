@@ -79,6 +79,15 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * True once the user has deliberately signed out.
+   *
+   * Module-scoped rather than reactive state: nothing renders from it, and it must
+   * survive reset(), which is also the 401 handler. It is the difference between "this
+   * page has no access token yet" — restore it — and "this person asked to leave".
+   */
+  let signedOut = false
+
   function reset(): void {
     accessToken.value = null
     refreshToken.value = null
@@ -89,6 +98,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** Step 1: password. Returns nothing usable until MFA completes. */
   async function login(email: string, password: string): Promise<void> {
+    // Deliberately signing in supersedes a deliberate sign-out, so session restore works
+    // normally again for whoever is arriving now.
+    signedOut = false
+
     const { data } = await api.POST('/api/v1/auth/login', { body: { email, password } })
     if (!data) throw new Error('The sign-in response was empty')
 
@@ -112,15 +125,37 @@ export const useAuthStore = defineStore('auth', () => {
     mfaProvisioningUri.value = null
   }
 
+  /**
+   * Ends the session, server-side first.
+   *
+   * THE BUG THIS FIXES. This used to call reset() BEFORE the request. /auth/logout is not
+   * a public operation — it needs a bearer token — so clearing the access token first sent
+   * the call out unauthenticated, and it came back 401 without ever reaching the handler.
+   * The refresh token was therefore never revoked and its httpOnly cookie never cleared,
+   * and the 401 was swallowed by the catch below. The router guard then did exactly what
+   * it is built to do on a page with no access token: it called restore(), the surviving
+   * cookie minted a fresh session, and the user landed back on the dashboard. Sign-out
+   * cleared the tab and the router immediately undid it.
+   *
+   * So the order is load-bearing: revoke while the credential still exists, then reset.
+   */
   async function logout(): Promise<void> {
     const token = refreshToken.value
-    reset()
-    if (!token) return
     try {
-      await api.POST('/api/v1/auth/logout', { body: { refreshToken: token } })
+      // The body is optional — the server prefers the httpOnly cookie and falls back to
+      // this — so a session restored from a cookie alone still revokes correctly.
+      await api.POST('/api/v1/auth/logout', {
+        body: token ? { refreshToken: token } : {},
+      })
     } catch {
-      // Local state is already cleared, so the user is signed out regardless. A
-      // failed server-side revocation must not leave them stuck on a logout screen.
+      // The user asked to leave, so they leave regardless of what the server said. The
+      // signedOut latch below is what keeps that promise even when revocation failed and
+      // a usable cookie is still sitting in the browser.
+    } finally {
+      reset()
+      // Set AFTER reset: reset() is also the 401 handler, and letting it clear this would
+      // reopen the exact hole this function exists to close.
+      signedOut = true
     }
   }
 
@@ -167,6 +202,11 @@ export const useAuthStore = defineStore('auth', () => {
   let restoring: Promise<boolean> | null = null
   async function restore(): Promise<boolean> {
     if (isAuthenticated.value) return true
+    // An explicit sign-out is not a session to be restored. Without this latch, a
+    // revocation that failed — server unreachable, or a 401 like the one described on
+    // logout() — leaves a live cookie that this call would cash in, silently putting the
+    // user back into the account they just left. Signing in again clears it.
+    if (signedOut) return false
     restoring ??= refresh().finally(() => {
       restoring = null
     })
