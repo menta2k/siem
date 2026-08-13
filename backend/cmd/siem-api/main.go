@@ -139,6 +139,7 @@ func buildServices(
 
 	tenants := clickhouse.NewTenantRepo(ch, locker)
 	users := clickhouse.NewUserRepo(ch, locker)
+	invites := clickhouse.NewInviteRepo(ch, locker)
 	auditLog := clickhouse.NewAuditRepo(ch, locker)
 	feeds := clickhouse.NewFeedRepo(ch, locker)
 	events := clickhouse.NewEventRepo(ch)
@@ -168,7 +169,7 @@ func buildServices(
 	}
 
 	return server.Services{
-		Auth: service.NewAuthService(users, tenants, auditLog, tokens, users,
+		Auth: service.NewAuthService(users, tenants, auditLog, invites, tokens, users,
 			cfg.Auth.MFAIssuer),
 		Feeds: service.NewFeedsService(feeds, events, health,
 			secrets.NewRedisStore(rdb), auditLog, adapters),
@@ -178,7 +179,7 @@ func buildServices(
 		Correlation: service.NewCorrelationService(correlated, networks, ruleNames),
 		Dashboards: service.NewDashboardsService(panels, feeds, health, limits, networks,
 			clickhouse.NewStorageRepo(ch, cfg.ClickHouse.Database), ruleNames),
-		Admin: service.NewAdminService(users, tenants, auditLog,
+		Admin: service.NewAdminService(users, tenants, auditLog, invites,
 			retentionWorker(deps, ch, locker, tenants, events),
 			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL),
 			secrets.NewRedisStore(rdb), cfg.CloudflareRules.APIBase, deps.Log),

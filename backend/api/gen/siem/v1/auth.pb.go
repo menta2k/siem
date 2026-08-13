@@ -30,6 +30,199 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type PreviewInviteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SetupToken    string                 `protobuf:"bytes,1,opt,name=setup_token,json=setupToken,proto3" json:"setup_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PreviewInviteRequest) Reset() {
+	*x = PreviewInviteRequest{}
+	mi := &file_siem_v1_auth_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreviewInviteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreviewInviteRequest) ProtoMessage() {}
+
+func (x *PreviewInviteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_auth_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreviewInviteRequest.ProtoReflect.Descriptor instead.
+func (*PreviewInviteRequest) Descriptor() ([]byte, []int) {
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *PreviewInviteRequest) GetSetupToken() string {
+	if x != nil {
+		return x.SetupToken
+	}
+	return ""
+}
+
+type PreviewInviteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PreviewInviteResponse) Reset() {
+	*x = PreviewInviteResponse{}
+	mi := &file_siem_v1_auth_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreviewInviteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreviewInviteResponse) ProtoMessage() {}
+
+func (x *PreviewInviteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_auth_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreviewInviteResponse.ProtoReflect.Descriptor instead.
+func (*PreviewInviteResponse) Descriptor() ([]byte, []int) {
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *PreviewInviteResponse) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *PreviewInviteResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+type RedeemInviteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SetupToken    string                 `protobuf:"bytes,1,opt,name=setup_token,json=setupToken,proto3" json:"setup_token,omitempty"`
+	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RedeemInviteRequest) Reset() {
+	*x = RedeemInviteRequest{}
+	mi := &file_siem_v1_auth_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RedeemInviteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RedeemInviteRequest) ProtoMessage() {}
+
+func (x *RedeemInviteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_auth_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RedeemInviteRequest.ProtoReflect.Descriptor instead.
+func (*RedeemInviteRequest) Descriptor() ([]byte, []int) {
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RedeemInviteRequest) GetSetupToken() string {
+	if x != nil {
+		return x.SetupToken
+	}
+	return ""
+}
+
+func (x *RedeemInviteRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+type RedeemInviteResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Echoed so the sign-in form that follows can be prefilled.
+	Email         string `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RedeemInviteResponse) Reset() {
+	*x = RedeemInviteResponse{}
+	mi := &file_siem_v1_auth_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RedeemInviteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RedeemInviteResponse) ProtoMessage() {}
+
+func (x *RedeemInviteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_auth_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RedeemInviteResponse.ProtoReflect.Descriptor instead.
+func (*RedeemInviteResponse) Descriptor() ([]byte, []int) {
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RedeemInviteResponse) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
 type LoginRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
@@ -40,7 +233,7 @@ type LoginRequest struct {
 
 func (x *LoginRequest) Reset() {
 	*x = LoginRequest{}
-	mi := &file_siem_v1_auth_proto_msgTypes[0]
+	mi := &file_siem_v1_auth_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -52,7 +245,7 @@ func (x *LoginRequest) String() string {
 func (*LoginRequest) ProtoMessage() {}
 
 func (x *LoginRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[0]
+	mi := &file_siem_v1_auth_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -65,7 +258,7 @@ func (x *LoginRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoginRequest.ProtoReflect.Descriptor instead.
 func (*LoginRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{0}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *LoginRequest) GetEmail() string {
@@ -96,7 +289,7 @@ type LoginResponse struct {
 
 func (x *LoginResponse) Reset() {
 	*x = LoginResponse{}
-	mi := &file_siem_v1_auth_proto_msgTypes[1]
+	mi := &file_siem_v1_auth_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -108,7 +301,7 @@ func (x *LoginResponse) String() string {
 func (*LoginResponse) ProtoMessage() {}
 
 func (x *LoginResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[1]
+	mi := &file_siem_v1_auth_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -121,7 +314,7 @@ func (x *LoginResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoginResponse.ProtoReflect.Descriptor instead.
 func (*LoginResponse) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{1}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *LoginResponse) GetMfaChallengeToken() string {
@@ -155,7 +348,7 @@ type VerifyMFARequest struct {
 
 func (x *VerifyMFARequest) Reset() {
 	*x = VerifyMFARequest{}
-	mi := &file_siem_v1_auth_proto_msgTypes[2]
+	mi := &file_siem_v1_auth_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -167,7 +360,7 @@ func (x *VerifyMFARequest) String() string {
 func (*VerifyMFARequest) ProtoMessage() {}
 
 func (x *VerifyMFARequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[2]
+	mi := &file_siem_v1_auth_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -180,7 +373,7 @@ func (x *VerifyMFARequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyMFARequest.ProtoReflect.Descriptor instead.
 func (*VerifyMFARequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{2}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *VerifyMFARequest) GetMfaChallengeToken() string {
@@ -209,7 +402,7 @@ type TokenResponse struct {
 
 func (x *TokenResponse) Reset() {
 	*x = TokenResponse{}
-	mi := &file_siem_v1_auth_proto_msgTypes[3]
+	mi := &file_siem_v1_auth_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -221,7 +414,7 @@ func (x *TokenResponse) String() string {
 func (*TokenResponse) ProtoMessage() {}
 
 func (x *TokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[3]
+	mi := &file_siem_v1_auth_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -234,7 +427,7 @@ func (x *TokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TokenResponse.ProtoReflect.Descriptor instead.
 func (*TokenResponse) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{3}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *TokenResponse) GetAccessToken() string {
@@ -274,7 +467,7 @@ type RefreshRequest struct {
 
 func (x *RefreshRequest) Reset() {
 	*x = RefreshRequest{}
-	mi := &file_siem_v1_auth_proto_msgTypes[4]
+	mi := &file_siem_v1_auth_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -286,7 +479,7 @@ func (x *RefreshRequest) String() string {
 func (*RefreshRequest) ProtoMessage() {}
 
 func (x *RefreshRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[4]
+	mi := &file_siem_v1_auth_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -299,7 +492,7 @@ func (x *RefreshRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshRequest.ProtoReflect.Descriptor instead.
 func (*RefreshRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{4}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RefreshRequest) GetRefreshToken() string {
@@ -318,7 +511,7 @@ type LogoutRequest struct {
 
 func (x *LogoutRequest) Reset() {
 	*x = LogoutRequest{}
-	mi := &file_siem_v1_auth_proto_msgTypes[5]
+	mi := &file_siem_v1_auth_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -330,7 +523,7 @@ func (x *LogoutRequest) String() string {
 func (*LogoutRequest) ProtoMessage() {}
 
 func (x *LogoutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[5]
+	mi := &file_siem_v1_auth_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -343,7 +536,7 @@ func (x *LogoutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogoutRequest.ProtoReflect.Descriptor instead.
 func (*LogoutRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{5}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *LogoutRequest) GetRefreshToken() string {
@@ -361,7 +554,7 @@ type LogoutResponse struct {
 
 func (x *LogoutResponse) Reset() {
 	*x = LogoutResponse{}
-	mi := &file_siem_v1_auth_proto_msgTypes[6]
+	mi := &file_siem_v1_auth_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -373,7 +566,7 @@ func (x *LogoutResponse) String() string {
 func (*LogoutResponse) ProtoMessage() {}
 
 func (x *LogoutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[6]
+	mi := &file_siem_v1_auth_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -386,7 +579,7 @@ func (x *LogoutResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogoutResponse.ProtoReflect.Descriptor instead.
 func (*LogoutResponse) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{6}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{10}
 }
 
 type MeRequest struct {
@@ -397,7 +590,7 @@ type MeRequest struct {
 
 func (x *MeRequest) Reset() {
 	*x = MeRequest{}
-	mi := &file_siem_v1_auth_proto_msgTypes[7]
+	mi := &file_siem_v1_auth_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -409,7 +602,7 @@ func (x *MeRequest) String() string {
 func (*MeRequest) ProtoMessage() {}
 
 func (x *MeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[7]
+	mi := &file_siem_v1_auth_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -422,7 +615,7 @@ func (x *MeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeRequest.ProtoReflect.Descriptor instead.
 func (*MeRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{7}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{11}
 }
 
 type MeResponse struct {
@@ -434,7 +627,7 @@ type MeResponse struct {
 
 func (x *MeResponse) Reset() {
 	*x = MeResponse{}
-	mi := &file_siem_v1_auth_proto_msgTypes[8]
+	mi := &file_siem_v1_auth_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -446,7 +639,7 @@ func (x *MeResponse) String() string {
 func (*MeResponse) ProtoMessage() {}
 
 func (x *MeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[8]
+	mi := &file_siem_v1_auth_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -459,7 +652,7 @@ func (x *MeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MeResponse.ProtoReflect.Descriptor instead.
 func (*MeResponse) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{8}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *MeResponse) GetUser() *UserProfile {
@@ -474,18 +667,23 @@ type UserProfile struct {
 	UserId string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Email  string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
 	// admin | analyst | auditor | ingest_only
-	Role          string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
-	TenantId      string                 `protobuf:"bytes,4,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
-	TenantName    string                 `protobuf:"bytes,5,opt,name=tenant_name,json=tenantName,proto3" json:"tenant_name,omitempty"`
-	MfaEnabled    bool                   `protobuf:"varint,6,opt,name=mfa_enabled,json=mfaEnabled,proto3" json:"mfa_enabled,omitempty"`
-	LastLoginAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_login_at,json=lastLoginAt,proto3" json:"last_login_at,omitempty"`
+	Role        string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	TenantId    string                 `protobuf:"bytes,4,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantName  string                 `protobuf:"bytes,5,opt,name=tenant_name,json=tenantName,proto3" json:"tenant_name,omitempty"`
+	MfaEnabled  bool                   `protobuf:"varint,6,opt,name=mfa_enabled,json=mfaEnabled,proto3" json:"mfa_enabled,omitempty"`
+	LastLoginAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_login_at,json=lastLoginAt,proto3" json:"last_login_at,omitempty"`
+	// active | invited | disabled. `invited` means the account exists but has never had
+	// a password its owner chose, and cannot sign in until a setup token is redeemed —
+	// without this field an admin cannot tell that apart from an account that simply has
+	// not logged in yet.
+	Status        string `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UserProfile) Reset() {
 	*x = UserProfile{}
-	mi := &file_siem_v1_auth_proto_msgTypes[9]
+	mi := &file_siem_v1_auth_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -497,7 +695,7 @@ func (x *UserProfile) String() string {
 func (*UserProfile) ProtoMessage() {}
 
 func (x *UserProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_auth_proto_msgTypes[9]
+	mi := &file_siem_v1_auth_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -510,7 +708,7 @@ func (x *UserProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserProfile.ProtoReflect.Descriptor instead.
 func (*UserProfile) Descriptor() ([]byte, []int) {
-	return file_siem_v1_auth_proto_rawDescGZIP(), []int{9}
+	return file_siem_v1_auth_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *UserProfile) GetUserId() string {
@@ -562,11 +760,31 @@ func (x *UserProfile) GetLastLoginAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *UserProfile) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
 var File_siem_v1_auth_proto protoreflect.FileDescriptor
 
 const file_siem_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x12siem/v1/auth.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"@\n" +
+	"\x12siem/v1/auth.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"7\n" +
+	"\x14PreviewInviteRequest\x12\x1f\n" +
+	"\vsetup_token\x18\x01 \x01(\tR\n" +
+	"setupToken\"h\n" +
+	"\x15PreviewInviteResponse\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\x129\n" +
+	"\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"R\n" +
+	"\x13RedeemInviteRequest\x12\x1f\n" +
+	"\vsetup_token\x18\x01 \x01(\tR\n" +
+	"setupToken\x12\x1a\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\",\n" +
+	"\x14RedeemInviteResponse\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\"@\n" +
 	"\fLoginRequest\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\"\xa7\x01\n" +
@@ -591,7 +809,7 @@ const file_siem_v1_auth_proto_rawDesc = "" +
 	"\tMeRequest\"6\n" +
 	"\n" +
 	"MeResponse\x12(\n" +
-	"\x04user\x18\x01 \x01(\v2\x14.siem.v1.UserProfileR\x04user\"\xef\x01\n" +
+	"\x04user\x18\x01 \x01(\v2\x14.siem.v1.UserProfileR\x04user\"\x87\x02\n" +
 	"\vUserProfile\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +
@@ -601,13 +819,16 @@ const file_siem_v1_auth_proto_rawDesc = "" +
 	"tenantName\x12\x1f\n" +
 	"\vmfa_enabled\x18\x06 \x01(\bR\n" +
 	"mfaEnabled\x12>\n" +
-	"\rlast_login_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vlastLoginAt2\xba\x03\n" +
+	"\rlast_login_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vlastLoginAt\x12\x16\n" +
+	"\x06status\x18\b \x01(\tR\x06status2\xa6\x05\n" +
 	"\x04Auth\x12U\n" +
 	"\x05Login\x12\x15.siem.v1.LoginRequest\x1a\x16.siem.v1.LoginResponse\"\x1d\x82\xd3\xe4\x93\x02\x17:\x01*\"\x12/api/v1/auth/login\x12[\n" +
 	"\tVerifyMFA\x12\x19.siem.v1.VerifyMFARequest\x1a\x16.siem.v1.TokenResponse\"\x1b\x82\xd3\xe4\x93\x02\x15:\x01*\"\x10/api/v1/auth/mfa\x12[\n" +
 	"\aRefresh\x12\x17.siem.v1.RefreshRequest\x1a\x16.siem.v1.TokenResponse\"\x1f\x82\xd3\xe4\x93\x02\x19:\x01*\"\x14/api/v1/auth/refresh\x12Y\n" +
 	"\x06Logout\x12\x16.siem.v1.LogoutRequest\x1a\x17.siem.v1.LogoutResponse\"\x1e\x82\xd3\xe4\x93\x02\x18:\x01*\"\x13/api/v1/auth/logout\x12F\n" +
-	"\x02Me\x12\x12.siem.v1.MeRequest\x1a\x13.siem.v1.MeResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/api/v1/auth/meB\x85\x01\n" +
+	"\x02Me\x12\x12.siem.v1.MeRequest\x1a\x13.siem.v1.MeResponse\"\x17\x82\xd3\xe4\x93\x02\x11\x12\x0f/api/v1/auth/me\x12v\n" +
+	"\rPreviewInvite\x12\x1d.siem.v1.PreviewInviteRequest\x1a\x1e.siem.v1.PreviewInviteResponse\"&\x82\xd3\xe4\x93\x02 :\x01*\"\x1b/api/v1/auth/invite/preview\x12r\n" +
+	"\fRedeemInvite\x12\x1c.siem.v1.RedeemInviteRequest\x1a\x1d.siem.v1.RedeemInviteResponse\"%\x82\xd3\xe4\x93\x02\x1f:\x01*\"\x1a/api/v1/auth/invite/redeemB\x85\x01\n" +
 	"\vcom.siem.v1B\tAuthProtoP\x01Z.github.com/menta2k/siem/api/gen/siem/v1;siemv1\xa2\x02\x03SXX\xaa\x02\aSiem.V1\xca\x02\aSiem\\V1\xe2\x02\x13Siem\\V1\\GPBMetadata\xea\x02\bSiem::V1b\x06proto3"
 
 var (
@@ -622,40 +843,49 @@ func file_siem_v1_auth_proto_rawDescGZIP() []byte {
 	return file_siem_v1_auth_proto_rawDescData
 }
 
-var file_siem_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_siem_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_siem_v1_auth_proto_goTypes = []any{
-	(*LoginRequest)(nil),          // 0: siem.v1.LoginRequest
-	(*LoginResponse)(nil),         // 1: siem.v1.LoginResponse
-	(*VerifyMFARequest)(nil),      // 2: siem.v1.VerifyMFARequest
-	(*TokenResponse)(nil),         // 3: siem.v1.TokenResponse
-	(*RefreshRequest)(nil),        // 4: siem.v1.RefreshRequest
-	(*LogoutRequest)(nil),         // 5: siem.v1.LogoutRequest
-	(*LogoutResponse)(nil),        // 6: siem.v1.LogoutResponse
-	(*MeRequest)(nil),             // 7: siem.v1.MeRequest
-	(*MeResponse)(nil),            // 8: siem.v1.MeResponse
-	(*UserProfile)(nil),           // 9: siem.v1.UserProfile
-	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
+	(*PreviewInviteRequest)(nil),  // 0: siem.v1.PreviewInviteRequest
+	(*PreviewInviteResponse)(nil), // 1: siem.v1.PreviewInviteResponse
+	(*RedeemInviteRequest)(nil),   // 2: siem.v1.RedeemInviteRequest
+	(*RedeemInviteResponse)(nil),  // 3: siem.v1.RedeemInviteResponse
+	(*LoginRequest)(nil),          // 4: siem.v1.LoginRequest
+	(*LoginResponse)(nil),         // 5: siem.v1.LoginResponse
+	(*VerifyMFARequest)(nil),      // 6: siem.v1.VerifyMFARequest
+	(*TokenResponse)(nil),         // 7: siem.v1.TokenResponse
+	(*RefreshRequest)(nil),        // 8: siem.v1.RefreshRequest
+	(*LogoutRequest)(nil),         // 9: siem.v1.LogoutRequest
+	(*LogoutResponse)(nil),        // 10: siem.v1.LogoutResponse
+	(*MeRequest)(nil),             // 11: siem.v1.MeRequest
+	(*MeResponse)(nil),            // 12: siem.v1.MeResponse
+	(*UserProfile)(nil),           // 13: siem.v1.UserProfile
+	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
 }
 var file_siem_v1_auth_proto_depIdxs = []int32{
-	10, // 0: siem.v1.TokenResponse.expires_at:type_name -> google.protobuf.Timestamp
-	9,  // 1: siem.v1.TokenResponse.user:type_name -> siem.v1.UserProfile
-	9,  // 2: siem.v1.MeResponse.user:type_name -> siem.v1.UserProfile
-	10, // 3: siem.v1.UserProfile.last_login_at:type_name -> google.protobuf.Timestamp
-	0,  // 4: siem.v1.Auth.Login:input_type -> siem.v1.LoginRequest
-	2,  // 5: siem.v1.Auth.VerifyMFA:input_type -> siem.v1.VerifyMFARequest
-	4,  // 6: siem.v1.Auth.Refresh:input_type -> siem.v1.RefreshRequest
-	5,  // 7: siem.v1.Auth.Logout:input_type -> siem.v1.LogoutRequest
-	7,  // 8: siem.v1.Auth.Me:input_type -> siem.v1.MeRequest
-	1,  // 9: siem.v1.Auth.Login:output_type -> siem.v1.LoginResponse
-	3,  // 10: siem.v1.Auth.VerifyMFA:output_type -> siem.v1.TokenResponse
-	3,  // 11: siem.v1.Auth.Refresh:output_type -> siem.v1.TokenResponse
-	6,  // 12: siem.v1.Auth.Logout:output_type -> siem.v1.LogoutResponse
-	8,  // 13: siem.v1.Auth.Me:output_type -> siem.v1.MeResponse
-	9,  // [9:14] is the sub-list for method output_type
-	4,  // [4:9] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	14, // 0: siem.v1.PreviewInviteResponse.expires_at:type_name -> google.protobuf.Timestamp
+	14, // 1: siem.v1.TokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	13, // 2: siem.v1.TokenResponse.user:type_name -> siem.v1.UserProfile
+	13, // 3: siem.v1.MeResponse.user:type_name -> siem.v1.UserProfile
+	14, // 4: siem.v1.UserProfile.last_login_at:type_name -> google.protobuf.Timestamp
+	4,  // 5: siem.v1.Auth.Login:input_type -> siem.v1.LoginRequest
+	6,  // 6: siem.v1.Auth.VerifyMFA:input_type -> siem.v1.VerifyMFARequest
+	8,  // 7: siem.v1.Auth.Refresh:input_type -> siem.v1.RefreshRequest
+	9,  // 8: siem.v1.Auth.Logout:input_type -> siem.v1.LogoutRequest
+	11, // 9: siem.v1.Auth.Me:input_type -> siem.v1.MeRequest
+	0,  // 10: siem.v1.Auth.PreviewInvite:input_type -> siem.v1.PreviewInviteRequest
+	2,  // 11: siem.v1.Auth.RedeemInvite:input_type -> siem.v1.RedeemInviteRequest
+	5,  // 12: siem.v1.Auth.Login:output_type -> siem.v1.LoginResponse
+	7,  // 13: siem.v1.Auth.VerifyMFA:output_type -> siem.v1.TokenResponse
+	7,  // 14: siem.v1.Auth.Refresh:output_type -> siem.v1.TokenResponse
+	10, // 15: siem.v1.Auth.Logout:output_type -> siem.v1.LogoutResponse
+	12, // 16: siem.v1.Auth.Me:output_type -> siem.v1.MeResponse
+	1,  // 17: siem.v1.Auth.PreviewInvite:output_type -> siem.v1.PreviewInviteResponse
+	3,  // 18: siem.v1.Auth.RedeemInvite:output_type -> siem.v1.RedeemInviteResponse
+	12, // [12:19] is the sub-list for method output_type
+	5,  // [5:12] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_siem_v1_auth_proto_init() }
@@ -669,7 +899,7 @@ func file_siem_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_auth_proto_rawDesc), len(file_siem_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

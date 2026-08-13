@@ -18,6 +18,14 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true, title: 'Sign in' },
   },
   {
+    // Reached from a setup link an administrator sent out. Public by necessity: the
+    // holder has no account to sign in to until this page has done its work.
+    path: '/invite',
+    name: 'invite',
+    component: () => import('@/pages/Invite.vue'),
+    meta: { public: true, title: 'Set up your account' },
+  },
+  {
     path: '/',
     component: () => import('@/layouts/AppShell.vue'),
     children: [
@@ -108,7 +116,10 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.public) {
-    return auth.isAuthenticated ? { name: 'dashboards' } : true
+    // Only /login bounces an already-signed-in user, because signing in again is a
+    // no-op. The invite page must not: redeeming a setup link is a real action, and an
+    // admin holding a live session is exactly who might follow one to check it works.
+    return auth.isAuthenticated && to.name === 'login' ? { name: 'dashboards' } : true
   }
   if (!auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }

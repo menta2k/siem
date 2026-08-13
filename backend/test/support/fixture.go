@@ -30,6 +30,7 @@ type Fixture struct {
 	Locker     chdata.Locker
 	Tenants    *chdata.TenantRepo
 	Users      *chdata.UserRepo
+	Invites    *chdata.InviteRepo
 	Audit      *chdata.AuditRepo
 	Feeds      *chdata.FeedRepo
 	Events     *chdata.EventRepo
@@ -173,6 +174,7 @@ func wire(
 		Locker:     locker,
 		Tenants:    chdata.NewTenantRepo(ch, locker),
 		Users:      chdata.NewUserRepo(ch, locker),
+		Invites:    chdata.NewInviteRepo(ch, locker),
 		Audit:      chdata.NewAuditRepo(ch, locker),
 		Feeds:      chdata.NewFeedRepo(ch, locker),
 		Events:     chdata.NewEventRepo(ch),

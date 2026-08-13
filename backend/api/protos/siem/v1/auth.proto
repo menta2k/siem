@@ -48,6 +48,51 @@ service Auth {
   rpc Me(MeRequest) returns (MeResponse) {
     option (google.api.http) = {get: "/api/v1/auth/me"};
   }
+
+  // Describe a setup token WITHOUT spending it, so the page can name the account being
+  // activated instead of asking someone to set a password for an unnamed inbox.
+  //
+  // Public, like Login: the holder of the token has no session yet, by definition. It
+  // discloses only the address the token was issued for, which the holder must already
+  // know to have received it.
+  rpc PreviewInvite(PreviewInviteRequest) returns (PreviewInviteResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/auth/invite/preview"
+      body: "*"
+    };
+  }
+
+  // Spend a setup token: set the account's first password and activate it.
+  //
+  // Deliberately does NOT return a token pair. Redemption proves possession of the
+  // setup link and nothing else, and MFA has not been enrolled at this point — issuing
+  // a session here would be a route into the platform that skips the second factor.
+  // The user signs in afterwards and enrols through the normal first-login path.
+  rpc RedeemInvite(RedeemInviteRequest) returns (RedeemInviteResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/auth/invite/redeem"
+      body: "*"
+    };
+  }
+}
+
+message PreviewInviteRequest {
+  string setup_token = 1;
+}
+
+message PreviewInviteResponse {
+  string email = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message RedeemInviteRequest {
+  string setup_token = 1;
+  string password = 2;
+}
+
+message RedeemInviteResponse {
+  // Echoed so the sign-in form that follows can be prefilled.
+  string email = 1;
 }
 
 message LoginRequest {
@@ -101,4 +146,9 @@ message UserProfile {
   string tenant_name = 5;
   bool mfa_enabled = 6;
   google.protobuf.Timestamp last_login_at = 7;
+  // active | invited | disabled. `invited` means the account exists but has never had
+  // a password its owner chose, and cannot sign in until a setup token is redeemed —
+  // without this field an admin cannot tell that apart from an account that simply has
+  // not logged in yet.
+  string status = 8;
 }

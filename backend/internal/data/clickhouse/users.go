@@ -34,10 +34,32 @@ type User struct {
 const (
 	UserStatusActive   = "active"
 	UserStatusDisabled = "disabled"
+	// UserStatusInvited is an account that exists but has never had a password its
+	// owner chose. It cannot authenticate, and it becomes active only by redeeming a
+	// setup token. An admin creating a colleague's account leaves it here on purpose:
+	// nobody but the user themselves ever knows their password.
+	UserStatusInvited = "invited"
 )
+
+// ValidUserStatus reports whether a status is one the system defines.
+//
+// The set is closed on purpose. Status gates authentication, and a typo'd value is
+// indistinguishable from "disabled" to every check that compares against `active` —
+// so an unvalidated write locks an account out silently.
+func ValidUserStatus(status string) bool {
+	switch status {
+	case UserStatusActive, UserStatusDisabled, UserStatusInvited:
+		return true
+	default:
+		return false
+	}
+}
 
 // Active reports whether the user may authenticate.
 func (u User) Active() bool { return u.Status == UserStatusActive }
+
+// AwaitingSetup reports whether the user still has to redeem an invite.
+func (u User) AwaitingSetup() bool { return u.Status == UserStatusInvited }
 
 // UserRepo reads and writes user records, always scoped to the context's tenant.
 type UserRepo struct {

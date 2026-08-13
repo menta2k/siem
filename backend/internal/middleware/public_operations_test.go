@@ -18,11 +18,13 @@ import (
 // open.
 func TestEveryPublicOperationNamesARealRPC(t *testing.T) {
 	defined := map[string]bool{
-		siemv1.OperationAuthLogin:     true,
-		siemv1.OperationAuthVerifyMFA: true,
-		siemv1.OperationAuthRefresh:   true,
-		siemv1.OperationAuthLogout:    true,
-		siemv1.OperationAuthMe:        true,
+		siemv1.OperationAuthLogin:         true,
+		siemv1.OperationAuthVerifyMFA:     true,
+		siemv1.OperationAuthRefresh:       true,
+		siemv1.OperationAuthLogout:        true,
+		siemv1.OperationAuthMe:            true,
+		siemv1.OperationAuthPreviewInvite: true,
+		siemv1.OperationAuthRedeemInvite:  true,
 	}
 
 	for operation := range publicOperations {
@@ -42,13 +44,20 @@ func TestRefreshIsReachableWithoutAnAccessToken(t *testing.T) {
 }
 
 // The opposite guarantee. The allow-list bypasses authentication AND the role policy, so
-// an entry added by accident is an unauthenticated route. Only the three pre-sign-in steps
+// an entry added by accident is an unauthenticated route. Only the pre-sign-in steps
 // belong here — Me and Logout both run with a live access token.
+//
+// The two invite operations qualify on the same test: a setup token is redeemed by
+// someone who has no account to sign in to yet. They are listed one by one rather than
+// admitted by a path prefix, so the next /api/v1/auth/* route added is authenticated
+// until somebody deliberately decides otherwise here.
 func TestOnlyThePreSignInStepsArePublic(t *testing.T) {
 	expected := map[string]bool{
-		siemv1.OperationAuthLogin:     true,
-		siemv1.OperationAuthVerifyMFA: true,
-		siemv1.OperationAuthRefresh:   true,
+		siemv1.OperationAuthLogin:         true,
+		siemv1.OperationAuthVerifyMFA:     true,
+		siemv1.OperationAuthRefresh:       true,
+		siemv1.OperationAuthPreviewInvite: true,
+		siemv1.OperationAuthRedeemInvite:  true,
 	}
 
 	if len(publicOperations) != len(expected) {

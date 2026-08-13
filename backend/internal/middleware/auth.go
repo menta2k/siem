@@ -46,10 +46,17 @@ type TenantLoader interface {
 // fails silently — the route just stays authenticated — and that is precisely what
 // happened here: "/siem.v1.Auth/RefreshToken" named an RPC that does not exist, so Refresh
 // demanded the very access token it exists to reissue.
+// The two invite operations are public for the same structural reason as Login: the
+// holder of a setup token has no account they can sign in to yet, so requiring a bearer
+// token would make the invite unredeemable. Neither grants a session — RedeemInvite
+// sets a password and stops there — and both are gated on possession of a 256-bit
+// secret, so being unauthenticated is not the same as being unprotected.
 var publicOperations = map[string]bool{
-	siemv1.OperationAuthLogin:     true,
-	siemv1.OperationAuthRefresh:   true,
-	siemv1.OperationAuthVerifyMFA: true,
+	siemv1.OperationAuthLogin:         true,
+	siemv1.OperationAuthRefresh:       true,
+	siemv1.OperationAuthVerifyMFA:     true,
+	siemv1.OperationAuthPreviewInvite: true,
+	siemv1.OperationAuthRedeemInvite:  true,
 }
 
 // Auth authenticates the caller, scopes the request to their tenant, and enforces the

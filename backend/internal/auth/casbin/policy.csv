@@ -55,6 +55,9 @@ p, admin, *, /api/v1/admin/users, GET
 p, admin, *, /api/v1/admin/users, POST
 p, admin, *, /api/v1/admin/users/:id, PATCH
 p, admin, *, /api/v1/admin/users/:id, DELETE
+# Minting a setup token is admin-only and belongs to no other role: it is the one call
+# that hands out a credential capable of setting someone else's password.
+p, admin, *, /api/v1/admin/users/:id/invite, POST
 p, admin, *, /api/v1/admin/tenant, GET
 p, admin, *, /api/v1/admin/tenant, PATCH
 p, admin, *, /api/v1/admin/correlation-settings, GET

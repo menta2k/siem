@@ -34,6 +34,19 @@ service Admin {
     option (google.api.http) = {delete: "/api/v1/admin/users/{user_id}"};
   }
 
+  // Mint a one-time setup token for a user who has not set a password yet.
+  //
+  // Separate from CreateUser rather than folded into it, because the token cannot be
+  // recovered after the response that carried it: only its hash is stored. Issuance
+  // therefore has to be a call an admin can repeat — which is also what "resend the
+  // invite" means. Re-issuing invalidates the previous token.
+  rpc IssueUserInvite(IssueUserInviteRequest) returns (UserInvite) {
+    option (google.api.http) = {
+      post: "/api/v1/admin/users/{user_id}/invite"
+      body: "*"
+    };
+  }
+
   rpc GetTenantSettings(GetTenantSettingsRequest) returns (TenantSettings) {
     option (google.api.http) = {get: "/api/v1/admin/tenant"};
   }
@@ -83,8 +96,24 @@ message ListUsersResponse {
 
 message CreateUserRequest {
   string email = 1;
+  // Optional. Leaving it empty is the normal path: the account is created in the
+  // `invited` state and reaches a usable password through IssueUserInvite, so the
+  // platform can always tell the admin and the user apart in its own audit trail.
   string password = 2;
   string role = 3;
+}
+
+message IssueUserInviteRequest {
+  string user_id = 1;
+}
+
+message UserInvite {
+  string user_id = 1;
+  string email = 2;
+  // The one-time setup token. Returned ONCE, at issuance; only its hash is stored, so
+  // an admin who loses it issues a new one rather than looking this one up.
+  string setup_token = 3;
+  google.protobuf.Timestamp expires_at = 4;
 }
 
 message UpdateUserRequest {

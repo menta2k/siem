@@ -105,6 +105,7 @@ func buildTestServer(
 	locker := chdata.NewLocker(f.Redis)
 	tenants := chdata.NewTenantRepo(f.ClickHouse, locker)
 	users := chdata.NewUserRepo(f.ClickHouse, locker)
+	invites := chdata.NewInviteRepo(f.ClickHouse, locker)
 	auditLog := chdata.NewAuditRepo(f.ClickHouse, locker)
 	feeds := chdata.NewFeedRepo(f.ClickHouse, locker)
 	events := chdata.NewEventRepo(f.ClickHouse)
@@ -129,7 +130,7 @@ func buildTestServer(
 	}
 
 	return server.NewHTTPServer(server.Services{
-		Auth: service.NewAuthService(users, tenants, auditLog, tokens, users,
+		Auth: service.NewAuthService(users, tenants, auditLog, invites, tokens, users,
 			cfg.Auth.MFAIssuer),
 		Feeds: service.NewFeedsService(feeds, events, health,
 			secrets.NewMemoryStore(), auditLog, adapters),
@@ -138,7 +139,7 @@ func buildTestServer(
 			networks, ruleNames),
 		Correlation: service.NewCorrelationService(
 			chdata.NewCorrelatedRepo(f.ClickHouse), networks, ruleNames),
-		Admin: service.NewAdminService(users, tenants, auditLog,
+		Admin: service.NewAdminService(users, tenants, auditLog, invites,
 			retention.NewWorker(tenants,
 				retention.Repos{
 					Events:     events,

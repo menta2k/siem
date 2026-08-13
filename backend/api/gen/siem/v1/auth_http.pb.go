@@ -22,6 +22,8 @@ const _ = http.SupportPackageIsVersion1
 const OperationAuthLogin = "/siem.v1.Auth/Login"
 const OperationAuthLogout = "/siem.v1.Auth/Logout"
 const OperationAuthMe = "/siem.v1.Auth/Me"
+const OperationAuthPreviewInvite = "/siem.v1.Auth/PreviewInvite"
+const OperationAuthRedeemInvite = "/siem.v1.Auth/RedeemInvite"
 const OperationAuthRefresh = "/siem.v1.Auth/Refresh"
 const OperationAuthVerifyMFA = "/siem.v1.Auth/VerifyMFA"
 
@@ -30,6 +32,20 @@ type AuthHTTPServer interface {
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
 	Me(context.Context, *MeRequest) (*MeResponse, error)
+	// PreviewInvite Describe a setup token WITHOUT spending it, so the page can name the account being
+	// activated instead of asking someone to set a password for an unnamed inbox.
+	//
+	// Public, like Login: the holder of the token has no session yet, by definition. It
+	// discloses only the address the token was issued for, which the holder must already
+	// know to have received it.
+	PreviewInvite(context.Context, *PreviewInviteRequest) (*PreviewInviteResponse, error)
+	// RedeemInvite Spend a setup token: set the account's first password and activate it.
+	//
+	// Deliberately does NOT return a token pair. Redemption proves possession of the
+	// setup link and nothing else, and MFA has not been enrolled at this point — issuing
+	// a session here would be a route into the platform that skips the second factor.
+	// The user signs in afterwards and enrols through the normal first-login path.
+	RedeemInvite(context.Context, *RedeemInviteRequest) (*RedeemInviteResponse, error)
 	// Refresh Exchange a refresh token for a new pair. The presented refresh token is revoked.
 	Refresh(context.Context, *RefreshRequest) (*TokenResponse, error)
 	// VerifyMFA Step 2: verify the TOTP code and issue the token pair.
@@ -43,6 +59,8 @@ func RegisterAuthHTTPServer(s *http.Server, srv AuthHTTPServer) {
 	r.POST("/api/v1/auth/refresh", _Auth_Refresh0_HTTP_Handler(srv))
 	r.POST("/api/v1/auth/logout", _Auth_Logout0_HTTP_Handler(srv))
 	r.GET("/api/v1/auth/me", _Auth_Me0_HTTP_Handler(srv))
+	r.POST("/api/v1/auth/invite/preview", _Auth_PreviewInvite0_HTTP_Handler(srv))
+	r.POST("/api/v1/auth/invite/redeem", _Auth_RedeemInvite0_HTTP_Handler(srv))
 }
 
 func _Auth_Login0_HTTP_Handler(srv AuthHTTPServer) func(ctx http.Context) error {
@@ -152,11 +170,69 @@ func _Auth_Me0_HTTP_Handler(srv AuthHTTPServer) func(ctx http.Context) error {
 	}
 }
 
+func _Auth_PreviewInvite0_HTTP_Handler(srv AuthHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in PreviewInviteRequest
+		if err := ctx.Bind(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationAuthPreviewInvite)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.PreviewInvite(ctx, req.(*PreviewInviteRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*PreviewInviteResponse)
+		return ctx.Result(200, reply)
+	}
+}
+
+func _Auth_RedeemInvite0_HTTP_Handler(srv AuthHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in RedeemInviteRequest
+		if err := ctx.Bind(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationAuthRedeemInvite)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.RedeemInvite(ctx, req.(*RedeemInviteRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*RedeemInviteResponse)
+		return ctx.Result(200, reply)
+	}
+}
+
 type AuthHTTPClient interface {
 	// Login Step 1: verify the password. Returns an MFA challenge, never an access token.
 	Login(ctx context.Context, req *LoginRequest, opts ...http.CallOption) (rsp *LoginResponse, err error)
 	Logout(ctx context.Context, req *LogoutRequest, opts ...http.CallOption) (rsp *LogoutResponse, err error)
 	Me(ctx context.Context, req *MeRequest, opts ...http.CallOption) (rsp *MeResponse, err error)
+	// PreviewInvite Describe a setup token WITHOUT spending it, so the page can name the account being
+	// activated instead of asking someone to set a password for an unnamed inbox.
+	//
+	// Public, like Login: the holder of the token has no session yet, by definition. It
+	// discloses only the address the token was issued for, which the holder must already
+	// know to have received it.
+	PreviewInvite(ctx context.Context, req *PreviewInviteRequest, opts ...http.CallOption) (rsp *PreviewInviteResponse, err error)
+	// RedeemInvite Spend a setup token: set the account's first password and activate it.
+	//
+	// Deliberately does NOT return a token pair. Redemption proves possession of the
+	// setup link and nothing else, and MFA has not been enrolled at this point — issuing
+	// a session here would be a route into the platform that skips the second factor.
+	// The user signs in afterwards and enrols through the normal first-login path.
+	RedeemInvite(ctx context.Context, req *RedeemInviteRequest, opts ...http.CallOption) (rsp *RedeemInviteResponse, err error)
 	// Refresh Exchange a refresh token for a new pair. The presented refresh token is revoked.
 	Refresh(ctx context.Context, req *RefreshRequest, opts ...http.CallOption) (rsp *TokenResponse, err error)
 	// VerifyMFA Step 2: verify the TOTP code and issue the token pair.
@@ -205,6 +281,44 @@ func (c *AuthHTTPClientImpl) Me(ctx context.Context, in *MeRequest, opts ...http
 	opts = append(opts, http.Operation(OperationAuthMe))
 	opts = append(opts, http.PathTemplate(pattern))
 	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PreviewInvite Describe a setup token WITHOUT spending it, so the page can name the account being
+// activated instead of asking someone to set a password for an unnamed inbox.
+//
+// Public, like Login: the holder of the token has no session yet, by definition. It
+// discloses only the address the token was issued for, which the holder must already
+// know to have received it.
+func (c *AuthHTTPClientImpl) PreviewInvite(ctx context.Context, in *PreviewInviteRequest, opts ...http.CallOption) (*PreviewInviteResponse, error) {
+	var out PreviewInviteResponse
+	pattern := "/api/v1/auth/invite/preview"
+	path := binding.EncodeURL(pattern, in, false)
+	opts = append(opts, http.Operation(OperationAuthPreviewInvite))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RedeemInvite Spend a setup token: set the account's first password and activate it.
+//
+// Deliberately does NOT return a token pair. Redemption proves possession of the
+// setup link and nothing else, and MFA has not been enrolled at this point — issuing
+// a session here would be a route into the platform that skips the second factor.
+// The user signs in afterwards and enrols through the normal first-login path.
+func (c *AuthHTTPClientImpl) RedeemInvite(ctx context.Context, in *RedeemInviteRequest, opts ...http.CallOption) (*RedeemInviteResponse, error) {
+	var out RedeemInviteResponse
+	pattern := "/api/v1/auth/invite/redeem"
+	path := binding.EncodeURL(pattern, in, false)
+	opts = append(opts, http.Operation(OperationAuthRedeemInvite))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
 	if err != nil {
 		return nil, err
 	}

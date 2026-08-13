@@ -27,12 +27,16 @@ type Action string
 // it here means that operation leaves no trail, so this list is the checklist a
 // reviewer walks when a new admin endpoint appears.
 const (
-	ActionLogin                     Action = "login"
-	ActionLoginFailed               Action = "login_failed"
-	ActionLogout                    Action = "logout"
-	ActionRoleChange                Action = "role_change"
-	ActionUserCreate                Action = "user_create"
-	ActionUserDelete                Action = "user_delete"
+	ActionLogin       Action = "login"
+	ActionLoginFailed Action = "login_failed"
+	ActionLogout      Action = "logout"
+	ActionRoleChange  Action = "role_change"
+	ActionUserCreate  Action = "user_create"
+	ActionUserDelete  Action = "user_delete"
+	ActionUserInvite  Action = "user_invite"
+	// Recorded against the invited user themselves, not an admin: redemption happens
+	// before any session exists, so there is no authenticated actor to attribute it to.
+	ActionUserInviteRedeem          Action = "user_invite_redeemed"
 	ActionFeedCreate                Action = "feed_create"
 	ActionFeedUpdate                Action = "feed_update"
 	ActionFeedDelete                Action = "feed_delete"

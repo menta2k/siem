@@ -32,6 +32,7 @@ type AuthService struct {
 	users     *chdata.UserRepo
 	tenants   *chdata.TenantRepo
 	auditLog  *chdata.AuditRepo
+	invites   *chdata.InviteRepo
 	tokens    *auth.TokenIssuer
 	resolver  TenantResolver
 	mfaIssuer string
@@ -43,6 +44,7 @@ func NewAuthService(
 	users *chdata.UserRepo,
 	tenants *chdata.TenantRepo,
 	auditLog *chdata.AuditRepo,
+	invites *chdata.InviteRepo,
 	tokens *auth.TokenIssuer,
 	resolver TenantResolver,
 	mfaIssuer string,
@@ -51,6 +53,7 @@ func NewAuthService(
 		users:     users,
 		tenants:   tenants,
 		auditLog:  auditLog,
+		invites:   invites,
 		tokens:    tokens,
 		resolver:  resolver,
 		mfaIssuer: mfaIssuer,
@@ -386,6 +389,7 @@ func toUserProfile(u chdata.User, t chdata.Tenant) *pb.UserProfile {
 		TenantId:   t.ID.String(),
 		TenantName: t.Name,
 		MfaEnabled: u.MFAEnabled,
+		Status:     u.Status,
 	}
 	if u.LastLoginAt != nil {
 		p.LastLoginAt = timestamppb.New(*u.LastLoginAt)

@@ -43,6 +43,7 @@ type AdminService struct {
 	users       *chdata.UserRepo
 	tenants     *chdata.TenantRepo
 	auditLog    *chdata.AuditRepo
+	invites     *chdata.InviteRepo
 	purger      Purger
 	invalidator SettingsInvalidator
 	// secrets holds the Cloudflare API token, so the database stores only a reference.
@@ -57,11 +58,13 @@ type AdminService struct {
 // NewAdminService constructs the service.
 func NewAdminService(
 	users *chdata.UserRepo, tenants *chdata.TenantRepo, auditLog *chdata.AuditRepo,
+	invites *chdata.InviteRepo,
 	purger Purger, invalidator SettingsInvalidator, secretStore secrets.Store,
 	cloudflareAPIBase string, log mw.Logger,
 ) *AdminService {
 	return &AdminService{
-		users: users, tenants: tenants, auditLog: auditLog, secrets: secretStore,
+		users: users, tenants: tenants, auditLog: auditLog, invites: invites,
+		secrets:           secretStore,
 		cloudflareAPIBase: cloudflareAPIBase, log: log,
 		purger: purger, invalidator: invalidator, now: time.Now,
 	}
@@ -126,20 +129,32 @@ func (s *AdminService) CreateUser(
 		Result: audit.ResultSuccess,
 	})
 
-	// The password is deliberately NOT returned. The contract's UserProfile has no
-	// field for it, and adding one would put a credential in a response that gets
-	// logged by proxies and cached by clients. An admin who did not supply a password
-	// resets it through the same flow a user does.
+	// No credential is returned, and for the usual path none exists to return: the
+	// account is in `invited` state and cannot sign in until IssueUserInvite mints a
+	// setup token and the user redeems it. Putting a password in this response would
+	// also put it in every proxy log and client cache between here and the browser.
 	return toUserProfile(created, tenant), nil
 }
 
 // newUserRecord prepares a user for creation, hashing the password and seeding MFA.
 //
-// A password may be supplied; one is generated when it is not. Generating is the
-// better default — an admin who types a colleague's password knows it, and the
-// platform then cannot tell the two of them apart in its own audit trail.
+// The normal path supplies NO password, and the account is created `invited`: it holds
+// an unusable random hash and reaches a real one only when its owner redeems a setup
+// token. That is what keeps the audit trail meaningful — an admin who types a
+// colleague's password knows it, and the platform can no longer tell the two of them
+// apart in its own record of who did what.
+//
+// A supplied password still creates an immediately-active account. That path exists for
+// automation that provisions a service account and holds the credential itself, and it
+// is the caller's business that they know it.
 func newUserRecord(email, password, role string) (chdata.User, error) {
+	status := chdata.UserStatusActive
 	if password == "" {
+		status = chdata.UserStatusInvited
+		// An unguessable placeholder rather than an empty hash. Login verifies the
+		// password BEFORE it checks status, so an empty hash would fail fast on a parse
+		// error and make an invited account distinguishable from an unknown one by
+		// response time alone.
 		generated, err := auth.GenerateFeedToken()
 		if err != nil {
 			return chdata.User{}, mw.Internal().WithCause(err)
@@ -159,7 +174,7 @@ func newUserRecord(email, password, role string) (chdata.User, error) {
 
 	return chdata.User{
 		Email: email, PasswordHash: hash, Role: role,
-		Status: chdata.UserStatusActive, MFASecret: secret.Secret,
+		Status: status, MFASecret: secret.Secret,
 	}, nil
 }
 
@@ -182,6 +197,12 @@ func (s *AdminService) UpdateUser(
 
 	if req.Role != nil && !auth.ValidRole(req.GetRole()) {
 		return nil, mw.ValidationFailed("an unknown role was requested")
+	}
+	// Status gates authentication, and every check compares against `active` — so a
+	// typo'd value is silently indistinguishable from "disabled" and locks the account
+	// out with no error anywhere.
+	if req.Status != nil && !chdata.ValidUserStatus(req.GetStatus()) {
+		return nil, mw.ValidationFailed("an unknown account status was requested")
 	}
 
 	updated, err := s.users.Update(ctx, userID, applyUserEdit(req))

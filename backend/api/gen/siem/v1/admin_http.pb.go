@@ -23,6 +23,7 @@ const OperationAdminCreateUser = "/siem.v1.Admin/CreateUser"
 const OperationAdminDeleteUser = "/siem.v1.Admin/DeleteUser"
 const OperationAdminGetCorrelationSettings = "/siem.v1.Admin/GetCorrelationSettings"
 const OperationAdminGetTenantSettings = "/siem.v1.Admin/GetTenantSettings"
+const OperationAdminIssueUserInvite = "/siem.v1.Admin/IssueUserInvite"
 const OperationAdminListAuditEntries = "/siem.v1.Admin/ListAuditEntries"
 const OperationAdminListUsers = "/siem.v1.Admin/ListUsers"
 const OperationAdminPurge = "/siem.v1.Admin/Purge"
@@ -35,6 +36,13 @@ type AdminHTTPServer interface {
 	DeleteUser(context.Context, *DeleteUserRequest) (*DeleteUserResponse, error)
 	GetCorrelationSettings(context.Context, *GetCorrelationSettingsRequest) (*CorrelationSettings, error)
 	GetTenantSettings(context.Context, *GetTenantSettingsRequest) (*TenantSettings, error)
+	// IssueUserInvite Mint a one-time setup token for a user who has not set a password yet.
+	//
+	// Separate from CreateUser rather than folded into it, because the token cannot be
+	// recovered after the response that carried it: only its hash is stored. Issuance
+	// therefore has to be a call an admin can repeat — which is also what "resend the
+	// invite" means. Re-issuing invalidates the previous token.
+	IssueUserInvite(context.Context, *IssueUserInviteRequest) (*UserInvite, error)
 	// ListAuditEntries Read-only. There is deliberately no operation that writes, edits, or deletes an
 	// audit entry.
 	ListAuditEntries(context.Context, *ListAuditEntriesRequest) (*ListAuditEntriesResponse, error)
@@ -53,6 +61,7 @@ func RegisterAdminHTTPServer(s *http.Server, srv AdminHTTPServer) {
 	r.POST("/api/v1/admin/users", _Admin_CreateUser0_HTTP_Handler(srv))
 	r.PATCH("/api/v1/admin/users/{user_id}", _Admin_UpdateUser0_HTTP_Handler(srv))
 	r.DELETE("/api/v1/admin/users/{user_id}", _Admin_DeleteUser0_HTTP_Handler(srv))
+	r.POST("/api/v1/admin/users/{user_id}/invite", _Admin_IssueUserInvite0_HTTP_Handler(srv))
 	r.GET("/api/v1/admin/tenant", _Admin_GetTenantSettings0_HTTP_Handler(srv))
 	r.PATCH("/api/v1/admin/tenant", _Admin_UpdateTenantSettings0_HTTP_Handler(srv))
 	r.GET("/api/v1/admin/correlation-settings", _Admin_GetCorrelationSettings0_HTTP_Handler(srv))
@@ -145,6 +154,31 @@ func _Admin_DeleteUser0_HTTP_Handler(srv AdminHTTPServer) func(ctx http.Context)
 			return err
 		}
 		reply := out.(*DeleteUserResponse)
+		return ctx.Result(200, reply)
+	}
+}
+
+func _Admin_IssueUserInvite0_HTTP_Handler(srv AdminHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in IssueUserInviteRequest
+		if err := ctx.Bind(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindVars(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationAdminIssueUserInvite)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.IssueUserInvite(ctx, req.(*IssueUserInviteRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*UserInvite)
 		return ctx.Result(200, reply)
 	}
 }
@@ -277,6 +311,13 @@ type AdminHTTPClient interface {
 	DeleteUser(ctx context.Context, req *DeleteUserRequest, opts ...http.CallOption) (rsp *DeleteUserResponse, err error)
 	GetCorrelationSettings(ctx context.Context, req *GetCorrelationSettingsRequest, opts ...http.CallOption) (rsp *CorrelationSettings, err error)
 	GetTenantSettings(ctx context.Context, req *GetTenantSettingsRequest, opts ...http.CallOption) (rsp *TenantSettings, err error)
+	// IssueUserInvite Mint a one-time setup token for a user who has not set a password yet.
+	//
+	// Separate from CreateUser rather than folded into it, because the token cannot be
+	// recovered after the response that carried it: only its hash is stored. Issuance
+	// therefore has to be a call an admin can repeat — which is also what "resend the
+	// invite" means. Re-issuing invalidates the previous token.
+	IssueUserInvite(ctx context.Context, req *IssueUserInviteRequest, opts ...http.CallOption) (rsp *UserInvite, err error)
 	// ListAuditEntries Read-only. There is deliberately no operation that writes, edits, or deletes an
 	// audit entry.
 	ListAuditEntries(ctx context.Context, req *ListAuditEntriesRequest, opts ...http.CallOption) (rsp *ListAuditEntriesResponse, err error)
@@ -343,6 +384,25 @@ func (c *AdminHTTPClientImpl) GetTenantSettings(ctx context.Context, in *GetTena
 	opts = append(opts, http.Operation(OperationAdminGetTenantSettings))
 	opts = append(opts, http.PathTemplate(pattern))
 	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// IssueUserInvite Mint a one-time setup token for a user who has not set a password yet.
+//
+// Separate from CreateUser rather than folded into it, because the token cannot be
+// recovered after the response that carried it: only its hash is stored. Issuance
+// therefore has to be a call an admin can repeat — which is also what "resend the
+// invite" means. Re-issuing invalidates the previous token.
+func (c *AdminHTTPClientImpl) IssueUserInvite(ctx context.Context, in *IssueUserInviteRequest, opts ...http.CallOption) (*UserInvite, error) {
+	var out UserInvite
+	pattern := "/api/v1/admin/users/{user_id}/invite"
+	path := binding.EncodeURL(pattern, in, false)
+	opts = append(opts, http.Operation(OperationAdminIssueUserInvite))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
 	if err != nil {
 		return nil, err
 	}

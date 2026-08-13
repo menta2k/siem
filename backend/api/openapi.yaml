@@ -166,6 +166,37 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/UserProfile'
+    /api/v1/admin/users/{userId}/invite:
+        post:
+            tags:
+                - Admin
+            description: |-
+                Mint a one-time setup token for a user who has not set a password yet.
+
+                 Separate from CreateUser rather than folded into it, because the token cannot be
+                 recovered after the response that carried it: only its hash is stored. Issuance
+                 therefore has to be a call an admin can repeat — which is also what "resend the
+                 invite" means. Re-issuing invalidates the previous token.
+            operationId: Admin_IssueUserInvite
+            parameters:
+                - name: userId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/IssueUserInviteRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/UserInvite'
     /api/v1/alert-rules:
         get:
             tags:
@@ -451,6 +482,56 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ListAuditEntriesResponse'
+    /api/v1/auth/invite/preview:
+        post:
+            tags:
+                - Auth
+            description: |-
+                Describe a setup token WITHOUT spending it, so the page can name the account being
+                 activated instead of asking someone to set a password for an unnamed inbox.
+
+                 Public, like Login: the holder of the token has no session yet, by definition. It
+                 discloses only the address the token was issued for, which the holder must already
+                 know to have received it.
+            operationId: Auth_PreviewInvite
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/PreviewInviteRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/PreviewInviteResponse'
+    /api/v1/auth/invite/redeem:
+        post:
+            tags:
+                - Auth
+            description: |-
+                Spend a setup token: set the account's first password and activate it.
+
+                 Deliberately does NOT return a token pair. Redemption proves possession of the
+                 setup link and nothing else, and MFA has not been enrolled at this point — issuing
+                 a session here would be a route into the platform that skips the second factor.
+                 The user signs in afterwards and enrols through the normal first-login path.
+            operationId: Auth_RedeemInvite
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/RedeemInviteRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/RedeemInviteResponse'
     /api/v1/auth/login:
         post:
             tags:
@@ -1552,6 +1633,10 @@ components:
                     type: string
                 password:
                     type: string
+                    description: |-
+                        Optional. Leaving it empty is the normal path: the account is created in the
+                         `invited` state and reaches a usable password through IssueUserInvite, so the
+                         platform can always tell the admin and the user apart in its own audit trail.
                 role:
                     type: string
         DeleteAlertRuleResponse:
@@ -1930,6 +2015,11 @@ components:
                  vocabulary is closed and literal rather than a regular expression: a rule an operator
                  can misread is a rule that silently deletes the traffic they needed, and unlike every
                  other loss in this system there is no copy to recover from.
+        IssueUserInviteRequest:
+            type: object
+            properties:
+                userId:
+                    type: string
         ListAlertRulesResponse:
             type: object
             properties:
@@ -2122,6 +2212,19 @@ components:
                     items:
                         type: string
             description: PreviewGroup is one group's measurement in a dry run.
+        PreviewInviteRequest:
+            type: object
+            properties:
+                setupToken:
+                    type: string
+        PreviewInviteResponse:
+            type: object
+            properties:
+                email:
+                    type: string
+                expiresAt:
+                    type: string
+                    format: date-time
         PurgeRequest:
             type: object
             properties:
@@ -2139,6 +2242,19 @@ components:
             properties:
                 rowsDeleted:
                     type: string
+        RedeemInviteRequest:
+            type: object
+            properties:
+                setupToken:
+                    type: string
+                password:
+                    type: string
+        RedeemInviteResponse:
+            type: object
+            properties:
+                email:
+                    type: string
+                    description: Echoed so the sign-in form that follows can be prefilled.
         RefreshRequest:
             type: object
             properties:
@@ -2590,6 +2706,21 @@ components:
                 resetMfa:
                     type: boolean
                     description: Setting this resets MFA enrolment, forcing re-enrolment on next login.
+        UserInvite:
+            type: object
+            properties:
+                userId:
+                    type: string
+                email:
+                    type: string
+                setupToken:
+                    type: string
+                    description: |-
+                        The one-time setup token. Returned ONCE, at issuance; only its hash is stored, so
+                         an admin who loses it issues a new one rather than looking this one up.
+                expiresAt:
+                    type: string
+                    format: date-time
         UserProfile:
             type: object
             properties:
@@ -2609,6 +2740,13 @@ components:
                 lastLoginAt:
                     type: string
                     format: date-time
+                status:
+                    type: string
+                    description: |-
+                        active | invited | disabled. `invited` means the account exists but has never had
+                         a password its owner chose, and cannot sign in until a setup token is redeemed —
+                         without this field an admin cannot tell that apart from an account that simply has
+                         not logged in yet.
         VendorVerdict:
             type: object
             properties:

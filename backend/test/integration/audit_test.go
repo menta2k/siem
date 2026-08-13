@@ -317,7 +317,7 @@ func TestAuditListReportsAnIntactChainAsIntact(t *testing.T) {
 		}
 	}
 
-	admin := service.NewAdminService(f.Users, f.Tenants, f.Audit, nil, nil,
+	admin := service.NewAdminService(f.Users, f.Tenants, f.Audit, f.Invites, nil, nil,
 		secrets.NewMemoryStore(), "", mw.NewLogger("error", "json"))
 	resp, err := admin.ListAuditEntries(ctx, &pb.ListAuditEntriesRequest{
 		Range: &pb.TimeRange{

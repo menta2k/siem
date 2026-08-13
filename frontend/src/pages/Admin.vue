@@ -95,24 +95,128 @@ async function load(): Promise<void> {
 
 onMounted(load)
 
+/**
+ * The setup link most recently issued, held only for as long as this page is open.
+ *
+ * Never persisted. The server stores a hash and returns the token exactly once, so this
+ * is the only copy — and putting it in localStorage would leave a live credential in the
+ * browser of whoever last used the admin page.
+ */
+const issuedInvite = ref<{ email: string; url: string; expiresAt: string } | null>(null)
+const invitingUserId = ref('')
+const linkCopied = ref(false)
+
+/**
+ * Account status, rendered for an operator rather than for the database.
+ *
+ * "Awaiting setup" is the one that matters: it says the account cannot sign in yet and
+ * why, which "invited" alone in a table cell does not.
+ */
+function statusLabel(status: string | undefined): string {
+  switch (status) {
+    case 'invited':
+      return 'Awaiting setup'
+    case 'disabled':
+      return 'Disabled'
+    case 'active':
+      return 'Active'
+    default:
+      return status ?? 'Unknown'
+  }
+}
+
+function statusColor(status: string | undefined): string {
+  switch (status) {
+    case 'active':
+      return 'success'
+    case 'invited':
+      return 'info'
+    default:
+      return 'warning'
+  }
+}
+
+/** Turns a setup token into the link an admin sends on. */
+function inviteUrl(token: string): string {
+  return `${window.location.origin}/invite?token=${encodeURIComponent(token)}`
+}
+
 async function createUser(): Promise<void> {
   savingUser.value = true
   errorMessage.value = ''
   notice.value = ''
   try {
-    await api.POST('/api/v1/admin/users', {
+    const { data } = await api.POST('/api/v1/admin/users', {
       body: { email: newUser.value.email, role: newUser.value.role, password: '' },
     })
-    // No password is shown: the server generates one and does not return it, because
-    // a credential in a response is a credential in every proxy log along the way.
-    notice.value = `Created ${newUser.value.email}. They must reset their password to sign in.`
+    const created = newUser.value.email
     newUser.value = { email: '', role: 'analyst' }
     await load()
+
+    // Issued immediately, as the second half of one operation the admin thinks of as
+    // "add a colleague". Creating without inviting leaves an account nobody can use.
+    if (data?.userId) {
+      await issueInvite(data.userId)
+    } else {
+      notice.value = `Created ${created}. Use "Invite" to generate their setup link.`
+    }
   } catch (err) {
     errorMessage.value = toDisplayMessage(err)
   } finally {
     savingUser.value = false
   }
+}
+
+/**
+ * Mints a one-time setup link.
+ *
+ * Re-issuable on purpose: the token cannot be looked up afterwards, so "resend" means
+ * "mint a new one", and doing so invalidates whatever came before it.
+ */
+async function issueInvite(userId: string): Promise<void> {
+  invitingUserId.value = userId
+  errorMessage.value = ''
+  notice.value = ''
+  linkCopied.value = false
+  try {
+    const { data } = await api.POST('/api/v1/admin/users/{userId}/invite', {
+      params: { path: { userId } },
+      body: { userId },
+    })
+    if (!data?.setupToken) {
+      errorMessage.value = 'The server returned no setup token.'
+      return
+    }
+    issuedInvite.value = {
+      email: data.email ?? '',
+      url: inviteUrl(data.setupToken),
+      expiresAt: prefs.dateTime(data.expiresAt, 'unknown'),
+    }
+    await load()
+  } catch (err) {
+    errorMessage.value = toDisplayMessage(err)
+  } finally {
+    invitingUserId.value = ''
+  }
+}
+
+async function copyInviteLink(): Promise<void> {
+  if (!issuedInvite.value) return
+  try {
+    await navigator.clipboard.writeText(issuedInvite.value.url)
+    linkCopied.value = true
+  } catch {
+    // Clipboard access is denied outside a secure context, which is exactly where a
+    // self-hosted console often runs. The link is on screen and selectable, so this is
+    // a missing convenience rather than a failure worth an error banner.
+    linkCopied.value = false
+  }
+}
+
+/** Hides the link once it has been passed on. */
+function dismissInvite(): void {
+  issuedInvite.value = null
+  linkCopied.value = false
 }
 
 async function updateUser(user: UserProfile, changes: Record<string, unknown>): Promise<void> {
@@ -249,6 +353,29 @@ const canManage = computed(() => auth.can.manageUsers)
 
     <v-window v-model="tab">
       <v-window-item value="users">
+        <!-- Shown once, and only here. The server keeps a hash, so this is the single
+             copy of the token that will ever exist. -->
+        <v-alert
+          v-if="issuedInvite"
+          type="info"
+          variant="tonal"
+          class="mb-4"
+          closable
+          @click:close="dismissInvite"
+        >
+          <div class="text-subtitle-2 mb-1">Setup link for {{ issuedInvite.email }}</div>
+          <div class="text-caption mb-2">
+            Send this to them over a channel you trust. It works once, expires
+            {{ issuedInvite.expiresAt }}, and cannot be shown again — issue a new one if it is lost.
+          </div>
+          <!-- Interpolated into a code block, never rendered as markup or as a link the
+               admin might follow themselves and burn. -->
+          <code class="text-caption d-block text-break mb-2">{{ issuedInvite.url }}</code>
+          <v-btn size="small" variant="tonal" @click="copyInviteLink">
+            {{ linkCopied ? 'Copied' : 'Copy link' }}
+          </v-btn>
+        </v-alert>
+
         <v-card v-if="canManage" class="mb-4">
           <v-card-title class="text-subtitle-1">Add a user</v-card-title>
           <v-card-text class="d-flex flex-wrap align-center ga-3">
@@ -287,6 +414,7 @@ const canManage = computed(() => auth.can.manageUsers)
               <tr>
                 <th>Email</th>
                 <th>Role</th>
+                <th>Status</th>
                 <th>MFA</th>
                 <th>Last login</th>
                 <th />
@@ -309,6 +437,11 @@ const canManage = computed(() => auth.can.manageUsers)
                   <span v-else>{{ user.role }}</span>
                 </td>
                 <td>
+                  <v-chip :color="statusColor(user.status)" size="x-small" variant="tonal">
+                    {{ statusLabel(user.status) }}
+                  </v-chip>
+                </td>
+                <td>
                   <v-chip
                     :color="user.mfaEnabled ? 'success' : 'warning'"
                     size="x-small"
@@ -321,6 +454,18 @@ const canManage = computed(() => auth.can.manageUsers)
                   {{ prefs.dateTime(user.lastLoginAt, 'Never') }}
                 </td>
                 <td class="text-no-wrap">
+                  <!-- "Invite" for an account awaiting setup, "Send reset link" for one
+                       already in use. Same call either way; the wording is what stops an
+                       admin from thinking they are about to lock a colleague out. -->
+                  <v-btn
+                    v-if="canManage && user.status !== 'disabled'"
+                    size="x-small"
+                    variant="text"
+                    :loading="invitingUserId === user.userId"
+                    @click="issueInvite(user.userId ?? '')"
+                  >
+                    {{ user.status === 'invited' ? 'Invite' : 'Send reset link' }}
+                  </v-btn>
                   <v-btn
                     v-if="canManage"
                     size="x-small"

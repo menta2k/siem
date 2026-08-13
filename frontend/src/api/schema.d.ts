@@ -86,6 +86,30 @@ export interface paths {
         patch: operations["Admin_UpdateUser"];
         trace?: never;
     };
+    "/api/v1/admin/users/{userId}/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Mint a one-time setup token for a user who has not set a password yet.
+         *
+         *      Separate from CreateUser rather than folded into it, because the token cannot be
+         *      recovered after the response that carried it: only its hash is stored. Issuance
+         *      therefore has to be a call an admin can repeat — which is also what "resend the
+         *      invite" means. Re-issuing invalidates the previous token.
+         */
+        post: operations["Admin_IssueUserInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/alert-rules": {
         parameters: {
             query?: never;
@@ -221,6 +245,54 @@ export interface paths {
         get: operations["Admin_ListAuditEntries"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/invite/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Describe a setup token WITHOUT spending it, so the page can name the account being
+         *      activated instead of asking someone to set a password for an unnamed inbox.
+         *
+         *      Public, like Login: the holder of the token has no session yet, by definition. It
+         *      discloses only the address the token was issued for, which the holder must already
+         *      know to have received it.
+         */
+        post: operations["Auth_PreviewInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/invite/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Spend a setup token: set the account's first password and activate it.
+         *
+         *      Deliberately does NOT return a token pair. Redemption proves possession of the
+         *      setup link and nothing else, and MFA has not been enrolled at this point — issuing
+         *      a session here would be a route into the platform that skips the second factor.
+         *      The user signs in afterwards and enrols through the normal first-login path.
+         */
+        post: operations["Auth_RedeemInvite"];
         delete?: never;
         options?: never;
         head?: never;
@@ -897,6 +969,11 @@ export interface components {
         };
         CreateUserRequest: {
             email?: string;
+            /**
+             * @description Optional. Leaving it empty is the normal path: the account is created in the
+             *      `invited` state and reaches a usable password through IssueUserInvite, so the
+             *      platform can always tell the admin and the user apart in its own audit trail.
+             */
             password?: string;
             role?: string;
         };
@@ -1146,6 +1223,9 @@ export interface components {
             /** @description Any value matching drops the event, as does any rule — the whole set is an OR. */
             values?: string[];
         };
+        IssueUserInviteRequest: {
+            userId?: string;
+        };
         ListAlertRulesResponse: {
             rules?: components["schemas"]["AlertRule"][];
         };
@@ -1263,6 +1343,14 @@ export interface components {
             wouldFire?: boolean;
             evidenceCorrelationIds?: string[];
         };
+        PreviewInviteRequest: {
+            setupToken?: string;
+        };
+        PreviewInviteResponse: {
+            email?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+        };
         PurgeRequest: {
             range?: components["schemas"]["TimeRange"];
             /**
@@ -1274,6 +1362,14 @@ export interface components {
         };
         PurgeResponse: {
             rowsDeleted?: string;
+        };
+        RedeemInviteRequest: {
+            setupToken?: string;
+            password?: string;
+        };
+        RedeemInviteResponse: {
+            /** @description Echoed so the sign-in form that follows can be prefilled. */
+            email?: string;
         };
         RefreshRequest: {
             refreshToken?: string;
@@ -1565,6 +1661,17 @@ export interface components {
             /** @description Setting this resets MFA enrolment, forcing re-enrolment on next login. */
             resetMfa?: boolean;
         };
+        UserInvite: {
+            userId?: string;
+            email?: string;
+            /**
+             * @description The one-time setup token. Returned ONCE, at issuance; only its hash is stored, so
+             *      an admin who loses it issues a new one rather than looking this one up.
+             */
+            setupToken?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+        };
         UserProfile: {
             userId?: string;
             email?: string;
@@ -1575,6 +1682,13 @@ export interface components {
             mfaEnabled?: boolean;
             /** Format: date-time */
             lastLoginAt?: string;
+            /**
+             * @description active | invited | disabled. `invited` means the account exists but has never had
+             *      a password its owner chose, and cannot sign in until a setup token is redeemed —
+             *      without this field an admin cannot tell that apart from an account that simply has
+             *      not logged in yet.
+             */
+            status?: string;
         };
         /** @description VendorVerdict is one vendor's contribution to a correlated request. */
         VendorVerdict: {
@@ -1852,6 +1966,32 @@ export interface operations {
             };
         };
     };
+    Admin_IssueUserInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IssueUserInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserInvite"];
+                };
+            };
+        };
+    };
     Alerts_ListAlertRules: {
         parameters: {
             query?: never;
@@ -2105,6 +2245,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListAuditEntriesResponse"];
+                };
+            };
+        };
+    };
+    Auth_PreviewInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewInviteResponse"];
+                };
+            };
+        };
+    };
+    Auth_RedeemInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedeemInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RedeemInviteResponse"];
                 };
             };
         };
