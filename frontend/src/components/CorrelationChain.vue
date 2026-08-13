@@ -17,6 +17,7 @@ import { computed, ref, watch } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
 import { formatPayload } from '@/lib/json-format'
+import AsmFindings from '@/components/AsmFindings.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import type { FormattedPayload } from '@/lib/json-format'
 
@@ -250,6 +251,13 @@ function payloadOf(link: Link): FormattedPayload {
                 · support id <code>{{ link.detail?.summary?.vendorEventId }}</code>
               </template>
             </div>
+
+            <!-- Always visible, not folded into "what the vendor sent" below. On this
+                 page the question is why each vendor decided what it did, and putting
+                 the answer behind a click on the one vendor that explains itself is the
+                 opposite of what the timeline is read for. Present only for F5 links
+                 that actually tripped something. -->
+            <AsmFindings v-if="link.detail?.asm" :findings="link.detail.asm" class="mt-2" />
 
             <v-btn size="x-small" variant="text" class="px-0 mt-1" @click="toggle(link.eventId)">
               {{ expanded.has(link.eventId) ? 'Hide' : 'Show' }} what
