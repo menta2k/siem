@@ -37,3 +37,9 @@ Thumbs.db
 .vscode/
 .idea/
 dist/
+
+# BIG-IP ASM dumps, pulled by hand from an appliance to regenerate the embedded
+# catalogue (see internal/f5catalog/gen). 22 MiB of which the platform displays a
+# tenth — the trimmed, gzipped result is what is committed, not the source.
+/signatures.json
+/violations.json

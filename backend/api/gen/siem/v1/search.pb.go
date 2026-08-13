@@ -1037,6 +1037,12 @@ type EventDetail struct {
 	// Vendor fields the adapter did not recognise, for the event being inspected.
 	// Reconstructed alongside raw_extra from the same parse.
 	UnknownFields []string `protobuf:"bytes,6,rep,name=unknown_fields,json=unknownFields,proto3" json:"unknown_fields,omitempty"`
+	// What BIG-IP ASM actually objected to, resolved against the embedded catalogue.
+	//
+	// Set only for F5 events that carry violations or signatures — which in practice
+	// means blocked and monitored ones. Absent rather than empty for every other vendor,
+	// so a client can branch on presence instead of on vendor.
+	Asm           *AsmFindings `protobuf:"bytes,7,opt,name=asm,proto3" json:"asm,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1111,6 +1117,292 @@ func (x *EventDetail) GetUnknownFields() []string {
 		return x.UnknownFields
 	}
 	return nil
+}
+
+func (x *EventDetail) GetAsm() *AsmFindings {
+	if x != nil {
+		return x.Asm
+	}
+	return nil
+}
+
+// AsmFindings explains a BIG-IP block in terms an analyst can act on.
+//
+// A raw ASM record says "Illegal file type" and "200004165" and stops there. Deciding
+// whether that is an attack or a false positive otherwise means leaving the console for
+// the BIG-IP UI. These are the same tokens with their meanings attached.
+type AsmFindings struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Violations []*AsmViolation        `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
+	Signatures []*AsmSignature        `protobuf:"bytes,2,rep,name=signatures,proto3" json:"signatures,omitempty"`
+	// ASM's own 1-5 threat rating for the request, carried through as reported.
+	ViolationRating string `protobuf:"bytes,3,opt,name=violation_rating,json=violationRating,proto3" json:"violation_rating,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *AsmFindings) Reset() {
+	*x = AsmFindings{}
+	mi := &file_siem_v1_search_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AsmFindings) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AsmFindings) ProtoMessage() {}
+
+func (x *AsmFindings) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_search_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AsmFindings.ProtoReflect.Descriptor instead.
+func (*AsmFindings) Descriptor() ([]byte, []int) {
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *AsmFindings) GetViolations() []*AsmViolation {
+	if x != nil {
+		return x.Violations
+	}
+	return nil
+}
+
+func (x *AsmFindings) GetSignatures() []*AsmSignature {
+	if x != nil {
+		return x.Signatures
+	}
+	return nil
+}
+
+func (x *AsmFindings) GetViolationRating() string {
+	if x != nil {
+		return x.ViolationRating
+	}
+	return ""
+}
+
+type AsmViolation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The string ASM logged, and the key everything else here was resolved from.
+	Title string `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
+	// The VIOL_* constant. Empty when the catalogue does not carry this violation — a
+	// newer policy, or a user-defined check — in which case only the title is populated
+	// and the entry still appears, because the record says it fired.
+	Name        string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Severity    string `protobuf:"bytes,3,opt,name=severity,proto3" json:"severity,omitempty"`
+	AttackType  string `protobuf:"bytes,4,opt,name=attack_type,json=attackType,proto3" json:"attack_type,omitempty"`
+	Description string `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	// What an attacker gains if this is a true positive. The sentence that decides
+	// whether the alert is worth chasing.
+	Risk          string `protobuf:"bytes,6,opt,name=risk,proto3" json:"risk,omitempty"`
+	Examples      string `protobuf:"bytes,7,opt,name=examples,proto3" json:"examples,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AsmViolation) Reset() {
+	*x = AsmViolation{}
+	mi := &file_siem_v1_search_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AsmViolation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AsmViolation) ProtoMessage() {}
+
+func (x *AsmViolation) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_search_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AsmViolation.ProtoReflect.Descriptor instead.
+func (*AsmViolation) Descriptor() ([]byte, []int) {
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AsmViolation) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *AsmViolation) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AsmViolation) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *AsmViolation) GetAttackType() string {
+	if x != nil {
+		return x.AttackType
+	}
+	return ""
+}
+
+func (x *AsmViolation) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *AsmViolation) GetRisk() string {
+	if x != nil {
+		return x.Risk
+	}
+	return ""
+}
+
+func (x *AsmViolation) GetExamples() string {
+	if x != nil {
+		return x.Examples
+	}
+	return ""
+}
+
+type AsmSignature struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Empty for an id the catalogue does not carry, exactly as with a violation.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// high | medium | low. Accuracy is the false-positive likelihood and risk is the
+	// impact if real; an analyst triages on the pair, not on either alone.
+	Accuracy    string `protobuf:"bytes,3,opt,name=accuracy,proto3" json:"accuracy,omitempty"`
+	Risk        string `protobuf:"bytes,4,opt,name=risk,proto3" json:"risk,omitempty"`
+	AttackType  string `protobuf:"bytes,5,opt,name=attack_type,json=attackType,proto3" json:"attack_type,omitempty"`
+	Description string `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
+	// Separated from references because a CVE is a pivot into every other tool the
+	// analyst owns, while a blog post is context.
+	Cves       []string `protobuf:"bytes,7,rep,name=cves,proto3" json:"cves,omitempty"`
+	References []string `protobuf:"bytes,8,rep,name=references,proto3" json:"references,omitempty"`
+	// True for a signature written by the customer rather than shipped by F5, which
+	// changes who to ask about a false positive.
+	UserDefined   bool `protobuf:"varint,9,opt,name=user_defined,json=userDefined,proto3" json:"user_defined,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AsmSignature) Reset() {
+	*x = AsmSignature{}
+	mi := &file_siem_v1_search_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AsmSignature) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AsmSignature) ProtoMessage() {}
+
+func (x *AsmSignature) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_search_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AsmSignature.ProtoReflect.Descriptor instead.
+func (*AsmSignature) Descriptor() ([]byte, []int) {
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AsmSignature) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *AsmSignature) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AsmSignature) GetAccuracy() string {
+	if x != nil {
+		return x.Accuracy
+	}
+	return ""
+}
+
+func (x *AsmSignature) GetRisk() string {
+	if x != nil {
+		return x.Risk
+	}
+	return ""
+}
+
+func (x *AsmSignature) GetAttackType() string {
+	if x != nil {
+		return x.AttackType
+	}
+	return ""
+}
+
+func (x *AsmSignature) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *AsmSignature) GetCves() []string {
+	if x != nil {
+		return x.Cves
+	}
+	return nil
+}
+
+func (x *AsmSignature) GetReferences() []string {
+	if x != nil {
+		return x.References
+	}
+	return nil
+}
+
+func (x *AsmSignature) GetUserDefined() bool {
+	if x != nil {
+		return x.UserDefined
+	}
+	return false
 }
 
 var File_siem_v1_search_proto protoreflect.FileDescriptor
@@ -1214,7 +1506,7 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\trow_count\x18\x04 \x01(\x03R\browCount\x12\x1c\n" +
 	"\ttruncated\x18\x05 \x01(\bR\ttruncated\",\n" +
 	"\x0fGetEventRequest\x12\x19\n" +
-	"\bevent_id\x18\x01 \x01(\tR\aeventId\"\xd5\x02\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\"\xfd\x02\n" +
 	"\vEventDetail\x12/\n" +
 	"\asummary\x18\x01 \x01(\v2\x15.siem.v1.EventSummaryR\asummary\x12\x1f\n" +
 	"\vraw_payload\x18\x02 \x01(\tR\n" +
@@ -1222,10 +1514,41 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\x10raw_content_type\x18\x03 \x01(\tR\x0erawContentType\x12?\n" +
 	"\traw_extra\x18\x04 \x03(\v2\".siem.v1.EventDetail.RawExtraEntryR\brawExtra\x12%\n" +
 	"\x0ecorrelation_id\x18\x05 \x01(\tR\rcorrelationId\x12%\n" +
-	"\x0eunknown_fields\x18\x06 \x03(\tR\runknownFields\x1a;\n" +
+	"\x0eunknown_fields\x18\x06 \x03(\tR\runknownFields\x12&\n" +
+	"\x03asm\x18\a \x01(\v2\x14.siem.v1.AsmFindingsR\x03asm\x1a;\n" +
 	"\rRawExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*^\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa6\x01\n" +
+	"\vAsmFindings\x125\n" +
+	"\n" +
+	"violations\x18\x01 \x03(\v2\x15.siem.v1.AsmViolationR\n" +
+	"violations\x125\n" +
+	"\n" +
+	"signatures\x18\x02 \x03(\v2\x15.siem.v1.AsmSignatureR\n" +
+	"signatures\x12)\n" +
+	"\x10violation_rating\x18\x03 \x01(\tR\x0fviolationRating\"\xc7\x01\n" +
+	"\fAsmViolation\x12\x14\n" +
+	"\x05title\x18\x01 \x01(\tR\x05title\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
+	"\bseverity\x18\x03 \x01(\tR\bseverity\x12\x1f\n" +
+	"\vattack_type\x18\x04 \x01(\tR\n" +
+	"attackType\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04risk\x18\x06 \x01(\tR\x04risk\x12\x1a\n" +
+	"\bexamples\x18\a \x01(\tR\bexamples\"\xfc\x01\n" +
+	"\fAsmSignature\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
+	"\baccuracy\x18\x03 \x01(\tR\baccuracy\x12\x12\n" +
+	"\x04risk\x18\x04 \x01(\tR\x04risk\x12\x1f\n" +
+	"\vattack_type\x18\x05 \x01(\tR\n" +
+	"attackType\x12 \n" +
+	"\vdescription\x18\x06 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04cves\x18\a \x03(\tR\x04cves\x12\x1e\n" +
+	"\n" +
+	"references\x18\b \x03(\tR\n" +
+	"references\x12!\n" +
+	"\fuser_defined\x18\t \x01(\bR\vuserDefined*^\n" +
 	"\fExportFormat\x12\x1d\n" +
 	"\x19EXPORT_FORMAT_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14EXPORT_FORMAT_NDJSON\x10\x01\x12\x15\n" +
@@ -1250,7 +1573,7 @@ func file_siem_v1_search_proto_rawDescGZIP() []byte {
 }
 
 var file_siem_v1_search_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_siem_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_siem_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_siem_v1_search_proto_goTypes = []any{
 	(ExportFormat)(0),                // 0: siem.v1.ExportFormat
 	(*EventFilters)(nil),             // 1: siem.v1.EventFilters
@@ -1264,58 +1587,64 @@ var file_siem_v1_search_proto_goTypes = []any{
 	(*ExportSearchResponse)(nil),     // 9: siem.v1.ExportSearchResponse
 	(*GetEventRequest)(nil),          // 10: siem.v1.GetEventRequest
 	(*EventDetail)(nil),              // 11: siem.v1.EventDetail
-	nil,                              // 12: siem.v1.EventDetail.RawExtraEntry
-	(Vendor)(0),                      // 13: siem.v1.Vendor
-	(Verdict)(0),                     // 14: siem.v1.Verdict
-	(*TimeRange)(nil),                // 15: siem.v1.TimeRange
-	(*PageRequest)(nil),              // 16: siem.v1.PageRequest
-	(*timestamppb.Timestamp)(nil),    // 17: google.protobuf.Timestamp
-	(*ClientInfo)(nil),               // 18: siem.v1.ClientInfo
-	(*RequestInfo)(nil),              // 19: siem.v1.RequestInfo
-	(*PageResponse)(nil),             // 20: siem.v1.PageResponse
-	(DisagreementKind)(0),            // 21: siem.v1.DisagreementKind
-	(Confidence)(0),                  // 22: siem.v1.Confidence
-	(*CorrelatedRequest)(nil),        // 23: siem.v1.CorrelatedRequest
+	(*AsmFindings)(nil),              // 12: siem.v1.AsmFindings
+	(*AsmViolation)(nil),             // 13: siem.v1.AsmViolation
+	(*AsmSignature)(nil),             // 14: siem.v1.AsmSignature
+	nil,                              // 15: siem.v1.EventDetail.RawExtraEntry
+	(Vendor)(0),                      // 16: siem.v1.Vendor
+	(Verdict)(0),                     // 17: siem.v1.Verdict
+	(*TimeRange)(nil),                // 18: siem.v1.TimeRange
+	(*PageRequest)(nil),              // 19: siem.v1.PageRequest
+	(*timestamppb.Timestamp)(nil),    // 20: google.protobuf.Timestamp
+	(*ClientInfo)(nil),               // 21: siem.v1.ClientInfo
+	(*RequestInfo)(nil),              // 22: siem.v1.RequestInfo
+	(*PageResponse)(nil),             // 23: siem.v1.PageResponse
+	(DisagreementKind)(0),            // 24: siem.v1.DisagreementKind
+	(Confidence)(0),                  // 25: siem.v1.Confidence
+	(*CorrelatedRequest)(nil),        // 26: siem.v1.CorrelatedRequest
 }
 var file_siem_v1_search_proto_depIdxs = []int32{
-	13, // 0: siem.v1.EventFilters.vendor:type_name -> siem.v1.Vendor
-	14, // 1: siem.v1.EventFilters.verdict:type_name -> siem.v1.Verdict
-	15, // 2: siem.v1.SearchEventsRequest.time_range:type_name -> siem.v1.TimeRange
+	16, // 0: siem.v1.EventFilters.vendor:type_name -> siem.v1.Vendor
+	17, // 1: siem.v1.EventFilters.verdict:type_name -> siem.v1.Verdict
+	18, // 2: siem.v1.SearchEventsRequest.time_range:type_name -> siem.v1.TimeRange
 	1,  // 3: siem.v1.SearchEventsRequest.filters:type_name -> siem.v1.EventFilters
-	16, // 4: siem.v1.SearchEventsRequest.page:type_name -> siem.v1.PageRequest
-	17, // 5: siem.v1.EventSummary.event_time:type_name -> google.protobuf.Timestamp
-	13, // 6: siem.v1.EventSummary.vendor:type_name -> siem.v1.Vendor
-	18, // 7: siem.v1.EventSummary.client:type_name -> siem.v1.ClientInfo
-	19, // 8: siem.v1.EventSummary.request:type_name -> siem.v1.RequestInfo
-	14, // 9: siem.v1.EventSummary.verdict:type_name -> siem.v1.Verdict
+	19, // 4: siem.v1.SearchEventsRequest.page:type_name -> siem.v1.PageRequest
+	20, // 5: siem.v1.EventSummary.event_time:type_name -> google.protobuf.Timestamp
+	16, // 6: siem.v1.EventSummary.vendor:type_name -> siem.v1.Vendor
+	21, // 7: siem.v1.EventSummary.client:type_name -> siem.v1.ClientInfo
+	22, // 8: siem.v1.EventSummary.request:type_name -> siem.v1.RequestInfo
+	17, // 9: siem.v1.EventSummary.verdict:type_name -> siem.v1.Verdict
 	3,  // 10: siem.v1.SearchEventsResponse.items:type_name -> siem.v1.EventSummary
-	20, // 11: siem.v1.SearchEventsResponse.page:type_name -> siem.v1.PageResponse
-	21, // 12: siem.v1.CorrelatedFilters.disagreement_kind:type_name -> siem.v1.DisagreementKind
-	22, // 13: siem.v1.CorrelatedFilters.confidence:type_name -> siem.v1.Confidence
-	14, // 14: siem.v1.CorrelatedFilters.combined_outcome:type_name -> siem.v1.Verdict
-	15, // 15: siem.v1.SearchCorrelatedRequest.time_range:type_name -> siem.v1.TimeRange
+	23, // 11: siem.v1.SearchEventsResponse.page:type_name -> siem.v1.PageResponse
+	24, // 12: siem.v1.CorrelatedFilters.disagreement_kind:type_name -> siem.v1.DisagreementKind
+	25, // 13: siem.v1.CorrelatedFilters.confidence:type_name -> siem.v1.Confidence
+	17, // 14: siem.v1.CorrelatedFilters.combined_outcome:type_name -> siem.v1.Verdict
+	18, // 15: siem.v1.SearchCorrelatedRequest.time_range:type_name -> siem.v1.TimeRange
 	5,  // 16: siem.v1.SearchCorrelatedRequest.filters:type_name -> siem.v1.CorrelatedFilters
-	16, // 17: siem.v1.SearchCorrelatedRequest.page:type_name -> siem.v1.PageRequest
-	23, // 18: siem.v1.SearchCorrelatedResponse.items:type_name -> siem.v1.CorrelatedRequest
-	20, // 19: siem.v1.SearchCorrelatedResponse.page:type_name -> siem.v1.PageResponse
-	15, // 20: siem.v1.ExportSearchRequest.time_range:type_name -> siem.v1.TimeRange
+	19, // 17: siem.v1.SearchCorrelatedRequest.page:type_name -> siem.v1.PageRequest
+	26, // 18: siem.v1.SearchCorrelatedResponse.items:type_name -> siem.v1.CorrelatedRequest
+	23, // 19: siem.v1.SearchCorrelatedResponse.page:type_name -> siem.v1.PageResponse
+	18, // 20: siem.v1.ExportSearchRequest.time_range:type_name -> siem.v1.TimeRange
 	1,  // 21: siem.v1.ExportSearchRequest.filters:type_name -> siem.v1.EventFilters
 	0,  // 22: siem.v1.ExportSearchRequest.format:type_name -> siem.v1.ExportFormat
 	3,  // 23: siem.v1.EventDetail.summary:type_name -> siem.v1.EventSummary
-	12, // 24: siem.v1.EventDetail.raw_extra:type_name -> siem.v1.EventDetail.RawExtraEntry
-	2,  // 25: siem.v1.Search.SearchEvents:input_type -> siem.v1.SearchEventsRequest
-	6,  // 26: siem.v1.Search.SearchCorrelated:input_type -> siem.v1.SearchCorrelatedRequest
-	8,  // 27: siem.v1.Search.ExportSearch:input_type -> siem.v1.ExportSearchRequest
-	10, // 28: siem.v1.Search.GetEvent:input_type -> siem.v1.GetEventRequest
-	4,  // 29: siem.v1.Search.SearchEvents:output_type -> siem.v1.SearchEventsResponse
-	7,  // 30: siem.v1.Search.SearchCorrelated:output_type -> siem.v1.SearchCorrelatedResponse
-	9,  // 31: siem.v1.Search.ExportSearch:output_type -> siem.v1.ExportSearchResponse
-	11, // 32: siem.v1.Search.GetEvent:output_type -> siem.v1.EventDetail
-	29, // [29:33] is the sub-list for method output_type
-	25, // [25:29] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	15, // 24: siem.v1.EventDetail.raw_extra:type_name -> siem.v1.EventDetail.RawExtraEntry
+	12, // 25: siem.v1.EventDetail.asm:type_name -> siem.v1.AsmFindings
+	13, // 26: siem.v1.AsmFindings.violations:type_name -> siem.v1.AsmViolation
+	14, // 27: siem.v1.AsmFindings.signatures:type_name -> siem.v1.AsmSignature
+	2,  // 28: siem.v1.Search.SearchEvents:input_type -> siem.v1.SearchEventsRequest
+	6,  // 29: siem.v1.Search.SearchCorrelated:input_type -> siem.v1.SearchCorrelatedRequest
+	8,  // 30: siem.v1.Search.ExportSearch:input_type -> siem.v1.ExportSearchRequest
+	10, // 31: siem.v1.Search.GetEvent:input_type -> siem.v1.GetEventRequest
+	4,  // 32: siem.v1.Search.SearchEvents:output_type -> siem.v1.SearchEventsResponse
+	7,  // 33: siem.v1.Search.SearchCorrelated:output_type -> siem.v1.SearchCorrelatedResponse
+	9,  // 34: siem.v1.Search.ExportSearch:output_type -> siem.v1.ExportSearchResponse
+	11, // 35: siem.v1.Search.GetEvent:output_type -> siem.v1.EventDetail
+	32, // [32:36] is the sub-list for method output_type
+	28, // [28:32] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_siem_v1_search_proto_init() }
@@ -1334,7 +1663,7 @@ func file_siem_v1_search_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_search_proto_rawDesc), len(file_siem_v1_search_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

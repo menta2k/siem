@@ -772,6 +772,62 @@ export interface components {
             updatedAt?: string;
         };
         /**
+         * @description AsmFindings explains a BIG-IP block in terms an analyst can act on.
+         *
+         *      A raw ASM record says "Illegal file type" and "200004165" and stops there. Deciding
+         *      whether that is an attack or a false positive otherwise means leaving the console for
+         *      the BIG-IP UI. These are the same tokens with their meanings attached.
+         */
+        AsmFindings: {
+            violations?: components["schemas"]["AsmViolation"][];
+            signatures?: components["schemas"]["AsmSignature"][];
+            /** @description ASM's own 1-5 threat rating for the request, carried through as reported. */
+            violationRating?: string;
+        };
+        AsmSignature: {
+            id?: string;
+            /** @description Empty for an id the catalogue does not carry, exactly as with a violation. */
+            name?: string;
+            /**
+             * @description high | medium | low. Accuracy is the false-positive likelihood and risk is the
+             *      impact if real; an analyst triages on the pair, not on either alone.
+             */
+            accuracy?: string;
+            risk?: string;
+            attackType?: string;
+            description?: string;
+            /**
+             * @description Separated from references because a CVE is a pivot into every other tool the
+             *      analyst owns, while a blog post is context.
+             */
+            cves?: string[];
+            references?: string[];
+            /**
+             * @description True for a signature written by the customer rather than shipped by F5, which
+             *      changes who to ask about a false positive.
+             */
+            userDefined?: boolean;
+        };
+        AsmViolation: {
+            /** @description The string ASM logged, and the key everything else here was resolved from. */
+            title?: string;
+            /**
+             * @description The VIOL_* constant. Empty when the catalogue does not carry this violation — a
+             *      newer policy, or a user-defined check — in which case only the title is populated
+             *      and the entry still appears, because the record says it fired.
+             */
+            name?: string;
+            severity?: string;
+            attackType?: string;
+            description?: string;
+            /**
+             * @description What an attacker gains if this is a true positive. The sentence that decides
+             *      whether the alert is worth chasing.
+             */
+            risk?: string;
+            examples?: string;
+        };
+        /**
          * @description AsnCount is one origin network's activity for the range.
          *
          *      The network behind the addresses, which is the level a lot of abuse is actually
@@ -1064,6 +1120,14 @@ export interface components {
              *      Reconstructed alongside raw_extra from the same parse.
              */
             unknownFields?: string[];
+            /**
+             * @description What BIG-IP ASM actually objected to, resolved against the embedded catalogue.
+             *
+             *      Set only for F5 events that carry violations or signatures — which in practice
+             *      means blocked and monitored ones. Absent rather than empty for every other vendor,
+             *      so a client can branch on presence instead of on vendor.
+             */
+            asm?: components["schemas"]["AsmFindings"];
         };
         /**
          * @description EventFilters are the cross-vendor filters an analyst can apply.

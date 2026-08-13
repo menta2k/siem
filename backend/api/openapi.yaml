@@ -1337,6 +1337,86 @@ components:
                 updatedAt:
                     type: string
                     format: date-time
+        AsmFindings:
+            type: object
+            properties:
+                violations:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AsmViolation'
+                signatures:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/AsmSignature'
+                violationRating:
+                    type: string
+                    description: ASM's own 1-5 threat rating for the request, carried through as reported.
+            description: |-
+                AsmFindings explains a BIG-IP block in terms an analyst can act on.
+
+                 A raw ASM record says "Illegal file type" and "200004165" and stops there. Deciding
+                 whether that is an attack or a false positive otherwise means leaving the console for
+                 the BIG-IP UI. These are the same tokens with their meanings attached.
+        AsmSignature:
+            type: object
+            properties:
+                id:
+                    type: string
+                name:
+                    type: string
+                    description: Empty for an id the catalogue does not carry, exactly as with a violation.
+                accuracy:
+                    type: string
+                    description: |-
+                        high | medium | low. Accuracy is the false-positive likelihood and risk is the
+                         impact if real; an analyst triages on the pair, not on either alone.
+                risk:
+                    type: string
+                attackType:
+                    type: string
+                description:
+                    type: string
+                cves:
+                    type: array
+                    items:
+                        type: string
+                    description: |-
+                        Separated from references because a CVE is a pivot into every other tool the
+                         analyst owns, while a blog post is context.
+                references:
+                    type: array
+                    items:
+                        type: string
+                userDefined:
+                    type: boolean
+                    description: |-
+                        True for a signature written by the customer rather than shipped by F5, which
+                         changes who to ask about a false positive.
+        AsmViolation:
+            type: object
+            properties:
+                title:
+                    type: string
+                    description: The string ASM logged, and the key everything else here was resolved from.
+                name:
+                    type: string
+                    description: |-
+                        The VIOL_* constant. Empty when the catalogue does not carry this violation — a
+                         newer policy, or a user-defined check — in which case only the title is populated
+                         and the entry still appears, because the record says it fired.
+                severity:
+                    type: string
+                attackType:
+                    type: string
+                description:
+                    type: string
+                risk:
+                    type: string
+                    description: |-
+                        What an attacker gains if this is a true positive. The sentence that decides
+                         whether the alert is worth chasing.
+                examples:
+                    type: string
         AsnCount:
             type: object
             properties:
@@ -1765,6 +1845,15 @@ components:
                     description: |-
                         Vendor fields the adapter did not recognise, for the event being inspected.
                          Reconstructed alongside raw_extra from the same parse.
+                asm:
+                    allOf:
+                        - $ref: '#/components/schemas/AsmFindings'
+                    description: |-
+                        What BIG-IP ASM actually objected to, resolved against the embedded catalogue.
+
+                         Set only for F5 events that carry violations or signatures — which in practice
+                         means blocked and monitored ones. Absent rather than empty for every other vendor,
+                         so a client can branch on presence instead of on vendor.
             description: EventDetail is one event with everything the platform holds about it.
         EventFilters:
             type: object

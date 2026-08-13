@@ -9,6 +9,7 @@ import type { components } from '@/api/schema'
 import { usePreferencesStore } from '@/stores/preferences'
 import EventTable from '@/components/EventTable.vue'
 import SearchFilters from '@/components/SearchFilters.vue'
+import AsmFindings from '@/components/AsmFindings.vue'
 import { formatPayload } from '@/lib/json-format'
 
 const prefs = usePreferencesStore()
@@ -303,6 +304,11 @@ function downloadExport(base64: string, contentType: string, filename: string): 
                 </tr>
               </tbody>
             </v-table>
+
+            <!-- Above the raw payload on purpose: this is the answer to the question the
+                 analyst opened the event with, and the payload is the evidence behind it.
+                 Present only for F5 events that actually tripped something. -->
+            <AsmFindings v-if="detail.asm" :findings="detail.asm" />
 
             <div class="d-flex align-center mb-1">
               <div class="text-subtitle-2">Raw vendor payload</div>

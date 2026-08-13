@@ -226,4 +226,58 @@ message EventDetail {
   // Vendor fields the adapter did not recognise, for the event being inspected.
   // Reconstructed alongside raw_extra from the same parse.
   repeated string unknown_fields = 6;
+
+  // What BIG-IP ASM actually objected to, resolved against the embedded catalogue.
+  //
+  // Set only for F5 events that carry violations or signatures — which in practice
+  // means blocked and monitored ones. Absent rather than empty for every other vendor,
+  // so a client can branch on presence instead of on vendor.
+  AsmFindings asm = 7;
+}
+
+// AsmFindings explains a BIG-IP block in terms an analyst can act on.
+//
+// A raw ASM record says "Illegal file type" and "200004165" and stops there. Deciding
+// whether that is an attack or a false positive otherwise means leaving the console for
+// the BIG-IP UI. These are the same tokens with their meanings attached.
+message AsmFindings {
+  repeated AsmViolation violations = 1;
+  repeated AsmSignature signatures = 2;
+  // ASM's own 1-5 threat rating for the request, carried through as reported.
+  string violation_rating = 3;
+}
+
+message AsmViolation {
+  // The string ASM logged, and the key everything else here was resolved from.
+  string title = 1;
+  // The VIOL_* constant. Empty when the catalogue does not carry this violation — a
+  // newer policy, or a user-defined check — in which case only the title is populated
+  // and the entry still appears, because the record says it fired.
+  string name = 2;
+  string severity = 3;
+  string attack_type = 4;
+  string description = 5;
+  // What an attacker gains if this is a true positive. The sentence that decides
+  // whether the alert is worth chasing.
+  string risk = 6;
+  string examples = 7;
+}
+
+message AsmSignature {
+  uint64 id = 1;
+  // Empty for an id the catalogue does not carry, exactly as with a violation.
+  string name = 2;
+  // high | medium | low. Accuracy is the false-positive likelihood and risk is the
+  // impact if real; an analyst triages on the pair, not on either alone.
+  string accuracy = 3;
+  string risk = 4;
+  string attack_type = 5;
+  string description = 6;
+  // Separated from references because a CVE is a pivot into every other tool the
+  // analyst owns, while a blog post is context.
+  repeated string cves = 7;
+  repeated string references = 8;
+  // True for a signature written by the customer rather than shipped by F5, which
+  // changes who to ask about a false positive.
+  bool user_defined = 9;
 }

@@ -276,10 +276,18 @@ func (s *SearchService) GetEvent(
 		detail.RawExtra, detail.UnknownFields = s.vendorFields(ctx, raw.Vendor, raw.Payload)
 	case errors.Is(err, chdata.ErrNotFound):
 		// Expected: retention expired the payload while the normalized row survives.
+		// Expected: retention expired the payload while the normalized row survives.
 	case s.log != nil:
 		s.log.Error(ctx, "event detail: raw payload could not be read",
 			"event_id", eventID, "vendor", event.Vendor, "error", err.Error())
 	}
+
+	// After the payload block, because the signature ids come out of the fields rebuilt
+	// from it. The violations do not, so a blocked request whose payload has expired
+	// still explains its violations — with the signatures simply absent, which is the
+	// honest rendering of "the bytes that named them are gone".
+	detail.Asm = asmFindings(event, detail.GetRawExtra())
+
 	return detail, nil
 }
 

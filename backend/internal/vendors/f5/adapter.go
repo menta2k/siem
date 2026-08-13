@@ -33,6 +33,22 @@ var knownFields = map[string]bool{
 	"x_forwarded_for_header_value": true, "http_class_name": true,
 	"dest_port": true, "src_port": true, "session_id": true, "username": true,
 	"request": true, "response": true, "outcome": true, "outcome_reason": true,
+	// The signature fields. They are the other half of "why was this blocked": the
+	// violations field says a signature matched, and only these say WHICH. They stay in
+	// RawExtra, which is where the detail view reads them from to enrich against the
+	// embedded ASM catalogue — declaring them here stops them being counted as schema
+	// drift, which they were on every blocked request the appliance has ever sent.
+	"sig_ids": true, "sig_names": true, "sig_cves": true,
+	"staged_sig_ids": true, "staged_sig_names": true, "staged_sig_cves": true,
+	"threat_campaign_names": true, "staged_threat_campaign_names": true,
+	// Reported alongside them on every record, mapped nowhere, and equally noisy as
+	// drift.
+	"web_application_name": true, "policy_apply_date": true, "route_domain": true,
+	"ip_address_intelligence": true, "virus_name": true, "device_id": true,
+	"websocket_direction": true, "websocket_message_type": true,
+	"blocking_exception_reason": true, "captcha_result": true, "microservice": true,
+	"tap_event_id": true, "tap_vid": true, "vs_name": true, "fragment": true,
+	"management_ip_address_2": true, "dest_ip": true,
 }
 
 // Adapter implements vendors.Adapter for F5.
