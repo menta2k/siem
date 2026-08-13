@@ -204,6 +204,83 @@ func (r *UserRepo) Update(
 	return updated, nil
 }
 
+// Erase permanently removes a user's row.
+//
+// This is the ONLY destructive operation on the users table, and it is deliberately
+// separate from the disable path rather than a flag on it. Disabling is the reversible
+// default and covers the ordinary case of someone leaving; erasure exists for the case
+// where a record must genuinely stop existing, such as an erasure request.
+//
+// What survives it: the audit trail. Entries carry actor_email alongside actor_user_id,
+// so everything the user did remains attributable to the address that did it after the
+// row naming that address is gone. Erasing a user does NOT rewrite history, and nothing
+// here can — the audit package has no update or delete path at all.
+//
+// Synchronous, unlike the retention deletes. Those run in a background worker against
+// hundreds of millions of rows, where waiting would compete with ingestion for merge
+// capacity. This one is a single row a human is watching a UI for, and an asynchronous
+// mutation would return success to an admin who then still sees the account listed.
+func (r *UserRepo) Erase(ctx context.Context, userID uuid.UUID) error {
+	tenantID, err := tenancy.MustID(ctx)
+	if err != nil {
+		return err
+	}
+
+	// The same key Update takes, so an erase cannot interleave with a write that would
+	// re-insert the row it just removed.
+	release, err := r.locker.Lock(ctx, fmt.Sprintf("user:%s:%s", tenantID, userID))
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	statements := []string{
+		"DELETE FROM users WHERE tenant_id = ? AND user_id = ?",
+		// Any outstanding setup token goes with them. Leaving it would strand a row
+		// pointing at a user that no longer exists, and the address is now free to be
+		// re-created — which must start from a fresh invite, not an old one.
+		"DELETE FROM user_invites WHERE tenant_id = ? AND user_id = ?",
+	}
+
+	for _, statement := range statements {
+		if err := r.client.Exec(ctx, statement, tenantID, userID); err != nil {
+			return fmt.Errorf("erase user %s: %w", userID, err)
+		}
+	}
+	return nil
+}
+
+// CountAdmins reports how many active admins the tenant has.
+//
+// Used to refuse the operation that would leave a tenant with nobody able to administer
+// it. There is no recovery path from that state through the API — the remaining users
+// cannot grant themselves the role they would need — so it has to be prevented rather
+// than repaired.
+func (r *UserRepo) CountAdmins(ctx context.Context) (uint64, error) {
+	tenantID, err := tenancy.MustID(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	rows, err := r.client.Query(ctx,
+		`SELECT count() FROM users FINAL
+		 WHERE tenant_id = ? AND role = 'admin' AND status = ?`,
+		tenantID, UserStatusActive)
+	if err != nil {
+		return 0, fmt.Errorf("count admins: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		return 0, fmt.Errorf("count admins: no result")
+	}
+	var count uint64
+	if err := rows.Scan(&count); err != nil {
+		return 0, fmt.Errorf("scan admin count: %w", err)
+	}
+	return count, nil
+}
+
 // RecordLogin stamps the last successful login time.
 func (r *UserRepo) RecordLogin(ctx context.Context, userID uuid.UUID, at time.Time) error {
 	_, err := r.Update(ctx, userID, func(u User) User {

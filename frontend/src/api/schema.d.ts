@@ -110,6 +110,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/users/{userId}/permanent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * @description Permanently remove a user. IRREVERSIBLE.
+         *
+         *      A separate RPC from DeleteUser, not a flag on it, because the two are different
+         *      decisions with different consequences: DeleteUser disables and is reversible, this
+         *      destroys the record. A boolean on a shared request is how one gets sent by mistake.
+         *
+         *      The audit trail is NOT affected. Entries carry the actor's email as well as their
+         *      id, so the erased user's history stays attributable.
+         */
+        delete: operations["Admin_EraseUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/alert-rules": {
         parameters: {
             query?: never;
@@ -1003,6 +1029,7 @@ export interface components {
             totalRecords?: string;
             totalDisagreements?: string;
         };
+        EraseUserResponse: Record<string, never>;
         /** @description EventDetail is one event with everything the platform holds about it. */
         EventDetail: {
             summary?: components["schemas"]["EventSummary"];
@@ -1988,6 +2015,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserInvite"];
+                };
+            };
+        };
+    };
+    Admin_EraseUser: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The account's email address, which the caller must repeat back.
+                 *
+                 *      Not ceremony. The id in the path is opaque, so an admin cannot tell from the request
+                 *      which human it names; requiring the address means the destructive call carries the
+                 *      caller's own statement of who they believe they are removing, and a mismatch is a
+                 *      wrong row rather than a wrong keystroke.
+                 */
+                confirmEmail?: string;
+            };
+            header?: never;
+            path: {
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EraseUserResponse"];
                 };
             };
         };

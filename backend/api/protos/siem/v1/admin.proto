@@ -34,6 +34,18 @@ service Admin {
     option (google.api.http) = {delete: "/api/v1/admin/users/{user_id}"};
   }
 
+  // Permanently remove a user. IRREVERSIBLE.
+  //
+  // A separate RPC from DeleteUser, not a flag on it, because the two are different
+  // decisions with different consequences: DeleteUser disables and is reversible, this
+  // destroys the record. A boolean on a shared request is how one gets sent by mistake.
+  //
+  // The audit trail is NOT affected. Entries carry the actor's email as well as their
+  // id, so the erased user's history stays attributable.
+  rpc EraseUser(EraseUserRequest) returns (EraseUserResponse) {
+    option (google.api.http) = {delete: "/api/v1/admin/users/{user_id}/permanent"};
+  }
+
   // Mint a one-time setup token for a user who has not set a password yet.
   //
   // Separate from CreateUser rather than folded into it, because the token cannot be
@@ -129,6 +141,19 @@ message DeleteUserRequest {
 }
 
 message DeleteUserResponse {}
+
+message EraseUserRequest {
+  string user_id = 1;
+  // The account's email address, which the caller must repeat back.
+  //
+  // Not ceremony. The id in the path is opaque, so an admin cannot tell from the request
+  // which human it names; requiring the address means the destructive call carries the
+  // caller's own statement of who they believe they are removing, and a mismatch is a
+  // wrong row rather than a wrong keystroke.
+  string confirm_email = 2;
+}
+
+message EraseUserResponse {}
 
 message GetTenantSettingsRequest {}
 

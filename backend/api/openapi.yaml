@@ -197,6 +197,44 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/UserInvite'
+    /api/v1/admin/users/{userId}/permanent:
+        delete:
+            tags:
+                - Admin
+            description: |-
+                Permanently remove a user. IRREVERSIBLE.
+
+                 A separate RPC from DeleteUser, not a flag on it, because the two are different
+                 decisions with different consequences: DeleteUser disables and is reversible, this
+                 destroys the record. A boolean on a shared request is how one gets sent by mistake.
+
+                 The audit trail is NOT affected. Entries carry the actor's email as well as their
+                 id, so the erased user's history stays attributable.
+            operationId: Admin_EraseUser
+            parameters:
+                - name: userId
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+                - name: confirmEmail
+                  in: query
+                  description: |-
+                    The account's email address, which the caller must repeat back.
+
+                     Not ceremony. The id in the path is opaque, so an admin cannot tell from the request
+                     which human it names; requiring the address means the destructive call carries the
+                     caller's own statement of who they believe they are removing, and a mismatch is a
+                     wrong row rather than a wrong keystroke.
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EraseUserResponse'
     /api/v1/alert-rules:
         get:
             tags:
@@ -1684,6 +1722,9 @@ components:
                     type: string
                 totalDisagreements:
                     type: string
+        EraseUserResponse:
+            type: object
+            properties: {}
         EventDetail:
             type: object
             properties:

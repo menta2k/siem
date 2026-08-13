@@ -448,6 +448,100 @@ func (*DeleteUserResponse) Descriptor() ([]byte, []int) {
 	return file_siem_v1_admin_proto_rawDescGZIP(), []int{7}
 }
 
+type EraseUserRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	UserId string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// The account's email address, which the caller must repeat back.
+	//
+	// Not ceremony. The id in the path is opaque, so an admin cannot tell from the request
+	// which human it names; requiring the address means the destructive call carries the
+	// caller's own statement of who they believe they are removing, and a mismatch is a
+	// wrong row rather than a wrong keystroke.
+	ConfirmEmail  string `protobuf:"bytes,2,opt,name=confirm_email,json=confirmEmail,proto3" json:"confirm_email,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EraseUserRequest) Reset() {
+	*x = EraseUserRequest{}
+	mi := &file_siem_v1_admin_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EraseUserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EraseUserRequest) ProtoMessage() {}
+
+func (x *EraseUserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_admin_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EraseUserRequest.ProtoReflect.Descriptor instead.
+func (*EraseUserRequest) Descriptor() ([]byte, []int) {
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *EraseUserRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *EraseUserRequest) GetConfirmEmail() string {
+	if x != nil {
+		return x.ConfirmEmail
+	}
+	return ""
+}
+
+type EraseUserResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EraseUserResponse) Reset() {
+	*x = EraseUserResponse{}
+	mi := &file_siem_v1_admin_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EraseUserResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EraseUserResponse) ProtoMessage() {}
+
+func (x *EraseUserResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_admin_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EraseUserResponse.ProtoReflect.Descriptor instead.
+func (*EraseUserResponse) Descriptor() ([]byte, []int) {
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{9}
+}
+
 type GetTenantSettingsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -456,7 +550,7 @@ type GetTenantSettingsRequest struct {
 
 func (x *GetTenantSettingsRequest) Reset() {
 	*x = GetTenantSettingsRequest{}
-	mi := &file_siem_v1_admin_proto_msgTypes[8]
+	mi := &file_siem_v1_admin_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -468,7 +562,7 @@ func (x *GetTenantSettingsRequest) String() string {
 func (*GetTenantSettingsRequest) ProtoMessage() {}
 
 func (x *GetTenantSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[8]
+	mi := &file_siem_v1_admin_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -481,7 +575,7 @@ func (x *GetTenantSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTenantSettingsRequest.ProtoReflect.Descriptor instead.
 func (*GetTenantSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{8}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{10}
 }
 
 type TenantSettings struct {
@@ -508,7 +602,7 @@ type TenantSettings struct {
 
 func (x *TenantSettings) Reset() {
 	*x = TenantSettings{}
-	mi := &file_siem_v1_admin_proto_msgTypes[9]
+	mi := &file_siem_v1_admin_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -520,7 +614,7 @@ func (x *TenantSettings) String() string {
 func (*TenantSettings) ProtoMessage() {}
 
 func (x *TenantSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[9]
+	mi := &file_siem_v1_admin_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -533,7 +627,7 @@ func (x *TenantSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TenantSettings.ProtoReflect.Descriptor instead.
 func (*TenantSettings) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{9}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TenantSettings) GetTenantId() string {
@@ -628,7 +722,7 @@ type IngestFilterRule struct {
 
 func (x *IngestFilterRule) Reset() {
 	*x = IngestFilterRule{}
-	mi := &file_siem_v1_admin_proto_msgTypes[10]
+	mi := &file_siem_v1_admin_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -640,7 +734,7 @@ func (x *IngestFilterRule) String() string {
 func (*IngestFilterRule) ProtoMessage() {}
 
 func (x *IngestFilterRule) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[10]
+	mi := &file_siem_v1_admin_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -653,7 +747,7 @@ func (x *IngestFilterRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IngestFilterRule.ProtoReflect.Descriptor instead.
 func (*IngestFilterRule) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{10}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *IngestFilterRule) GetField() string {
@@ -700,7 +794,7 @@ type UpdateTenantSettingsRequest struct {
 
 func (x *UpdateTenantSettingsRequest) Reset() {
 	*x = UpdateTenantSettingsRequest{}
-	mi := &file_siem_v1_admin_proto_msgTypes[11]
+	mi := &file_siem_v1_admin_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -712,7 +806,7 @@ func (x *UpdateTenantSettingsRequest) String() string {
 func (*UpdateTenantSettingsRequest) ProtoMessage() {}
 
 func (x *UpdateTenantSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[11]
+	mi := &file_siem_v1_admin_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -725,7 +819,7 @@ func (x *UpdateTenantSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateTenantSettingsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateTenantSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{11}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *UpdateTenantSettingsRequest) GetRawRetentionDays() uint32 {
@@ -785,7 +879,7 @@ type GetCorrelationSettingsRequest struct {
 
 func (x *GetCorrelationSettingsRequest) Reset() {
 	*x = GetCorrelationSettingsRequest{}
-	mi := &file_siem_v1_admin_proto_msgTypes[12]
+	mi := &file_siem_v1_admin_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -797,7 +891,7 @@ func (x *GetCorrelationSettingsRequest) String() string {
 func (*GetCorrelationSettingsRequest) ProtoMessage() {}
 
 func (x *GetCorrelationSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[12]
+	mi := &file_siem_v1_admin_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -810,7 +904,7 @@ func (x *GetCorrelationSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCorrelationSettingsRequest.ProtoReflect.Descriptor instead.
 func (*GetCorrelationSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{12}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{14}
 }
 
 type CorrelationSettings struct {
@@ -827,7 +921,7 @@ type CorrelationSettings struct {
 
 func (x *CorrelationSettings) Reset() {
 	*x = CorrelationSettings{}
-	mi := &file_siem_v1_admin_proto_msgTypes[13]
+	mi := &file_siem_v1_admin_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -839,7 +933,7 @@ func (x *CorrelationSettings) String() string {
 func (*CorrelationSettings) ProtoMessage() {}
 
 func (x *CorrelationSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[13]
+	mi := &file_siem_v1_admin_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -852,7 +946,7 @@ func (x *CorrelationSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CorrelationSettings.ProtoReflect.Descriptor instead.
 func (*CorrelationSettings) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{13}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CorrelationSettings) GetCorrelationWindowMs() uint32 {
@@ -887,7 +981,7 @@ type UpdateCorrelationSettingsRequest struct {
 
 func (x *UpdateCorrelationSettingsRequest) Reset() {
 	*x = UpdateCorrelationSettingsRequest{}
-	mi := &file_siem_v1_admin_proto_msgTypes[14]
+	mi := &file_siem_v1_admin_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -899,7 +993,7 @@ func (x *UpdateCorrelationSettingsRequest) String() string {
 func (*UpdateCorrelationSettingsRequest) ProtoMessage() {}
 
 func (x *UpdateCorrelationSettingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[14]
+	mi := &file_siem_v1_admin_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -912,7 +1006,7 @@ func (x *UpdateCorrelationSettingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateCorrelationSettingsRequest.ProtoReflect.Descriptor instead.
 func (*UpdateCorrelationSettingsRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{14}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *UpdateCorrelationSettingsRequest) GetCorrelationWindowMs() uint32 {
@@ -949,7 +1043,7 @@ type PurgeRequest struct {
 
 func (x *PurgeRequest) Reset() {
 	*x = PurgeRequest{}
-	mi := &file_siem_v1_admin_proto_msgTypes[15]
+	mi := &file_siem_v1_admin_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -961,7 +1055,7 @@ func (x *PurgeRequest) String() string {
 func (*PurgeRequest) ProtoMessage() {}
 
 func (x *PurgeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[15]
+	mi := &file_siem_v1_admin_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -974,7 +1068,7 @@ func (x *PurgeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PurgeRequest.ProtoReflect.Descriptor instead.
 func (*PurgeRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{15}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *PurgeRequest) GetRange() *TimeRange {
@@ -1007,7 +1101,7 @@ type PurgeResponse struct {
 
 func (x *PurgeResponse) Reset() {
 	*x = PurgeResponse{}
-	mi := &file_siem_v1_admin_proto_msgTypes[16]
+	mi := &file_siem_v1_admin_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1019,7 +1113,7 @@ func (x *PurgeResponse) String() string {
 func (*PurgeResponse) ProtoMessage() {}
 
 func (x *PurgeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[16]
+	mi := &file_siem_v1_admin_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1032,7 +1126,7 @@ func (x *PurgeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PurgeResponse.ProtoReflect.Descriptor instead.
 func (*PurgeResponse) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{16}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *PurgeResponse) GetRowsDeleted() int64 {
@@ -1054,7 +1148,7 @@ type ListAuditEntriesRequest struct {
 
 func (x *ListAuditEntriesRequest) Reset() {
 	*x = ListAuditEntriesRequest{}
-	mi := &file_siem_v1_admin_proto_msgTypes[17]
+	mi := &file_siem_v1_admin_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1066,7 +1160,7 @@ func (x *ListAuditEntriesRequest) String() string {
 func (*ListAuditEntriesRequest) ProtoMessage() {}
 
 func (x *ListAuditEntriesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[17]
+	mi := &file_siem_v1_admin_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1079,7 +1173,7 @@ func (x *ListAuditEntriesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAuditEntriesRequest.ProtoReflect.Descriptor instead.
 func (*ListAuditEntriesRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{17}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListAuditEntriesRequest) GetRange() *TimeRange {
@@ -1123,7 +1217,7 @@ type ListAuditEntriesResponse struct {
 
 func (x *ListAuditEntriesResponse) Reset() {
 	*x = ListAuditEntriesResponse{}
-	mi := &file_siem_v1_admin_proto_msgTypes[18]
+	mi := &file_siem_v1_admin_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1135,7 +1229,7 @@ func (x *ListAuditEntriesResponse) String() string {
 func (*ListAuditEntriesResponse) ProtoMessage() {}
 
 func (x *ListAuditEntriesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[18]
+	mi := &file_siem_v1_admin_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1148,7 +1242,7 @@ func (x *ListAuditEntriesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAuditEntriesResponse.ProtoReflect.Descriptor instead.
 func (*ListAuditEntriesResponse) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{18}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ListAuditEntriesResponse) GetEntries() []*AuditEntry {
@@ -1200,7 +1294,7 @@ type AuditEntry struct {
 
 func (x *AuditEntry) Reset() {
 	*x = AuditEntry{}
-	mi := &file_siem_v1_admin_proto_msgTypes[19]
+	mi := &file_siem_v1_admin_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1212,7 +1306,7 @@ func (x *AuditEntry) String() string {
 func (*AuditEntry) ProtoMessage() {}
 
 func (x *AuditEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_admin_proto_msgTypes[19]
+	mi := &file_siem_v1_admin_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1225,7 +1319,7 @@ func (x *AuditEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuditEntry.ProtoReflect.Descriptor instead.
 func (*AuditEntry) Descriptor() ([]byte, []int) {
-	return file_siem_v1_admin_proto_rawDescGZIP(), []int{19}
+	return file_siem_v1_admin_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AuditEntry) GetEntryId() string {
@@ -1354,7 +1448,11 @@ const file_siem_v1_admin_proto_rawDesc = "" +
 	"_reset_mfa\",\n" +
 	"\x11DeleteUserRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"\x14\n" +
-	"\x12DeleteUserResponse\"\x1a\n" +
+	"\x12DeleteUserResponse\"P\n" +
+	"\x10EraseUserRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12#\n" +
+	"\rconfirm_email\x18\x02 \x01(\tR\fconfirmEmail\"\x13\n" +
+	"\x11EraseUserResponse\"\x1a\n" +
 	"\x18GetTenantSettingsRequest\"\xda\x03\n" +
 	"\x0eTenantSettings\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x12\n" +
@@ -1434,7 +1532,8 @@ const file_siem_v1_admin_proto_rawDesc = "" +
 	"\x06detail\x18\v \x01(\tR\x06detail\x12\x1d\n" +
 	"\n" +
 	"entry_hash\x18\f \x01(\tR\tentryHash\x12#\n" +
-	"\rprevious_hash\x18\r \x01(\tR\fpreviousHash2\xec\t\n" +
+	"\rprevious_hash\x18\r \x01(\tR\fpreviousHash2\xe1\n" +
+	"\n" +
 	"\x05Admin\x12_\n" +
 	"\tListUsers\x12\x19.siem.v1.ListUsersRequest\x1a\x1a.siem.v1.ListUsersResponse\"\x1b\x82\xd3\xe4\x93\x02\x15\x12\x13/api/v1/admin/users\x12^\n" +
 	"\n" +
@@ -1442,7 +1541,8 @@ const file_siem_v1_admin_proto_rawDesc = "" +
 	"\n" +
 	"UpdateUser\x12\x1a.siem.v1.UpdateUserRequest\x1a\x14.siem.v1.UserProfile\"(\x82\xd3\xe4\x93\x02\":\x01*2\x1d/api/v1/admin/users/{user_id}\x12l\n" +
 	"\n" +
-	"DeleteUser\x12\x1a.siem.v1.DeleteUserRequest\x1a\x1b.siem.v1.DeleteUserResponse\"%\x82\xd3\xe4\x93\x02\x1f*\x1d/api/v1/admin/users/{user_id}\x12x\n" +
+	"DeleteUser\x12\x1a.siem.v1.DeleteUserRequest\x1a\x1b.siem.v1.DeleteUserResponse\"%\x82\xd3\xe4\x93\x02\x1f*\x1d/api/v1/admin/users/{user_id}\x12s\n" +
+	"\tEraseUser\x12\x19.siem.v1.EraseUserRequest\x1a\x1a.siem.v1.EraseUserResponse\"/\x82\xd3\xe4\x93\x02)*'/api/v1/admin/users/{user_id}/permanent\x12x\n" +
 	"\x0fIssueUserInvite\x12\x1f.siem.v1.IssueUserInviteRequest\x1a\x13.siem.v1.UserInvite\"/\x82\xd3\xe4\x93\x02):\x01*\"$/api/v1/admin/users/{user_id}/invite\x12m\n" +
 	"\x11GetTenantSettings\x12!.siem.v1.GetTenantSettingsRequest\x1a\x17.siem.v1.TenantSettings\"\x1c\x82\xd3\xe4\x93\x02\x16\x12\x14/api/v1/admin/tenant\x12v\n" +
 	"\x14UpdateTenantSettings\x12$.siem.v1.UpdateTenantSettingsRequest\x1a\x17.siem.v1.TenantSettings\"\x1f\x82\xd3\xe4\x93\x02\x19:\x01*2\x14/api/v1/admin/tenant\x12\x8a\x01\n" +
@@ -1465,7 +1565,7 @@ func file_siem_v1_admin_proto_rawDescGZIP() []byte {
 	return file_siem_v1_admin_proto_rawDescData
 }
 
-var file_siem_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_siem_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_siem_v1_admin_proto_goTypes = []any{
 	(*ListUsersRequest)(nil),                 // 0: siem.v1.ListUsersRequest
 	(*ListUsersResponse)(nil),                // 1: siem.v1.ListUsersResponse
@@ -1475,64 +1575,68 @@ var file_siem_v1_admin_proto_goTypes = []any{
 	(*UpdateUserRequest)(nil),                // 5: siem.v1.UpdateUserRequest
 	(*DeleteUserRequest)(nil),                // 6: siem.v1.DeleteUserRequest
 	(*DeleteUserResponse)(nil),               // 7: siem.v1.DeleteUserResponse
-	(*GetTenantSettingsRequest)(nil),         // 8: siem.v1.GetTenantSettingsRequest
-	(*TenantSettings)(nil),                   // 9: siem.v1.TenantSettings
-	(*IngestFilterRule)(nil),                 // 10: siem.v1.IngestFilterRule
-	(*UpdateTenantSettingsRequest)(nil),      // 11: siem.v1.UpdateTenantSettingsRequest
-	(*GetCorrelationSettingsRequest)(nil),    // 12: siem.v1.GetCorrelationSettingsRequest
-	(*CorrelationSettings)(nil),              // 13: siem.v1.CorrelationSettings
-	(*UpdateCorrelationSettingsRequest)(nil), // 14: siem.v1.UpdateCorrelationSettingsRequest
-	(*PurgeRequest)(nil),                     // 15: siem.v1.PurgeRequest
-	(*PurgeResponse)(nil),                    // 16: siem.v1.PurgeResponse
-	(*ListAuditEntriesRequest)(nil),          // 17: siem.v1.ListAuditEntriesRequest
-	(*ListAuditEntriesResponse)(nil),         // 18: siem.v1.ListAuditEntriesResponse
-	(*AuditEntry)(nil),                       // 19: siem.v1.AuditEntry
-	(*PageRequest)(nil),                      // 20: siem.v1.PageRequest
-	(*UserProfile)(nil),                      // 21: siem.v1.UserProfile
-	(*PageResponse)(nil),                     // 22: siem.v1.PageResponse
-	(*timestamppb.Timestamp)(nil),            // 23: google.protobuf.Timestamp
-	(JoinSignal)(0),                          // 24: siem.v1.JoinSignal
-	(*TimeRange)(nil),                        // 25: siem.v1.TimeRange
+	(*EraseUserRequest)(nil),                 // 8: siem.v1.EraseUserRequest
+	(*EraseUserResponse)(nil),                // 9: siem.v1.EraseUserResponse
+	(*GetTenantSettingsRequest)(nil),         // 10: siem.v1.GetTenantSettingsRequest
+	(*TenantSettings)(nil),                   // 11: siem.v1.TenantSettings
+	(*IngestFilterRule)(nil),                 // 12: siem.v1.IngestFilterRule
+	(*UpdateTenantSettingsRequest)(nil),      // 13: siem.v1.UpdateTenantSettingsRequest
+	(*GetCorrelationSettingsRequest)(nil),    // 14: siem.v1.GetCorrelationSettingsRequest
+	(*CorrelationSettings)(nil),              // 15: siem.v1.CorrelationSettings
+	(*UpdateCorrelationSettingsRequest)(nil), // 16: siem.v1.UpdateCorrelationSettingsRequest
+	(*PurgeRequest)(nil),                     // 17: siem.v1.PurgeRequest
+	(*PurgeResponse)(nil),                    // 18: siem.v1.PurgeResponse
+	(*ListAuditEntriesRequest)(nil),          // 19: siem.v1.ListAuditEntriesRequest
+	(*ListAuditEntriesResponse)(nil),         // 20: siem.v1.ListAuditEntriesResponse
+	(*AuditEntry)(nil),                       // 21: siem.v1.AuditEntry
+	(*PageRequest)(nil),                      // 22: siem.v1.PageRequest
+	(*UserProfile)(nil),                      // 23: siem.v1.UserProfile
+	(*PageResponse)(nil),                     // 24: siem.v1.PageResponse
+	(*timestamppb.Timestamp)(nil),            // 25: google.protobuf.Timestamp
+	(JoinSignal)(0),                          // 26: siem.v1.JoinSignal
+	(*TimeRange)(nil),                        // 27: siem.v1.TimeRange
 }
 var file_siem_v1_admin_proto_depIdxs = []int32{
-	20, // 0: siem.v1.ListUsersRequest.page:type_name -> siem.v1.PageRequest
-	21, // 1: siem.v1.ListUsersResponse.users:type_name -> siem.v1.UserProfile
-	22, // 2: siem.v1.ListUsersResponse.page:type_name -> siem.v1.PageResponse
-	23, // 3: siem.v1.UserInvite.expires_at:type_name -> google.protobuf.Timestamp
-	10, // 4: siem.v1.TenantSettings.ingest_filters:type_name -> siem.v1.IngestFilterRule
-	10, // 5: siem.v1.UpdateTenantSettingsRequest.ingest_filters:type_name -> siem.v1.IngestFilterRule
-	24, // 6: siem.v1.CorrelationSettings.signal_ranking:type_name -> siem.v1.JoinSignal
-	24, // 7: siem.v1.UpdateCorrelationSettingsRequest.signal_ranking:type_name -> siem.v1.JoinSignal
-	25, // 8: siem.v1.PurgeRequest.range:type_name -> siem.v1.TimeRange
-	25, // 9: siem.v1.ListAuditEntriesRequest.range:type_name -> siem.v1.TimeRange
-	20, // 10: siem.v1.ListAuditEntriesRequest.page:type_name -> siem.v1.PageRequest
-	19, // 11: siem.v1.ListAuditEntriesResponse.entries:type_name -> siem.v1.AuditEntry
-	22, // 12: siem.v1.ListAuditEntriesResponse.page:type_name -> siem.v1.PageResponse
-	23, // 13: siem.v1.AuditEntry.occurred_at:type_name -> google.protobuf.Timestamp
+	22, // 0: siem.v1.ListUsersRequest.page:type_name -> siem.v1.PageRequest
+	23, // 1: siem.v1.ListUsersResponse.users:type_name -> siem.v1.UserProfile
+	24, // 2: siem.v1.ListUsersResponse.page:type_name -> siem.v1.PageResponse
+	25, // 3: siem.v1.UserInvite.expires_at:type_name -> google.protobuf.Timestamp
+	12, // 4: siem.v1.TenantSettings.ingest_filters:type_name -> siem.v1.IngestFilterRule
+	12, // 5: siem.v1.UpdateTenantSettingsRequest.ingest_filters:type_name -> siem.v1.IngestFilterRule
+	26, // 6: siem.v1.CorrelationSettings.signal_ranking:type_name -> siem.v1.JoinSignal
+	26, // 7: siem.v1.UpdateCorrelationSettingsRequest.signal_ranking:type_name -> siem.v1.JoinSignal
+	27, // 8: siem.v1.PurgeRequest.range:type_name -> siem.v1.TimeRange
+	27, // 9: siem.v1.ListAuditEntriesRequest.range:type_name -> siem.v1.TimeRange
+	22, // 10: siem.v1.ListAuditEntriesRequest.page:type_name -> siem.v1.PageRequest
+	21, // 11: siem.v1.ListAuditEntriesResponse.entries:type_name -> siem.v1.AuditEntry
+	24, // 12: siem.v1.ListAuditEntriesResponse.page:type_name -> siem.v1.PageResponse
+	25, // 13: siem.v1.AuditEntry.occurred_at:type_name -> google.protobuf.Timestamp
 	0,  // 14: siem.v1.Admin.ListUsers:input_type -> siem.v1.ListUsersRequest
 	2,  // 15: siem.v1.Admin.CreateUser:input_type -> siem.v1.CreateUserRequest
 	5,  // 16: siem.v1.Admin.UpdateUser:input_type -> siem.v1.UpdateUserRequest
 	6,  // 17: siem.v1.Admin.DeleteUser:input_type -> siem.v1.DeleteUserRequest
-	3,  // 18: siem.v1.Admin.IssueUserInvite:input_type -> siem.v1.IssueUserInviteRequest
-	8,  // 19: siem.v1.Admin.GetTenantSettings:input_type -> siem.v1.GetTenantSettingsRequest
-	11, // 20: siem.v1.Admin.UpdateTenantSettings:input_type -> siem.v1.UpdateTenantSettingsRequest
-	12, // 21: siem.v1.Admin.GetCorrelationSettings:input_type -> siem.v1.GetCorrelationSettingsRequest
-	14, // 22: siem.v1.Admin.UpdateCorrelationSettings:input_type -> siem.v1.UpdateCorrelationSettingsRequest
-	15, // 23: siem.v1.Admin.Purge:input_type -> siem.v1.PurgeRequest
-	17, // 24: siem.v1.Admin.ListAuditEntries:input_type -> siem.v1.ListAuditEntriesRequest
-	1,  // 25: siem.v1.Admin.ListUsers:output_type -> siem.v1.ListUsersResponse
-	21, // 26: siem.v1.Admin.CreateUser:output_type -> siem.v1.UserProfile
-	21, // 27: siem.v1.Admin.UpdateUser:output_type -> siem.v1.UserProfile
-	7,  // 28: siem.v1.Admin.DeleteUser:output_type -> siem.v1.DeleteUserResponse
-	4,  // 29: siem.v1.Admin.IssueUserInvite:output_type -> siem.v1.UserInvite
-	9,  // 30: siem.v1.Admin.GetTenantSettings:output_type -> siem.v1.TenantSettings
-	9,  // 31: siem.v1.Admin.UpdateTenantSettings:output_type -> siem.v1.TenantSettings
-	13, // 32: siem.v1.Admin.GetCorrelationSettings:output_type -> siem.v1.CorrelationSettings
-	13, // 33: siem.v1.Admin.UpdateCorrelationSettings:output_type -> siem.v1.CorrelationSettings
-	16, // 34: siem.v1.Admin.Purge:output_type -> siem.v1.PurgeResponse
-	18, // 35: siem.v1.Admin.ListAuditEntries:output_type -> siem.v1.ListAuditEntriesResponse
-	25, // [25:36] is the sub-list for method output_type
-	14, // [14:25] is the sub-list for method input_type
+	8,  // 18: siem.v1.Admin.EraseUser:input_type -> siem.v1.EraseUserRequest
+	3,  // 19: siem.v1.Admin.IssueUserInvite:input_type -> siem.v1.IssueUserInviteRequest
+	10, // 20: siem.v1.Admin.GetTenantSettings:input_type -> siem.v1.GetTenantSettingsRequest
+	13, // 21: siem.v1.Admin.UpdateTenantSettings:input_type -> siem.v1.UpdateTenantSettingsRequest
+	14, // 22: siem.v1.Admin.GetCorrelationSettings:input_type -> siem.v1.GetCorrelationSettingsRequest
+	16, // 23: siem.v1.Admin.UpdateCorrelationSettings:input_type -> siem.v1.UpdateCorrelationSettingsRequest
+	17, // 24: siem.v1.Admin.Purge:input_type -> siem.v1.PurgeRequest
+	19, // 25: siem.v1.Admin.ListAuditEntries:input_type -> siem.v1.ListAuditEntriesRequest
+	1,  // 26: siem.v1.Admin.ListUsers:output_type -> siem.v1.ListUsersResponse
+	23, // 27: siem.v1.Admin.CreateUser:output_type -> siem.v1.UserProfile
+	23, // 28: siem.v1.Admin.UpdateUser:output_type -> siem.v1.UserProfile
+	7,  // 29: siem.v1.Admin.DeleteUser:output_type -> siem.v1.DeleteUserResponse
+	9,  // 30: siem.v1.Admin.EraseUser:output_type -> siem.v1.EraseUserResponse
+	4,  // 31: siem.v1.Admin.IssueUserInvite:output_type -> siem.v1.UserInvite
+	11, // 32: siem.v1.Admin.GetTenantSettings:output_type -> siem.v1.TenantSettings
+	11, // 33: siem.v1.Admin.UpdateTenantSettings:output_type -> siem.v1.TenantSettings
+	15, // 34: siem.v1.Admin.GetCorrelationSettings:output_type -> siem.v1.CorrelationSettings
+	15, // 35: siem.v1.Admin.UpdateCorrelationSettings:output_type -> siem.v1.CorrelationSettings
+	18, // 36: siem.v1.Admin.Purge:output_type -> siem.v1.PurgeResponse
+	20, // 37: siem.v1.Admin.ListAuditEntries:output_type -> siem.v1.ListAuditEntriesResponse
+	26, // [26:38] is the sub-list for method output_type
+	14, // [14:26] is the sub-list for method input_type
 	14, // [14:14] is the sub-list for extension type_name
 	14, // [14:14] is the sub-list for extension extendee
 	0,  // [0:14] is the sub-list for field type_name
@@ -1546,16 +1650,16 @@ func file_siem_v1_admin_proto_init() {
 	file_siem_v1_auth_proto_init()
 	file_siem_v1_common_proto_init()
 	file_siem_v1_admin_proto_msgTypes[5].OneofWrappers = []any{}
-	file_siem_v1_admin_proto_msgTypes[11].OneofWrappers = []any{}
-	file_siem_v1_admin_proto_msgTypes[14].OneofWrappers = []any{}
-	file_siem_v1_admin_proto_msgTypes[17].OneofWrappers = []any{}
+	file_siem_v1_admin_proto_msgTypes[13].OneofWrappers = []any{}
+	file_siem_v1_admin_proto_msgTypes[16].OneofWrappers = []any{}
+	file_siem_v1_admin_proto_msgTypes[19].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_admin_proto_rawDesc), len(file_siem_v1_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

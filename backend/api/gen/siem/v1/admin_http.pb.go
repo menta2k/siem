@@ -21,6 +21,7 @@ const _ = http.SupportPackageIsVersion1
 
 const OperationAdminCreateUser = "/siem.v1.Admin/CreateUser"
 const OperationAdminDeleteUser = "/siem.v1.Admin/DeleteUser"
+const OperationAdminEraseUser = "/siem.v1.Admin/EraseUser"
 const OperationAdminGetCorrelationSettings = "/siem.v1.Admin/GetCorrelationSettings"
 const OperationAdminGetTenantSettings = "/siem.v1.Admin/GetTenantSettings"
 const OperationAdminIssueUserInvite = "/siem.v1.Admin/IssueUserInvite"
@@ -34,6 +35,15 @@ const OperationAdminUpdateUser = "/siem.v1.Admin/UpdateUser"
 type AdminHTTPServer interface {
 	CreateUser(context.Context, *CreateUserRequest) (*UserProfile, error)
 	DeleteUser(context.Context, *DeleteUserRequest) (*DeleteUserResponse, error)
+	// EraseUser Permanently remove a user. IRREVERSIBLE.
+	//
+	// A separate RPC from DeleteUser, not a flag on it, because the two are different
+	// decisions with different consequences: DeleteUser disables and is reversible, this
+	// destroys the record. A boolean on a shared request is how one gets sent by mistake.
+	//
+	// The audit trail is NOT affected. Entries carry the actor's email as well as their
+	// id, so the erased user's history stays attributable.
+	EraseUser(context.Context, *EraseUserRequest) (*EraseUserResponse, error)
 	GetCorrelationSettings(context.Context, *GetCorrelationSettingsRequest) (*CorrelationSettings, error)
 	GetTenantSettings(context.Context, *GetTenantSettingsRequest) (*TenantSettings, error)
 	// IssueUserInvite Mint a one-time setup token for a user who has not set a password yet.
@@ -61,6 +71,7 @@ func RegisterAdminHTTPServer(s *http.Server, srv AdminHTTPServer) {
 	r.POST("/api/v1/admin/users", _Admin_CreateUser0_HTTP_Handler(srv))
 	r.PATCH("/api/v1/admin/users/{user_id}", _Admin_UpdateUser0_HTTP_Handler(srv))
 	r.DELETE("/api/v1/admin/users/{user_id}", _Admin_DeleteUser0_HTTP_Handler(srv))
+	r.DELETE("/api/v1/admin/users/{user_id}/permanent", _Admin_EraseUser0_HTTP_Handler(srv))
 	r.POST("/api/v1/admin/users/{user_id}/invite", _Admin_IssueUserInvite0_HTTP_Handler(srv))
 	r.GET("/api/v1/admin/tenant", _Admin_GetTenantSettings0_HTTP_Handler(srv))
 	r.PATCH("/api/v1/admin/tenant", _Admin_UpdateTenantSettings0_HTTP_Handler(srv))
@@ -154,6 +165,28 @@ func _Admin_DeleteUser0_HTTP_Handler(srv AdminHTTPServer) func(ctx http.Context)
 			return err
 		}
 		reply := out.(*DeleteUserResponse)
+		return ctx.Result(200, reply)
+	}
+}
+
+func _Admin_EraseUser0_HTTP_Handler(srv AdminHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in EraseUserRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindVars(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationAdminEraseUser)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.EraseUser(ctx, req.(*EraseUserRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*EraseUserResponse)
 		return ctx.Result(200, reply)
 	}
 }
@@ -309,6 +342,15 @@ func _Admin_ListAuditEntries0_HTTP_Handler(srv AdminHTTPServer) func(ctx http.Co
 type AdminHTTPClient interface {
 	CreateUser(ctx context.Context, req *CreateUserRequest, opts ...http.CallOption) (rsp *UserProfile, err error)
 	DeleteUser(ctx context.Context, req *DeleteUserRequest, opts ...http.CallOption) (rsp *DeleteUserResponse, err error)
+	// EraseUser Permanently remove a user. IRREVERSIBLE.
+	//
+	// A separate RPC from DeleteUser, not a flag on it, because the two are different
+	// decisions with different consequences: DeleteUser disables and is reversible, this
+	// destroys the record. A boolean on a shared request is how one gets sent by mistake.
+	//
+	// The audit trail is NOT affected. Entries carry the actor's email as well as their
+	// id, so the erased user's history stays attributable.
+	EraseUser(ctx context.Context, req *EraseUserRequest, opts ...http.CallOption) (rsp *EraseUserResponse, err error)
 	GetCorrelationSettings(ctx context.Context, req *GetCorrelationSettingsRequest, opts ...http.CallOption) (rsp *CorrelationSettings, err error)
 	GetTenantSettings(ctx context.Context, req *GetTenantSettingsRequest, opts ...http.CallOption) (rsp *TenantSettings, err error)
 	// IssueUserInvite Mint a one-time setup token for a user who has not set a password yet.
@@ -356,6 +398,27 @@ func (c *AdminHTTPClientImpl) DeleteUser(ctx context.Context, in *DeleteUserRequ
 	pattern := "/api/v1/admin/users/{user_id}"
 	path := binding.EncodeURL(pattern, in, true)
 	opts = append(opts, http.Operation(OperationAdminDeleteUser))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "DELETE", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// EraseUser Permanently remove a user. IRREVERSIBLE.
+//
+// A separate RPC from DeleteUser, not a flag on it, because the two are different
+// decisions with different consequences: DeleteUser disables and is reversible, this
+// destroys the record. A boolean on a shared request is how one gets sent by mistake.
+//
+// The audit trail is NOT affected. Entries carry the actor's email as well as their
+// id, so the erased user's history stays attributable.
+func (c *AdminHTTPClientImpl) EraseUser(ctx context.Context, in *EraseUserRequest, opts ...http.CallOption) (*EraseUserResponse, error) {
+	var out EraseUserResponse
+	pattern := "/api/v1/admin/users/{user_id}/permanent"
+	path := binding.EncodeURL(pattern, in, true)
+	opts = append(opts, http.Operation(OperationAdminEraseUser))
 	opts = append(opts, http.PathTemplate(pattern))
 	err := c.cc.Invoke(ctx, "DELETE", path, nil, &out, opts...)
 	if err != nil {

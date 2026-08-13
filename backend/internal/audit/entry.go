@@ -33,7 +33,10 @@ const (
 	ActionRoleChange  Action = "role_change"
 	ActionUserCreate  Action = "user_create"
 	ActionUserDelete  Action = "user_delete"
-	ActionUserInvite  Action = "user_invite"
+	// Permanent removal, as distinct from the reversible disable ActionUserDelete
+	// records. The entry outlives the row it describes — which is the point.
+	ActionUserErase  Action = "user_erase"
+	ActionUserInvite Action = "user_invite"
 	// Recorded against the invited user themselves, not an admin: redemption happens
 	// before any session exists, so there is no authenticated actor to attribute it to.
 	ActionUserInviteRedeem          Action = "user_invite_redeemed"

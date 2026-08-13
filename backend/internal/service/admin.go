@@ -281,6 +281,90 @@ func (s *AdminService) DeleteUser(
 	return &pb.DeleteUserResponse{}, nil
 }
 
+// EraseUser permanently removes a user. IRREVERSIBLE.
+//
+// Three refusals stand in front of the delete, and each one exists because the state it
+// prevents cannot be undone through the API afterwards:
+//
+//  1. The caller's own account. An admin erasing themselves mid-session destroys the
+//     account their live token names, and every subsequent request 401s.
+//  2. The last active admin. Nobody left could grant the role back, because granting it
+//     is itself an admin action, so the tenant is administratively dead.
+//  3. A confirmation address that does not match. The path carries an opaque id; the
+//     address is the caller stating which human they mean.
+//
+// The audit entry is written BEFORE the row goes, while there is still something to
+// describe. Writing it afterwards would mean reconstructing the record from memory and
+// losing it entirely if the process died in between.
+func (s *AdminService) EraseUser(
+	ctx context.Context, req *pb.EraseUserRequest,
+) (*pb.EraseUserResponse, error) {
+	userID, err := parseUUID(req.GetUserId(), "user id")
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := s.users.Get(ctx, userID)
+	if err != nil {
+		if errors.Is(err, chdata.ErrNotFound) {
+			return nil, mw.NotFound("user")
+		}
+		return nil, mw.Internal().WithCause(err)
+	}
+
+	if err := s.refuseUnsafeErase(ctx, user, req.GetConfirmEmail()); err != nil {
+		recordAudit(ctx, s.auditLog, audit.Record{
+			Action: audit.ActionUserErase, TargetType: "user", TargetID: userID.String(),
+			Result: audit.ResultDenied, Detail: err.Error(),
+		})
+		return nil, err
+	}
+
+	recordAudit(ctx, s.auditLog, audit.Record{
+		Action: audit.ActionUserErase, TargetType: "user", TargetID: userID.String(),
+		BeforeValue: auditableUser(user), Result: audit.ResultSuccess,
+		Detail: "permanently erased",
+	})
+
+	if err := s.users.Erase(ctx, userID); err != nil {
+		return nil, mw.Internal().WithCause(err)
+	}
+
+	return &pb.EraseUserResponse{}, nil
+}
+
+// refuseUnsafeErase applies the guards that make erasure survivable.
+func (s *AdminService) refuseUnsafeErase(
+	ctx context.Context, user chdata.User, confirmEmail string,
+) *mw.Error {
+	// Compared case-insensitively: the stored address is normalised, and rejecting a
+	// correctly-identified user over capitalisation teaches an admin to stop reading the
+	// dialog, which is the opposite of what it is for.
+	if !strings.EqualFold(strings.TrimSpace(confirmEmail), user.Email) {
+		return mw.ValidationFailed(
+			"the confirmation address does not match the account being erased")
+	}
+
+	if actor := actorUserID(ctx); actor != nil && *actor == user.ID {
+		return mw.ValidationFailed(
+			"an administrator cannot erase their own account; ask another administrator")
+	}
+
+	// Only an active admin counts toward the total, so this cannot be sidestepped by
+	// disabling the other admins first — that lowers the count rather than raising it.
+	if user.Role == auth.RoleAdmin && user.Active() {
+		admins, err := s.users.CountAdmins(ctx)
+		if err != nil {
+			return mw.Internal().WithCause(err)
+		}
+		if admins <= 1 {
+			return mw.ValidationFailed(
+				"this is the last administrator; promote another before erasing this one")
+		}
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------- tenant settings
 
 // GetTenantSettings returns retention and redaction configuration.

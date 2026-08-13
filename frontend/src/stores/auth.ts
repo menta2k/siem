@@ -80,13 +80,46 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * True once the user has deliberately signed out.
+   * Marks that the user has deliberately signed out.
    *
-   * Module-scoped rather than reactive state: nothing renders from it, and it must
-   * survive reset(), which is also the 401 handler. It is the difference between "this
-   * page has no access token yet" — restore it — and "this person asked to leave".
+   * It is the difference between "this page has no access token yet" — restore it — and
+   * "this person asked to leave". Kept out of reactive state because nothing renders from
+   * it and it must survive reset(), which is also the 401 handler.
+   *
+   * Persisted in sessionStorage, because the hole it plugs outlives the page. If
+   * revocation fails — server unreachable, or the 401 described on logout() — the refresh
+   * cookie is still live and still usable. An in-memory flag dies on reload, so the very
+   * next F5 handed that cookie to restore() and signed the user back into the account
+   * they had just left. sessionStorage is the right scope: per tab, and cleared when the
+   * browser session ends, exactly like the cookie it is guarding against.
+   *
+   * Reads and writes are wrapped because storage access THROWS rather than returning null
+   * when cookies are blocked or Safari is in private mode. An exception here would
+   * propagate out of logout() and leave the user signed in, which is the failure this
+   * whole mechanism exists to prevent — so it degrades to the in-memory flag instead.
    */
-  let signedOut = false
+  const SIGNED_OUT_KEY = 'siem.signedOut'
+
+  let signedOutMemo = false
+
+  function isSignedOut(): boolean {
+    if (signedOutMemo) return true
+    try {
+      return sessionStorage.getItem(SIGNED_OUT_KEY) === '1'
+    } catch {
+      return false
+    }
+  }
+
+  function markSignedOut(value: boolean): void {
+    signedOutMemo = value
+    try {
+      if (value) sessionStorage.setItem(SIGNED_OUT_KEY, '1')
+      else sessionStorage.removeItem(SIGNED_OUT_KEY)
+    } catch {
+      // Storage unavailable. The in-memory flag above still covers the current page.
+    }
+  }
 
   function reset(): void {
     accessToken.value = null
@@ -100,7 +133,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email: string, password: string): Promise<void> {
     // Deliberately signing in supersedes a deliberate sign-out, so session restore works
     // normally again for whoever is arriving now.
-    signedOut = false
+    markSignedOut(false)
 
     const { data } = await api.POST('/api/v1/auth/login', { body: { email, password } })
     if (!data) throw new Error('The sign-in response was empty')
@@ -155,7 +188,7 @@ export const useAuthStore = defineStore('auth', () => {
       reset()
       // Set AFTER reset: reset() is also the 401 handler, and letting it clear this would
       // reopen the exact hole this function exists to close.
-      signedOut = true
+      markSignedOut(true)
     }
   }
 
@@ -206,7 +239,7 @@ export const useAuthStore = defineStore('auth', () => {
     // revocation that failed — server unreachable, or a 401 like the one described on
     // logout() — leaves a live cookie that this call would cash in, silently putting the
     // user back into the account they just left. Signing in again clears it.
-    if (signedOut) return false
+    if (isSignedOut()) return false
     restoring ??= refresh().finally(() => {
       restoring = null
     })

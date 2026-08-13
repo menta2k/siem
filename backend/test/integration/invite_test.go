@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	pb "github.com/menta2k/siem/api/gen/siem/v1"
+	"github.com/menta2k/siem/internal/audit"
 	"github.com/menta2k/siem/internal/auth"
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
 	mw "github.com/menta2k/siem/internal/middleware"
@@ -370,4 +372,161 @@ func userByID(
 		t.Fatalf("Users.Get(%s) error = %v", id, err)
 	}
 	return user
+}
+
+// ---------------------------------------------------------------- erasure
+
+// The happy path. Erasure removes the row, and the address becomes reusable — which is
+// the difference an admin is actually asking for when they say "delete", and what
+// disabling deliberately does not give them.
+func TestErasingAUserRemovesTheRowAndFreesTheAddress(t *testing.T) {
+	f, ctx := support.SharedTenant(t, "eraseuser")
+	admin, _ := inviteServices(t, f)
+
+	profile := invitedUser(t, admin, ctx, "leaver@example.com")
+	if _, err := admin.IssueUserInvite(ctx,
+		&pb.IssueUserInviteRequest{UserId: profile.GetUserId()}); err != nil {
+		t.Fatalf("IssueUserInvite() error = %v", err)
+	}
+
+	if _, err := admin.EraseUser(ctx, &pb.EraseUserRequest{
+		UserId: profile.GetUserId(), ConfirmEmail: "leaver@example.com",
+	}); err != nil {
+		t.Fatalf("EraseUser() error = %v", err)
+	}
+
+	id, err := uuid.Parse(profile.GetUserId())
+	if err != nil {
+		t.Fatalf("parse user id: %v", err)
+	}
+	if _, err := f.Users.Get(ctx, id); !errors.Is(err, chdata.ErrNotFound) {
+		t.Errorf("Users.Get after erase = %v, want ErrNotFound", err)
+	}
+	// The outstanding invite goes with them; a token pointing at a deleted user is a row
+	// nothing can ever redeem.
+	if _, err := f.Invites.Find(ctx, id, id); err == nil {
+		t.Error("the erased user's invite row survived")
+	}
+
+	// The address is free again, which disabling never allows.
+	if _, err := admin.CreateUser(ctx, &pb.CreateUserRequest{
+		Email: "leaver@example.com", Role: auth.RoleAnalyst,
+	}); err != nil {
+		t.Errorf("re-creating the erased address failed: %v", err)
+	}
+}
+
+// The confirmation is the caller stating which human they mean, because the id in the
+// path is opaque. A mismatch is a wrong row, not a wrong keystroke.
+func TestErasingRefusesAMismatchedConfirmation(t *testing.T) {
+	f, ctx := support.SharedTenant(t, "erasemismatch")
+	admin, _ := inviteServices(t, f)
+
+	profile := invitedUser(t, admin, ctx, "keepme@example.com")
+
+	if _, err := admin.EraseUser(ctx, &pb.EraseUserRequest{
+		UserId: profile.GetUserId(), ConfirmEmail: "someone.else@example.com",
+	}); err == nil {
+		t.Fatal("a mismatched confirmation address was accepted")
+	}
+
+	id, err := uuid.Parse(profile.GetUserId())
+	if err != nil {
+		t.Fatalf("parse user id: %v", err)
+	}
+	if _, err := f.Users.Get(ctx, id); err != nil {
+		t.Errorf("the refused erase removed the user anyway: %v", err)
+	}
+}
+
+// Capitalisation must not refuse a correctly-identified account: an admin who is taught
+// the dialog rejects correct input stops reading it.
+func TestErasingAcceptsADifferentlyCasedConfirmation(t *testing.T) {
+	f, ctx := support.SharedTenant(t, "erasecase")
+	admin, _ := inviteServices(t, f)
+
+	profile := invitedUser(t, admin, ctx, "casing@example.com")
+
+	if _, err := admin.EraseUser(ctx, &pb.EraseUserRequest{
+		UserId: profile.GetUserId(), ConfirmEmail: "  Casing@Example.COM ",
+	}); err != nil {
+		t.Fatalf("EraseUser() rejected a correct address over casing: %v", err)
+	}
+}
+
+// A tenant whose last admin is erased is administratively dead: granting the admin role
+// is itself an admin action, so no remaining user could restore it.
+func TestErasingRefusesToRemoveTheLastAdmin(t *testing.T) {
+	f, ctx := support.SharedTenant(t, "eraselastadmin")
+	admin, _ := inviteServices(t, f)
+
+	only, err := admin.CreateUser(ctx, &pb.CreateUserRequest{
+		Email: "sole.admin@example.com", Role: auth.RoleAdmin, Password: "a long enough passphrase",
+	})
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+
+	_, err = admin.EraseUser(ctx, &pb.EraseUserRequest{
+		UserId: only.GetUserId(), ConfirmEmail: "sole.admin@example.com",
+	})
+	if err == nil {
+		t.Fatal("the tenant's last administrator was erased")
+	}
+
+	// With a second active admin the same call is permitted.
+	if _, err := admin.CreateUser(ctx, &pb.CreateUserRequest{
+		Email: "second.admin@example.com", Role: auth.RoleAdmin,
+		Password: "another long passphrase",
+	}); err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	if _, err := admin.EraseUser(ctx, &pb.EraseUserRequest{
+		UserId: only.GetUserId(), ConfirmEmail: "sole.admin@example.com",
+	}); err != nil {
+		t.Errorf("erasing one of two admins was refused: %v", err)
+	}
+}
+
+// What erasure must NOT destroy. Entries carry the actor's email as well as their id,
+// so the record of what someone did outlives the account that did it. If this fails,
+// erasing a user has quietly become a way to launder their history.
+func TestErasingAUserLeavesTheirAuditTrailIntact(t *testing.T) {
+	f, ctx := support.SharedTenant(t, "eraseaudit")
+	admin, _ := inviteServices(t, f)
+
+	profile := invitedUser(t, admin, ctx, "traceable@example.com")
+	before, err := f.Audit.List(ctx, chdata.ListFilter{
+		From: time.Now().Add(-time.Hour), To: time.Now().Add(time.Hour), Limit: 500,
+	})
+	if err != nil {
+		t.Fatalf("Audit.List() error = %v", err)
+	}
+
+	if _, err := admin.EraseUser(ctx, &pb.EraseUserRequest{
+		UserId: profile.GetUserId(), ConfirmEmail: "traceable@example.com",
+	}); err != nil {
+		t.Fatalf("EraseUser() error = %v", err)
+	}
+
+	after, err := f.Audit.List(ctx, chdata.ListFilter{
+		From: time.Now().Add(-time.Hour), To: time.Now().Add(time.Hour), Limit: 500,
+	})
+	if err != nil {
+		t.Fatalf("Audit.List() error = %v", err)
+	}
+	if len(after) <= len(before) {
+		t.Errorf("audit entries after erase = %d, before = %d; the trail did not grow",
+			len(after), len(before))
+	}
+
+	var sawErase bool
+	for _, entry := range after {
+		if entry.Action == audit.ActionUserErase && entry.TargetID == profile.GetUserId() {
+			sawErase = true
+		}
+	}
+	if !sawErase {
+		t.Error("no user_erase entry records the deletion")
+	}
 }

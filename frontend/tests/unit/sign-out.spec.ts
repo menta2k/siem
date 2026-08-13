@@ -35,7 +35,14 @@ async function signIn(auth: ReturnType<typeof useAuthStore>): Promise<void> {
 beforeEach(() => {
   setActivePinia(createPinia())
   post.mockReset()
+  sessionStorage.clear()
 })
+
+/** Simulates a page reload: the store's closure dies, sessionStorage does not. */
+function reloadPage(): ReturnType<typeof useAuthStore> {
+  setActivePinia(createPinia())
+  return useAuthStore()
+}
 
 describe('sign out', () => {
   // THE BUG THIS CATCHES, reported as "SIGN OUT NOT WORKING". /auth/logout is not a
@@ -110,6 +117,65 @@ describe('sign out', () => {
     await expect(auth.restore()).resolves.toBe(false)
     expect(auth.isAuthenticated).toBe(false)
     expect(post).toHaveBeenCalledTimes(3) // login, mfa, logout — no refresh attempt
+  })
+
+  // THE HOLE sessionStorage CLOSES. An in-memory latch dies with the page, so after a
+  // failed revocation the very next reload handed the still-live cookie to restore() and
+  // signed the user back into the account they had just left. The latch has to outlive
+  // the page because the cookie it guards against does.
+  it('stays signed out across a page reload', async () => {
+    const auth = useAuthStore()
+    await signIn(auth)
+
+    post.mockRejectedValueOnce(new Error('network down'))
+    await auth.logout()
+
+    const reloaded = reloadPage()
+    post.mockResolvedValue({ data: { accessToken: 'resurrected', user: profile } })
+
+    await expect(reloaded.restore()).resolves.toBe(false)
+    expect(reloaded.isAuthenticated).toBe(false)
+  })
+
+  // Scoped per tab and cleared when the browser session ends — the same lifetime as the
+  // cookie. localStorage would outlive both and block restore in a future browser session.
+  it('does not block restore in a new browser session', async () => {
+    const auth = useAuthStore()
+    await signIn(auth)
+    post.mockResolvedValueOnce({ data: {} })
+    await auth.logout()
+
+    sessionStorage.clear() // what the browser does when the session ends
+
+    const fresh = reloadPage()
+    post.mockResolvedValueOnce({ data: { accessToken: 'fresh', user: profile } })
+    await expect(fresh.restore()).resolves.toBe(true)
+  })
+
+  // Storage access THROWS rather than returning null when cookies are blocked or Safari
+  // is in private mode. An exception escaping logout() would leave the user signed in —
+  // precisely the failure this mechanism exists to prevent.
+  it('signs out even when sessionStorage is unavailable', async () => {
+    const auth = useAuthStore()
+    await signIn(auth)
+
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage disabled')
+    })
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage disabled')
+    })
+
+    post.mockResolvedValueOnce({ data: {} })
+    await expect(auth.logout()).resolves.toBeUndefined()
+    expect(auth.isAuthenticated).toBe(false)
+
+    // The in-memory flag still covers the current page.
+    post.mockResolvedValue({ data: { accessToken: 'resurrected', user: profile } })
+    await expect(auth.restore()).resolves.toBe(false)
+
+    setItem.mockRestore()
+    getItem.mockRestore()
   })
 
   // The latch must not outlive the sign-out it belongs to, or the next person to use

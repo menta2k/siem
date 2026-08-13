@@ -219,6 +219,62 @@ function dismissInvite(): void {
   linkCopied.value = false
 }
 
+/**
+ * Permanent erasure, behind a typed confirmation.
+ *
+ * Distinct from Disable, which is reversible and stays the right default for someone
+ * leaving. This destroys the row: the address becomes reusable and nothing brings the
+ * account back. The audit trail is untouched — entries carry the actor's email as well
+ * as their id, so their history stays attributable afterwards.
+ *
+ * The dialog asks for the address rather than offering a bare "are you sure", because a
+ * confirm button is answered reflexively while retyping an address cannot be. The server
+ * re-checks the same match; this is the affordance, not the enforcement.
+ */
+const eraseTarget = ref<UserProfile | null>(null)
+const eraseConfirmation = ref('')
+const erasing = ref(false)
+
+const eraseMatches = computed(
+  () =>
+    eraseTarget.value !== null &&
+    eraseConfirmation.value.trim().toLowerCase() === (eraseTarget.value.email ?? '').toLowerCase(),
+)
+
+function askToErase(user: UserProfile): void {
+  eraseTarget.value = user
+  eraseConfirmation.value = ''
+}
+
+function cancelErase(): void {
+  eraseTarget.value = null
+  eraseConfirmation.value = ''
+}
+
+async function confirmErase(): Promise<void> {
+  const target = eraseTarget.value
+  if (!target || !eraseMatches.value) return
+
+  erasing.value = true
+  errorMessage.value = ''
+  notice.value = ''
+  try {
+    await api.DELETE('/api/v1/admin/users/{userId}/permanent', {
+      params: {
+        path: { userId: target.userId ?? '' },
+        query: { confirmEmail: eraseConfirmation.value.trim() },
+      },
+    })
+    notice.value = `Permanently erased ${target.email}. Their audit history is kept.`
+    cancelErase()
+    await load()
+  } catch (err) {
+    errorMessage.value = toDisplayMessage(err)
+  } finally {
+    erasing.value = false
+  }
+}
+
 async function updateUser(user: UserProfile, changes: Record<string, unknown>): Promise<void> {
   errorMessage.value = ''
   try {
@@ -353,6 +409,49 @@ const canManage = computed(() => auth.can.manageUsers)
 
     <v-window v-model="tab">
       <v-window-item value="users">
+        <!-- Permanent erasure. The address must be retyped: a confirm button gets
+             answered reflexively, retyping an address does not. -->
+        <v-dialog :model-value="eraseTarget !== null" max-width="520" persistent>
+          <v-card v-if="eraseTarget">
+            <v-card-title class="text-subtitle-1">Permanently delete this account?</v-card-title>
+            <v-card-text>
+              <v-alert type="error" variant="tonal" density="compact" class="mb-4">
+                This cannot be undone. The account is removed rather than disabled, and the address
+                becomes available again.
+              </v-alert>
+              <div class="text-body-2 mb-4">
+                Their audit history is kept and stays attributable to
+                <strong>{{ eraseTarget.email }}</strong
+                >. Deleting a user never rewrites the record of what they did.
+              </div>
+              <div class="text-caption text-medium-emphasis mb-1">
+                Type <strong>{{ eraseTarget.email }}</strong> to confirm.
+              </div>
+              <v-text-field
+                v-model="eraseConfirmation"
+                density="compact"
+                variant="outlined"
+                autocomplete="off"
+                hide-details
+                @keyup.enter="confirmErase"
+              />
+            </v-card-text>
+            <v-card-actions>
+              <v-spacer />
+              <v-btn variant="text" :disabled="erasing" @click="cancelErase">Cancel</v-btn>
+              <v-btn
+                color="error"
+                variant="flat"
+                :loading="erasing"
+                :disabled="!eraseMatches"
+                @click="confirmErase"
+              >
+                Delete permanently
+              </v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-dialog>
+
         <!-- Shown once, and only here. The server keeps a hash, so this is the single
              copy of the token that will ever exist. -->
         <v-alert
@@ -475,12 +574,31 @@ const canManage = computed(() => auth.can.manageUsers)
                     Reset MFA
                   </v-btn>
                   <v-btn
-                    v-if="canManage"
+                    v-if="canManage && user.status !== 'disabled'"
                     size="x-small"
                     variant="text"
                     @click="updateUser(user, { status: 'disabled' })"
                   >
                     Disable
+                  </v-btn>
+                  <v-btn
+                    v-if="canManage && user.status === 'disabled'"
+                    size="x-small"
+                    variant="text"
+                    @click="updateUser(user, { status: 'active' })"
+                  >
+                    Enable
+                  </v-btn>
+                  <!-- Coloured as the destructive action it is, and the only one on this
+                       row that cannot be undone. -->
+                  <v-btn
+                    v-if="canManage"
+                    size="x-small"
+                    variant="text"
+                    color="error"
+                    @click="askToErase(user)"
+                  >
+                    Delete
                   </v-btn>
                 </td>
               </tr>

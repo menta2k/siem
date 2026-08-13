@@ -55,6 +55,10 @@ p, admin, *, /api/v1/admin/users, GET
 p, admin, *, /api/v1/admin/users, POST
 p, admin, *, /api/v1/admin/users/:id, PATCH
 p, admin, *, /api/v1/admin/users/:id, DELETE
+# Permanent erasure. Its own line rather than being covered by the one above, because
+# keyMatch2's `:id` stops at a segment boundary — so the reversible delete does NOT imply
+# the irreversible one, and granting the first never silently grants the second.
+p, admin, *, /api/v1/admin/users/:id/permanent, DELETE
 # Minting a setup token is admin-only and belongs to no other role: it is the one call
 # that hands out a credential capable of setting someone else's password.
 p, admin, *, /api/v1/admin/users/:id/invite, POST
