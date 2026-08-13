@@ -169,6 +169,7 @@ export const useSearchStore = defineStore('search', () => {
       'q',
       'vendorRequestId',
       'vendorEventId',
+      'ja4',
       'requestMethod',
     ] as const) {
       const value = readString(key)

@@ -103,6 +103,16 @@ type Event struct {
 	UserAgent     string
 	HTTPStatus    uint16
 
+	// JA4 is the TLS client fingerprint, when the vendor reports one.
+	//
+	// It identifies the client STACK, not the client: one fingerprint across a thousand
+	// addresses is one tool run from a thousand hosts. That makes it the pivot that
+	// survives an attacker rotating IPs and user agents, which is exactly when the
+	// other identifiers stop being useful.
+	//
+	// Empty for vendors that do not report it. Only Cloudflare does today.
+	JA4 string
+
 	Verdict       string
 	VerdictReason string
 	RuleID        string

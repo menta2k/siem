@@ -886,6 +886,13 @@ export interface components {
             vendorRequestId?: string;
             /** @description The vendor's OWN reference for its record. F5's support_id. */
             vendorEventId?: string;
+            /**
+             * @description TLS client fingerprint. Like the identifiers above it, this is resolved to the
+             *      events carrying it and then matched against the record's event list — a correlated
+             *      request has no fingerprint of its own, because the vendors that joined into it need
+             *      not all have reported one.
+             */
+            ja4?: string;
         };
         /** @description CorrelatedRequest is one request as every vendor that saw it reported it. */
         CorrelatedRequest: {
@@ -1095,6 +1102,14 @@ export interface components {
              *      is the identifier shared between vendors. F5's support_id.
              */
             vendorEventId?: string;
+            /**
+             * @description TLS client fingerprint. An exact match, never a substring: the value is one opaque
+             *      token and a partial fingerprint identifies nothing.
+             *
+             *      Only matches events ingested after the fingerprint became a stored column — see
+             *      migration 0014. Older events carry no value and cannot be found by it.
+             */
+            ja4?: string;
         };
         /**
          * @description EventSummary is one search hit.
@@ -1140,6 +1155,8 @@ export interface components {
             /** Format: float */
             score?: number;
             scoreKind?: string;
+            /** @description TLS client fingerprint, so a result row can be pivoted on without opening it. */
+            ja4?: string;
         };
         ExportSearchRequest: {
             timeRange?: components["schemas"]["TimeRange"];

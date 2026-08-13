@@ -431,3 +431,77 @@ func TestNormalizeRejectsUndecodableRecord(t *testing.T) {
 		t.Error("Normalize() accepted a record that never decoded")
 	}
 }
+
+// recordFrom builds a single Logpush record from a JSON object, for the cases that turn
+// on one field rather than on a whole fixture.
+func recordFrom(t *testing.T, line string) vendors.RawRecord {
+	t.Helper()
+	a := New()
+
+	format, ok := a.Detect([]byte(line))
+	if !ok {
+		t.Fatal("Detect() did not recognize the record")
+	}
+	records, err := a.Parse([]byte(line), format)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("Parse() returned %d records, want 1", len(records))
+	}
+	return records[0]
+}
+
+// ja4Record is a minimal Logpush line carrying a fingerprint.
+const ja4Record = `{"RayID":"8f1a2b3c4d5e6f70","EdgeStartTimestamp":"2026-08-13T10:00:00Z",` +
+	`"ClientIP":"203.0.113.10","ClientRequestHost":"example.com",` +
+	`"ClientRequestURI":"/login","ClientRequestMethod":"POST",` +
+	`"EdgeResponseStatus":200,"SecurityAction":"allow",` +
+	`"JA4":"t13d1516h2_8daaf6152771_b0da82dd1658"}`
+
+// The fingerprint is what an analyst pivots on when an attacker rotates addresses and
+// user agents but not their TLS stack, so it has to reach the common model rather than
+// stay buried in the vendor's own fields.
+func TestNormalizeExtractsJA4(t *testing.T) {
+	event, err := New().Normalize(recordFrom(t, ja4Record))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+
+	const want = "t13d1516h2_8daaf6152771_b0da82dd1658"
+	if event.JA4 != want {
+		t.Errorf("JA4 = %q, want %q", event.JA4, want)
+	}
+}
+
+// THE DRIFT FALSE POSITIVE THIS CLOSES. JA4 was not in knownFields, so every record of
+// a Logpush job configured to send it was reported as carrying an unknown field. That is
+// a permanent warning on a correctly-configured feed, and a schema-drift signal that is
+// always on is one an operator learns to ignore.
+func TestJA4IsNotReportedAsSchemaDrift(t *testing.T) {
+	event, err := New().Normalize(recordFrom(t, ja4Record))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+
+	for _, field := range event.UnknownFields {
+		if field == "JA4" {
+			t.Errorf("JA4 was reported as drift: UnknownFields = %v", event.UnknownFields)
+		}
+	}
+}
+
+// A vendor that reports no fingerprint must normalize to an empty one rather than fail.
+// Cloudflare only emits JA4 when the Logpush job selects it, so absence is the ordinary
+// case, not an error.
+func TestNormalizeToleratesAMissingJA4(t *testing.T) {
+	records := parseFixture(t, "valid.ndjson")
+
+	event, err := New().Normalize(records[0])
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if event.JA4 != "" {
+		t.Errorf("JA4 = %q, want empty for a record that carries none", event.JA4)
+	}
+}

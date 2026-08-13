@@ -61,6 +61,7 @@ func seedSearchCorpus(ctx context.Context, t *testing.T, f *support.Fixture, ten
 			RequestHost: "shop.example.com", RequestPath: "/checkout",
 			RequestMethod: "POST", HTTPStatus: 403,
 			UserAgent: "curl/8.0", Verdict: vendors.VerdictBlocked,
+			JA4:    "t13d1516h2_8daaf6152771_b0da82dd1658",
 			RuleID: "waf-sqli", Score: score(0.9), ScoreKind: vendors.ScoreKindBot,
 		},
 		{
@@ -69,6 +70,9 @@ func seedSearchCorpus(ctx context.Context, t *testing.T, f *support.Fixture, ten
 			RequestHost: "api.example.com", RequestPath: "/v1/orders",
 			RequestMethod: "GET", HTTPStatus: 200,
 			UserAgent: "Mozilla/5.0", Verdict: vendors.VerdictAllowed,
+			// The SAME fingerprint as cf-blocked, on a different address and behind a
+			// different user agent. That is the whole point of searching by it.
+			JA4:    "t13d1516h2_8daaf6152771_b0da82dd1658",
 			RuleID: "", Score: score(0.1), ScoreKind: vendors.ScoreKindBot,
 		},
 		{
@@ -77,6 +81,9 @@ func seedSearchCorpus(ctx context.Context, t *testing.T, f *support.Fixture, ten
 			RequestHost: "shop.example.com", RequestPath: "/login",
 			RequestMethod: "POST", HTTPStatus: 401,
 			UserAgent: "python-requests/2.31", Verdict: vendors.VerdictChallenged,
+			// A different stack, so an over-broad fingerprint filter shows up as this
+			// row being swept in with the others.
+			JA4:    "t13d1517h2_abcdef123456_0123456789ab",
 			RuleID: "bot-1", Score: score(0.75), ScoreKind: vendors.ScoreKindBot,
 		},
 	}
@@ -117,6 +124,15 @@ func TestCrossVendorFilters(t *testing.T) {
 				b.Where("request_host", query.OpEqual, "api.example.com")
 			},
 			want: []string{"f5-allowed"},
+		},
+		// The fingerprint identifies the client STACK, so it finds both rows that share
+		// one even though they agree on no other identifier — different address,
+		// different user agent, different vendor.
+		"by ja4": {
+			build: func(b *query.Builder) {
+				b.Where("ja4", query.OpEqual, "t13d1516h2_8daaf6152771_b0da82dd1658")
+			},
+			want: []string{"cf-blocked", "f5-allowed"},
 		},
 		"by path": {
 			build: func(b *query.Builder) { b.Where("request_path", query.OpEqual, "/login") },
@@ -449,5 +465,54 @@ func assertSameIDs(t *testing.T, got, want []string) {
 		if !wantSet[id] {
 			t.Errorf("unexpected %s in the results, want %v", id, want)
 		}
+	}
+}
+
+// Correlated records carry event ids, not fingerprints — the vendors that joined into
+// one need not all have reported a JA4 — so searching correlations by fingerprint is a
+// two-step lookup through the events. This is the first step, and it is the one that
+// decides whether the correlated filter finds anything at all.
+func TestEventIDsForResolvesAFingerprint(t *testing.T) {
+	f := support.Shared(t)
+	ctx, tenant := f.NewTenant(t, "search-ja4-resolve")
+	seedSearchCorpus(ctx, t, f, tenant.ID)
+
+	repo := chdata.NewSearchRepo(f.ClickHouse)
+
+	ids, err := repo.EventIDsFor(
+		ctx, "ja4", "t13d1516h2_8daaf6152771_b0da82dd1658", searchRange())
+	if err != nil {
+		t.Fatalf("EventIDsFor: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, id := range ids {
+		got[id] = true
+	}
+	for _, want := range []string{"cf-blocked", "f5-allowed"} {
+		if !got[want] {
+			t.Errorf("EventIDsFor(ja4) = %v, want it to include %q", ids, want)
+		}
+	}
+	if got["dd-challenged"] {
+		t.Error("a different fingerprint was resolved as a match")
+	}
+}
+
+// Resolving to nothing is a real answer — no event carried that fingerprint — and the
+// caller has to render it as an empty result rather than drop the filter and return
+// every correlation in the range.
+func TestEventIDsForReportsAnUnmatchedFingerprint(t *testing.T) {
+	f := support.Shared(t)
+	ctx, tenant := f.NewTenant(t, "search-ja4-miss")
+	seedSearchCorpus(ctx, t, f, tenant.ID)
+
+	ids, err := chdata.NewSearchRepo(f.ClickHouse).EventIDsFor(
+		ctx, "ja4", "t13d0000h0_000000000000_000000000000", searchRange())
+	if err != nil {
+		t.Fatalf("EventIDsFor: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("EventIDsFor(unknown fingerprint) = %v, want none", ids)
 	}
 }

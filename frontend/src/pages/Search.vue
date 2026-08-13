@@ -278,6 +278,21 @@ function downloadExport(base64: string, contentType: string, filename: string): 
                   <!-- Rendered as text. This is the field an XSS payload arrives in. -->
                   <td>{{ detail.summary?.client?.userAgent || '—' }}</td>
                 </tr>
+                <!-- Only when the vendor reported one. An empty row here would read as
+                     "this client has no fingerprint" rather than "this feed does not
+                     send them", which are different facts. -->
+                <tr v-if="detail.summary?.ja4">
+                  <td class="text-medium-emphasis">JA4</td>
+                  <td>
+                    <!-- The pivot the fingerprint exists for: every correlation involving
+                         this client stack, whatever address it came from. -->
+                    <router-link
+                      :to="{ name: 'correlated-list', query: { ja4: detail.summary.ja4 } }"
+                    >
+                      <code>{{ detail.summary.ja4 }}</code>
+                    </router-link>
+                  </td>
+                </tr>
                 <tr v-if="detail.correlationId">
                   <td class="text-medium-emphasis">Correlated</td>
                   <td>

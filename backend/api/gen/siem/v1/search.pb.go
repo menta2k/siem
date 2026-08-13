@@ -108,6 +108,12 @@ type EventFilters struct {
 	// The vendor's OWN reference for its record, as opposed to vendor_request_id which
 	// is the identifier shared between vendors. F5's support_id.
 	VendorEventId string `protobuf:"bytes,16,opt,name=vendor_event_id,json=vendorEventId,proto3" json:"vendor_event_id,omitempty"`
+	// TLS client fingerprint. An exact match, never a substring: the value is one opaque
+	// token and a partial fingerprint identifies nothing.
+	//
+	// Only matches events ingested after the fingerprint became a stored column — see
+	// migration 0014. Older events carry no value and cannot be found by it.
+	Ja4           string `protobuf:"bytes,17,opt,name=ja4,proto3" json:"ja4,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -254,6 +260,13 @@ func (x *EventFilters) GetVendorEventId() string {
 	return ""
 }
 
+func (x *EventFilters) GetJa4() string {
+	if x != nil {
+		return x.Ja4
+	}
+	return ""
+}
+
 type SearchEventsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Required. An unbounded scan is rejected, not queued.
@@ -346,8 +359,10 @@ type EventSummary struct {
 	RuleIds         []string `protobuf:"bytes,11,rep,name=rule_ids,json=ruleIds,proto3" json:"rule_ids,omitempty"`
 	Score           *float32 `protobuf:"fixed32,12,opt,name=score,proto3,oneof" json:"score,omitempty"`
 	ScoreKind       string   `protobuf:"bytes,13,opt,name=score_kind,json=scoreKind,proto3" json:"score_kind,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// TLS client fingerprint, so a result row can be pivoted on without opening it.
+	Ja4           string `protobuf:"bytes,17,opt,name=ja4,proto3" json:"ja4,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *EventSummary) Reset() {
@@ -485,6 +500,13 @@ func (x *EventSummary) GetScoreKind() string {
 	return ""
 }
 
+func (x *EventSummary) GetJa4() string {
+	if x != nil {
+		return x.Ja4
+	}
+	return ""
+}
+
 type SearchEventsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Items []*EventSummary        `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
@@ -559,6 +581,11 @@ type CorrelatedFilters struct {
 	VendorRequestId string `protobuf:"bytes,11,opt,name=vendor_request_id,json=vendorRequestId,proto3" json:"vendor_request_id,omitempty"`
 	// The vendor's OWN reference for its record. F5's support_id.
 	VendorEventId string `protobuf:"bytes,12,opt,name=vendor_event_id,json=vendorEventId,proto3" json:"vendor_event_id,omitempty"`
+	// TLS client fingerprint. Like the identifiers above it, this is resolved to the
+	// events carrying it and then matched against the record's event list — a correlated
+	// request has no fingerprint of its own, because the vendors that joined into it need
+	// not all have reported one.
+	Ja4           string `protobuf:"bytes,13,opt,name=ja4,proto3" json:"ja4,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -673,6 +700,13 @@ func (x *CorrelatedFilters) GetVendorRequestId() string {
 func (x *CorrelatedFilters) GetVendorEventId() string {
 	if x != nil {
 		return x.VendorEventId
+	}
+	return ""
+}
+
+func (x *CorrelatedFilters) GetJa4() string {
+	if x != nil {
+		return x.Ja4
 	}
 	return ""
 }
@@ -1083,7 +1117,7 @@ var File_siem_v1_search_proto protoreflect.FileDescriptor
 
 const file_siem_v1_search_proto_rawDesc = "" +
 	"\n" +
-	"\x14siem/v1/search.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x14siem/v1/common.proto\x1a\x19siem/v1/correlation.proto\"\xd6\x04\n" +
+	"\x14siem/v1/search.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x14siem/v1/common.proto\x1a\x19siem/v1/correlation.proto\"\xe8\x04\n" +
 	"\fEventFilters\x12\x1b\n" +
 	"\tclient_ip\x18\x01 \x01(\tR\bclientIp\x12!\n" +
 	"\frequest_host\x18\x02 \x01(\tR\vrequestHost\x12!\n" +
@@ -1103,7 +1137,8 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\x0erequest_method\x18\x0e \x01(\tR\rrequestMethod\x12$\n" +
 	"\vhttp_status\x18\x0f \x01(\rH\x03R\n" +
 	"httpStatus\x88\x01\x01\x12&\n" +
-	"\x0fvendor_event_id\x18\x10 \x01(\tR\rvendorEventIdB\f\n" +
+	"\x0fvendor_event_id\x18\x10 \x01(\tR\rvendorEventId\x12\x10\n" +
+	"\x03ja4\x18\x11 \x01(\tR\x03ja4B\f\n" +
 	"\n" +
 	"_min_scoreB\f\n" +
 	"\n" +
@@ -1114,7 +1149,7 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12/\n" +
 	"\afilters\x18\x02 \x01(\v2\x15.siem.v1.EventFiltersR\afilters\x12(\n" +
-	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\xd3\x04\n" +
+	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\xe5\x04\n" +
 	"\fEventSummary\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x129\n" +
 	"\n" +
@@ -1133,11 +1168,12 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\brule_ids\x18\v \x03(\tR\aruleIds\x12\x19\n" +
 	"\x05score\x18\f \x01(\x02H\x00R\x05score\x88\x01\x01\x12\x1d\n" +
 	"\n" +
-	"score_kind\x18\r \x01(\tR\tscoreKindB\b\n" +
+	"score_kind\x18\r \x01(\tR\tscoreKind\x12\x10\n" +
+	"\x03ja4\x18\x11 \x01(\tR\x03ja4B\b\n" +
 	"\x06_scoreJ\x04\b\x0e\x10\x0f\"n\n" +
 	"\x14SearchEventsResponse\x12+\n" +
 	"\x05items\x18\x01 \x03(\v2\x15.siem.v1.EventSummaryR\x05items\x12)\n" +
-	"\x04page\x18\x02 \x01(\v2\x15.siem.v1.PageResponseR\x04page\"\xb0\x04\n" +
+	"\x04page\x18\x02 \x01(\v2\x15.siem.v1.PageResponseR\x04page\"\xc2\x04\n" +
 	"\x11CorrelatedFilters\x12\x1b\n" +
 	"\tclient_ip\x18\x01 \x01(\tR\bclientIp\x12!\n" +
 	"\frequest_host\x18\x02 \x01(\tR\vrequestHost\x12!\n" +
@@ -1153,7 +1189,8 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\x10combined_outcome\x18\n" +
 	" \x01(\x0e2\x10.siem.v1.VerdictR\x0fcombinedOutcome\x12*\n" +
 	"\x11vendor_request_id\x18\v \x01(\tR\x0fvendorRequestId\x12&\n" +
-	"\x0fvendor_event_id\x18\f \x01(\tR\rvendorEventIdB\x06\n" +
+	"\x0fvendor_event_id\x18\f \x01(\tR\rvendorEventId\x12\x10\n" +
+	"\x03ja4\x18\r \x01(\tR\x03ja4B\x06\n" +
 	"\x04_asnB\x13\n" +
 	"\x11_min_vendor_count\"\xac\x01\n" +
 	"\x17SearchCorrelatedRequest\x121\n" +

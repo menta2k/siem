@@ -1493,6 +1493,13 @@ components:
                 vendorEventId:
                     type: string
                     description: The vendor's OWN reference for its record. F5's support_id.
+                ja4:
+                    type: string
+                    description: |-
+                        TLS client fingerprint. Like the identifiers above it, this is resolved to the
+                         events carrying it and then matched against the record's event list — a correlated
+                         request has no fingerprint of its own, because the vendors that joined into it need
+                         not all have reported one.
             description: CorrelatedFilters add the join-level facets to the event filters.
         CorrelatedRequest:
             type: object
@@ -1825,6 +1832,14 @@ components:
                     description: |-
                         The vendor's OWN reference for its record, as opposed to vendor_request_id which
                          is the identifier shared between vendors. F5's support_id.
+                ja4:
+                    type: string
+                    description: |-
+                        TLS client fingerprint. An exact match, never a substring: the value is one opaque
+                         token and a partial fingerprint identifies nothing.
+
+                         Only matches events ingested after the fingerprint became a stored column — see
+                         migration 0014. Older events carry no value and cannot be found by it.
             description: |-
                 EventFilters are the cross-vendor filters an analyst can apply.
 
@@ -1894,6 +1909,9 @@ components:
                     format: float
                 scoreKind:
                     type: string
+                ja4:
+                    type: string
+                    description: TLS client fingerprint, so a result row can be pivoted on without opening it.
             description: |-
                 EventSummary is one search hit.
 

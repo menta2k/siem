@@ -73,6 +73,12 @@ message EventFilters {
   // The vendor's OWN reference for its record, as opposed to vendor_request_id which
   // is the identifier shared between vendors. F5's support_id.
   string vendor_event_id = 16;
+  // TLS client fingerprint. An exact match, never a substring: the value is one opaque
+  // token and a partial fingerprint identifies nothing.
+  //
+  // Only matches events ingested after the fingerprint became a stored column — see
+  // migration 0014. Older events carry no value and cannot be found by it.
+  string ja4 = 17;
 }
 
 message SearchEventsRequest {
@@ -114,6 +120,8 @@ message EventSummary {
   repeated string rule_ids = 11;
   optional float score = 12;
   string score_kind = 13;
+  // TLS client fingerprint, so a result row can be pivoted on without opening it.
+  string ja4 = 17;
 
   // Field 14 was unknown_fields, carried on EVERY search row. It is a per-event
   // schema-drift signal on a list endpoint that never displayed it, and it cost 2.82 GiB
@@ -149,6 +157,11 @@ message CorrelatedFilters {
   string vendor_request_id = 11;
   // The vendor's OWN reference for its record. F5's support_id.
   string vendor_event_id = 12;
+  // TLS client fingerprint. Like the identifiers above it, this is resolved to the
+  // events carrying it and then matched against the record's event list — a correlated
+  // request has no fingerprint of its own, because the vendors that joined into it need
+  // not all have reported one.
+  string ja4 = 13;
 }
 
 message SearchCorrelatedRequest {

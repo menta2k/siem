@@ -83,9 +83,7 @@ function numberOrUndefined(value: string): number | undefined {
         {{ activeCount }}
       </v-chip>
       <v-spacer />
-      <v-btn variant="text" size="small" :disabled="!activeCount" @click="clear">
-        Clear
-      </v-btn>
+      <v-btn variant="text" size="small" :disabled="!activeCount" @click="clear"> Clear </v-btn>
     </v-card-title>
 
     <v-card-text>
@@ -192,6 +190,21 @@ function numberOrUndefined(value: string): number | undefined {
           v-model="draft.vendorEventId"
           label="Support ID (F5)"
           hint="F5's own reference for its record"
+          persistent-hint
+          density="compact"
+          variant="outlined"
+          clearable
+          class="mb-3"
+        />
+
+        <!-- The fingerprint of the client's TLS stack, not of the client. One value
+             across many addresses is one tool run from many hosts, which is what makes
+             it the pivot that survives an attacker rotating IP and user agent. Exact
+             match: half a fingerprint identifies nothing. -->
+        <v-text-field
+          v-model="draft.ja4"
+          label="JA4 fingerprint"
+          hint="Exact match. Only on events seen since fingerprinting was enabled"
           persistent-hint
           density="compact"
           variant="outlined"

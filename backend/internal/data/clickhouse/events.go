@@ -67,6 +67,9 @@ type NormalizedEvent struct {
 	RequestMethod string
 	UserAgent     string
 	HTTPStatus    uint16
+	// JA4 is the TLS client fingerprint. Empty for events ingested before migration
+	// 0014, and for vendors that do not report one.
+	JA4 string
 
 	Verdict       string
 	VerdictReason string
@@ -146,7 +149,7 @@ func (r *EventRepo) InsertNormalized(ctx context.Context, events []NormalizedEve
 			e.VendorEventID, e.LinkedRequestID,
 			ipOrZero(e.ClientIP), e.ClientIPShared, e.ClientASN, e.ClientCountry,
 			e.RequestHost, e.RequestPath, e.RequestQuery, e.RequestMethod,
-			e.UserAgent, e.HTTPStatus,
+			e.UserAgent, e.HTTPStatus, e.JA4,
 			e.Verdict, e.VerdictReason, e.RuleID, orEmptySlice(e.RuleIDs),
 			e.Score, e.ScoreKind, e.IngestVersion,
 		); err != nil {
@@ -198,6 +201,7 @@ const normalizedColumns = `tenant_id, event_id, event_time, event_time_original,
 	linked_request_id,
 	client_ip, client_ip_shared, client_asn, client_country,
 	request_host, request_path, request_query, request_method, user_agent, http_status,
+	ja4,
 	verdict, verdict_reason, rule_id, rule_ids, score, score_kind, ingest_version`
 
 // GetNormalized loads one normalized event within the context's tenant.
@@ -436,7 +440,7 @@ func scanNormalized(row rowScanner) (NormalizedEvent, error) {
 		&e.VendorEventID, &e.LinkedRequestID,
 		&e.ClientIP, &e.ClientIPShared, &e.ClientASN, &e.ClientCountry,
 		&e.RequestHost, &e.RequestPath, &e.RequestQuery, &e.RequestMethod,
-		&e.UserAgent, &e.HTTPStatus,
+		&e.UserAgent, &e.HTTPStatus, &e.JA4,
 		&e.Verdict, &e.VerdictReason, &e.RuleID, &e.RuleIDs, &e.Score, &e.ScoreKind,
 		&e.IngestVersion,
 	)

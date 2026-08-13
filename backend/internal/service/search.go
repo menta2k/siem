@@ -354,6 +354,10 @@ func eventConditions(f *pb.EventFilters) (string, []any, error) {
 		b.Where("http_status", query.OpEqual, f.GetHttpStatus())
 	}
 
+	// Exact, not a token match: a fingerprint is one opaque value and half of one
+	// identifies nothing. The bloom_filter index answers equality directly.
+	b.WhereIfSet("ja4", query.OpEqual, f.GetJa4())
+
 	// Token match rather than LIKE: these columns carry token bloom indexes, and a
 	// leading-wildcard LIKE would read every granule instead of using them.
 	b.WhereIfSet("user_agent", query.OpHasToken, f.GetUserAgent())
@@ -377,6 +381,11 @@ func (s *SearchService) resolveIdentifiers(
 	lookups := []struct{ column, value string }{
 		{"vendor_request_id", f.GetVendorRequestId()},
 		{"vendor_event_id", f.GetVendorEventId()},
+		// A correlated request has no fingerprint of its own: the vendors that joined
+		// into it need not all have reported one, so there is nothing to store on the
+		// join. Resolving through the events is what makes "which correlations involved
+		// this client stack" answerable at all.
+		{"ja4", f.GetJa4()},
 	}
 
 	for _, lookup := range lookups {
@@ -502,7 +511,7 @@ func toSearchResult(e chdata.NormalizedEvent) chdata.EventSearchResult {
 		ClientASN: e.ClientASN, ClientCountry: e.ClientCountry,
 		RequestHost: e.RequestHost, RequestPath: e.RequestPath,
 		RequestQuery: e.RequestQuery, RequestMethod: e.RequestMethod,
-		UserAgent: e.UserAgent, HTTPStatus: e.HTTPStatus,
+		UserAgent: e.UserAgent, HTTPStatus: e.HTTPStatus, JA4: e.JA4,
 		Verdict: e.Verdict, VerdictReason: e.VerdictReason,
 		RuleID: e.RuleID, RuleIDs: e.RuleIDs, Score: e.Score, ScoreKind: e.ScoreKind,
 	}
@@ -531,6 +540,7 @@ func toEventSummary(e chdata.EventSearchResult) *pb.EventSummary {
 			Method: e.RequestMethod,
 			Status: uint32(e.HTTPStatus),
 		},
+		Ja4:           e.JA4,
 		Verdict:       verdictToProto(e.Verdict),
 		VerdictReason: e.VerdictReason,
 		RuleId:        e.RuleID,
@@ -557,7 +567,7 @@ var exportColumns = []string{
 	"event_id", "event_time", "vendor", "vendor_request_id", "vendor_event_id",
 	"client_ip", "client_country", "client_asn",
 	"request_host", "request_path", "request_method", "http_status",
-	"user_agent", "verdict", "verdict_reason", "rule_id", "score", "score_kind",
+	"user_agent", "ja4", "verdict", "verdict_reason", "rule_id", "score", "score_kind",
 }
 
 // ExportSearch streams a row-capped export of an event search (FR-026).
@@ -687,7 +697,7 @@ func exportRow(e chdata.EventSearchResult) query.ExportRow {
 		"client_country": e.ClientCountry, "client_asn": e.ClientASN,
 		"request_host": e.RequestHost, "request_path": e.RequestPath,
 		"request_method": e.RequestMethod, "http_status": e.HTTPStatus,
-		"user_agent": e.UserAgent, "verdict": e.Verdict,
+		"user_agent": e.UserAgent, "ja4": e.JA4, "verdict": e.Verdict,
 		"verdict_reason": e.VerdictReason, "rule_id": e.RuleID,
 		"score_kind": e.ScoreKind,
 	}

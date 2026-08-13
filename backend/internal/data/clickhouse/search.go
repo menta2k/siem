@@ -71,7 +71,7 @@ func paginate[T any](items []T, pageSize int32, cursorOf func(T) query.Cursor) P
 const eventSearchColumns = `event_id, event_time, vendor, feed_id, vendor_request_id,
 	vendor_event_id,
 	client_ip, client_ip_shared, client_asn, client_country, request_host, request_path,
-	request_query, request_method, user_agent, http_status, verdict, verdict_reason,
+	request_query, request_method, user_agent, http_status, ja4, verdict, verdict_reason,
 	rule_id, rule_ids, score, score_kind`
 
 // EventSearchResult is one row of an event search.
@@ -100,6 +100,7 @@ type EventSearchResult struct {
 	RequestMethod string
 	UserAgent     string
 	HTTPStatus    uint16
+	JA4           string
 
 	Verdict       string
 	VerdictReason string
@@ -181,7 +182,7 @@ func scanEventSearchResult(row rowScanner) (EventSearchResult, error) {
 		&clientIP, &result.ClientIPShared, &result.ClientASN,
 		&result.ClientCountry, &result.RequestHost, &result.RequestPath,
 		&result.RequestQuery, &result.RequestMethod, &result.UserAgent,
-		&result.HTTPStatus, &result.Verdict, &result.VerdictReason, &result.RuleID,
+		&result.HTTPStatus, &result.JA4, &result.Verdict, &result.VerdictReason, &result.RuleID,
 		&result.RuleIDs, &result.Score, &result.ScoreKind,
 	); err != nil {
 		return EventSearchResult{}, fmt.Errorf("scan event search result: %w", err)
@@ -271,7 +272,7 @@ func (r *SearchRepo) EventIDsFor(
 
 	// The column is chosen from a fixed set by the caller, never taken from input.
 	switch column {
-	case "vendor_request_id", "vendor_event_id", "linked_request_id":
+	case "vendor_request_id", "vendor_event_id", "linked_request_id", "ja4":
 	default:
 		return nil, fmt.Errorf("event lookup: unsupported identifier column %q", column)
 	}

@@ -66,6 +66,10 @@ const clientIP = ref('')
 // every vendor that saw the request; a support id reaches F5's record of it.
 const ray = ref('')
 const supportID = ref('')
+// The TLS fingerprint, resolved the same way: a correlated record has no fingerprint of
+// its own, because the vendors that joined into it need not all have reported one. This
+// is the pivot that still works when an attacker has rotated everything else.
+const ja4 = ref('')
 
 const rangeOptions = [
   { title: 'Last 15 minutes', value: 0.25 },
@@ -100,6 +104,7 @@ async function load(append = false): Promise<void> {
           ...(clientIP.value ? { clientIp: clientIP.value } : {}),
           ...(ray.value ? { vendorRequestId: ray.value } : {}),
           ...(supportID.value ? { vendorEventId: supportID.value } : {}),
+          ...(ja4.value ? { ja4: ja4.value } : {}),
         },
         page:
           append && nextCursor.value
@@ -146,7 +151,7 @@ function refresh(): void {
 // everything — there is nothing on screen to say the value was never applied. Debounced
 // rather than immediate so a half-typed address does not query and read as "no results".
 const reload = debounce(refresh, 400)
-watch([host, clientIP, ray, supportID], () => reload())
+watch([host, clientIP, ray, supportID, ja4], () => reload())
 onUnmounted(() => reload.cancel())
 
 /**
@@ -160,6 +165,7 @@ onMounted(() => {
   const q = route.query
   if (typeof q.ray === 'string') ray.value = q.ray
   if (typeof q.supportId === 'string') supportID.value = q.supportId
+  if (typeof q.ja4 === 'string') ja4.value = q.ja4
   if (typeof q.clientIp === 'string') clientIP.value = q.clientIp
   if (typeof q.host === 'string') host.value = q.host
   // A link to one request should not also be filtered to cross-vendor records: a
@@ -278,6 +284,15 @@ const disagreementCount = computed(() => records.value.filter((r) => r.hasDisagr
             hide-details
             clearable
             style="max-width: 200px"
+            @keyup.enter="refresh"
+          />
+          <v-text-field
+            v-model="ja4"
+            label="JA4 fingerprint"
+            density="compact"
+            hide-details
+            clearable
+            style="max-width: 260px"
             @keyup.enter="refresh"
           />
           <v-switch

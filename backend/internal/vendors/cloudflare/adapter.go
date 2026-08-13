@@ -38,6 +38,11 @@ var knownFields = map[string]bool{
 	// preserved in RawExtra without being reported as drift.
 	"CacheCacheStatus": true, "CacheResponseStatus": true, "OriginResponseStatus": true,
 	"ClientRequestProtocol": true, "ClientSSLProtocol": true, "EdgeColoCode": true,
+	// The TLS client fingerprint, now mapped onto the common model rather than only
+	// preserved. Listing it here also stops it being counted as schema drift: it was
+	// reported as an unknown field on every record of a Logpush job that includes it,
+	// which is a standing false positive in the feed-health warning.
+	"JA4": true,
 }
 
 // securityActionVerdicts maps Cloudflare's action vocabulary onto the common model.
@@ -234,6 +239,7 @@ func normalizeRequest(fields map[string]any) (vendors.Event, error) {
 		RequestMethod: strings.ToUpper(vendors.AsString(record.Fields["ClientRequestMethod"])),
 		UserAgent:     vendors.AsString(record.Fields["ClientRequestUserAgent"]),
 		HTTPStatus:    vendors.ToStatus(record.Fields["EdgeResponseStatus"]),
+		JA4:           vendors.AsString(record.Fields["JA4"]),
 
 		VerdictReason: vendors.AsString(record.Fields["SecurityRuleDescription"]),
 		RuleID:        vendors.AsString(record.Fields["SecurityRuleID"]),

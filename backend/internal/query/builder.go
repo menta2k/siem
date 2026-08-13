@@ -66,6 +66,7 @@ var EventsTable = Table{
 		"request_method":    "request_method",
 		"user_agent":        "user_agent",
 		"http_status":       "http_status",
+		"ja4":               "ja4",
 		"verdict":           "verdict",
 		"rule_id":           "rule_id",
 		"score":             "score",
