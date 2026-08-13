@@ -261,6 +261,7 @@ func toRow(envelope ingest.Envelope, event vendors.Event) chdata.NormalizedEvent
 		RequestMethod: event.RequestMethod,
 		UserAgent:     event.UserAgent,
 		HTTPStatus:    event.HTTPStatus,
+		JA4:           event.JA4,
 
 		Verdict:       event.Verdict,
 		VerdictReason: event.VerdictReason,
