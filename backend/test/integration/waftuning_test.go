@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"math"
 	"net"
 	"testing"
 	"time"
@@ -206,5 +207,42 @@ func TestWAFProfileIsTenantScoped(t *testing.T) {
 	}
 	if len(gaps) != 0 {
 		t.Errorf("another tenant's gaps were visible: %+v", gaps)
+	}
+}
+
+// avgIf over no matching rows returns NaN, and NaN is not representable in JSON — one
+// such group would break the entire response rather than showing an odd number. A rule
+// whose events all predate the score columns is exactly that group, so it is not
+// hypothetical: every event written before migration 0015 reads 0.
+func TestUnscoredEventsDoNotProduceNaN(t *testing.T) {
+	f := support.Shared(t)
+	ctx, tenant := f.NewTenant(t, "waf-unscored")
+
+	events := []chdata.NormalizedEvent{{
+		TenantID: tenant.ID, EventID: "waf-unscored-1", Vendor: vendors.Cloudflare,
+		EventTime: wafBase, ReceivedAt: wafBase, IngestVersion: 1,
+		RequestHost: "old.example.com", RequestPath: "/", RequestMethod: "GET",
+		Verdict: vendors.VerdictAllowed, RuleID: "legacy-rule",
+		// No score at all, exactly as every row written before migration 0015 reads.
+		WAFAttackScore: 0,
+	}}
+	if err := chdata.NewEventRepo(f.ClickHouse).InsertNormalized(ctx, events); err != nil {
+		t.Fatalf("InsertNormalized: %v", err)
+	}
+	f.Sync(t, "normalized_events")
+
+	paths, err := chdata.NewWAFTuningRepo(f.ClickHouse).RulePaths(ctx, "legacy-rule",
+		chdata.DashboardQuery{Range: wafRange(), Limit: 10})
+	if err != nil {
+		t.Fatalf("RulePaths: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("paths = %+v, want the one unscored path", paths)
+	}
+	if math.IsNaN(paths[0].MeanScore) {
+		t.Error("mean score is NaN, which cannot be encoded as JSON")
+	}
+	if paths[0].MeanScore != 0 {
+		t.Errorf("mean score = %v, want 0 for events that were never scored", paths[0].MeanScore)
 	}
 }
