@@ -97,6 +97,13 @@ const (
 
 // readingExpr classifies a group by its score split.
 //
+// The aggregates here name the SOURCE COLUMNS, and the SELECT that uses this must alias
+// its own sums to something else — attack_total rather than attack_events. Aliasing an
+// aggregate back to the column it aggregates makes ClickHouse resolve the reference
+// inside this expression to that alias instead, and reject the query with "aggregate
+// function is found inside another aggregate function". internal/data/clickhouse/cfrules.go
+// carries the same warning for the same reason.
+//
 // The thresholds are deliberately wide. A rule is worth acting on when it is
 // overwhelmingly one thing or the other, and anything between 20% and 80% is reported
 // as mixed rather than nudged toward a conclusion the numbers do not support.
@@ -174,9 +181,9 @@ func ruleProfileQuery(
 	sql := `
 		SELECT rule_id, request_host, waf_action, waf_source,
 		       uniqCombinedMerge(12)(events) AS events,
-		       sum(attack_events)     AS attack_events,
-		       sum(suspicious_events) AS suspicious_events,
-		       sum(clean_events)      AS clean_events,
+		       sum(attack_events)     AS attack_total,
+		       sum(suspicious_events) AS suspicious_total,
+		       sum(clean_events)      AS clean_total,
 		       if(sum(score_count) > 0, sum(score_sum) / sum(score_count), 0) AS mean_score,
 		       ` + readingExpr + ` AS reading
 		FROM rollup_waf_rules_1h
