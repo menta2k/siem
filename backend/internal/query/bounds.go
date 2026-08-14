@@ -14,6 +14,8 @@ package query
 import (
 	"context"
 	"errors"
+	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -151,7 +153,26 @@ func TranslateError(err error) error {
 		return nil
 	}
 
-	if errors.Is(err, context.DeadlineExceeded) || isClickHouseTimeout(err) {
+	// ALREADY CLASSIFIED — pass it through untouched.
+	//
+	// THE BUG THIS FIXES. Every read path translates twice: once in the repository and
+	// again in the service above it. Without this the second call sees the first call's
+	// own output, fails to recognise it — a QueryTimeout's message contains neither
+	// "code: 159" nor "TIMEOUT_EXCEEDED" — and wraps it as INTERNAL. Users searching a
+	// wide range got "an internal error occurred" instead of "narrow the time range or
+	// add filters", which is the difference between a dead end and an instruction. It
+	// also logged every slow query as an internal failure, so the error budget counted
+	// the one condition the message exists to explain.
+	//
+	// Idempotence is the fix rather than deleting one of the two calls: both layers are
+	// entitled to translate, and a rule that depends on exactly one of them doing it is
+	// a rule that breaks the next time a repository is called from somewhere new.
+	var classified *mw.Error
+	if errors.As(err, &classified) {
+		return classified
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) || isTimeout(err) {
 		return mw.QueryTimeout()
 	}
 	if errors.Is(err, context.Canceled) {
@@ -160,6 +181,27 @@ func TranslateError(err error) error {
 		return mw.AsError(err)
 	}
 	return mw.Internal().WithCause(err)
+}
+
+// isTimeout reports whether a query failed for want of time rather than for a reason
+// worth investigating.
+//
+// Covers the SERVER's execution limit and the CLIENT's read deadline, which are the
+// same event seen from two ends: ClickHouse spending too long on a query, and the
+// driver giving up on the socket while it does. The second arrived as
+// "read tcp ...: i/o timeout" and was classed INTERNAL, so an ordinary too-wide search
+// looked like a platform fault in the logs and in the UI.
+func isTimeout(err error) bool {
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	// The driver wraps the network error in its own text on some paths, which defeats
+	// errors.Is; net.Error survives that when the wrap uses %w.
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return isClickHouseTimeout(err)
 }
 
 // isClickHouseTimeout matches the server-side execution timeout.
