@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -503,5 +504,79 @@ func TestNormalizeToleratesAMissingJA4(t *testing.T) {
 	}
 	if event.JA4 != "" {
 		t.Errorf("JA4 = %q, want empty for a record that carries none", event.JA4)
+	}
+}
+
+// productionFields is the exact key set of a Logpush record taken from production.
+//
+// THE REGRESSION THIS PINS. knownFields was written against a minimal job and never
+// grew with it: a real record carries 59 fields and the map recognised 20, so 39 were
+// classed as drift on every single event. It stayed invisible only because the counter
+// behind the drift warning had no producer — connecting that up without fixing this
+// would have lit a permanent 100%-drift alarm on a correctly-configured feed.
+//
+// Listing the fields literally, rather than deriving them, is the point: this test only
+// keeps its value if adding a field to the job means changing this list on purpose.
+var productionFields = []string{
+	"BotDetectionIDs", "BotDetectionTags", "BotScore", "BotScoreSrc", "BotTags",
+	"cache_ratio_1h", "ClientASN", "ClientCity", "ClientCountry", "ClientLatitude",
+	"ClientLongitude", "ClientRequestHost", "ClientRequestMethod", "ClientRequestURI",
+	"ContentScanObjResults", "ContentScanObjTypes", "EdgeCFConnectingO2O", "EdgeColoCode",
+	"EdgeColoID", "EdgeEndTimestamp", "EdgePathingSrc", "EdgePathingStatus",
+	"EdgeResponseBytes", "EdgeResponseStatus", "EdgeServerIP", "EdgeStartTimestamp",
+	"h2h3_ratio_1h", "heuristic_ratio_1h", "ips_quantile_1h", "ips_rank_1h", "JA3Hash",
+	"JA4", "JA4Signals", "JSDetectionPassed", "MatchedRules", "ParentRayID",
+	"paths_rank_1h", "RayID", "reqs_quantile_1h", "reqs_rank_1h", "rules", "rulesetId",
+	"rulesetVersion", "SecurityAction", "SecurityActions", "SecurityRuleDescription",
+	"SecurityRuleID", "SecurityRuleIDs", "SecuritySources", "SmartRouteColoID",
+	"uas_rank_1h", "UpperTierColoID", "WAFAttackScore", "WAFFlags", "WAFMatchedVar",
+	"WAFRCEAttackScore", "WAFSQLiAttackScore", "WAFXSSAttackScore", "WorkerStatus",
+	"ZoneName",
+}
+
+func TestAProductionRecordReportsNoSchemaDrift(t *testing.T) {
+	fields := make(map[string]any, len(productionFields))
+	for _, name := range productionFields {
+		fields[name] = "value"
+	}
+	fields["EdgeStartTimestamp"] = "2026-08-13T10:00:00Z"
+	fields["SecurityAction"] = "allow"
+	fields["EdgeResponseStatus"] = 200
+
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("encode payload: %v", err)
+	}
+
+	event, err := New().Normalize(recordFrom(t, string(payload)))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+
+	if len(event.UnknownFields) != 0 {
+		t.Errorf("a correctly-configured feed reported %d drifting fields: %v",
+			len(event.UnknownFields), event.UnknownFields)
+	}
+}
+
+// The opposite guarantee, and the reason the list above is not simply "everything".
+// Drift has to still fire for a field nobody has declared, or the warning is worthless.
+func TestAGenuinelyNewFieldStillReportsDrift(t *testing.T) {
+	payload := `{"RayID":"8f1a2b3c4d5e6f70","EdgeStartTimestamp":"2026-08-13T10:00:00Z",` +
+		`"SecurityAction":"allow","EdgeResponseStatus":200,"SomethingNobodyDeclared":"x"}`
+
+	event, err := New().Normalize(recordFrom(t, payload))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+
+	var saw bool
+	for _, f := range event.UnknownFields {
+		if f == "SomethingNobodyDeclared" {
+			saw = true
+		}
+	}
+	if !saw {
+		t.Errorf("an undeclared field was not reported as drift: %v", event.UnknownFields)
 	}
 }

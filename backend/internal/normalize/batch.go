@@ -116,11 +116,12 @@ func (w *Worker) normalizeBatch(
 	var rejected []chdata.RejectedEvent
 
 	policies := newPolicyCache(w.tenants)
+	drift := map[driftKey]int{}
 
 	for _, e := range decoded {
 		scoped := tenancy.WithTenant(ctx, tenancy.Tenant{ID: e.value.TenantID})
 
-		event, err := w.normalizeOne(scoped, e.value, policies)
+		event, unrecognized, err := w.normalizeOne(scoped, e.value, policies)
 		if err != nil {
 			rejected = append(rejected, chdata.RejectedEvent{
 				TenantID: e.value.TenantID, FeedID: e.value.FeedID,
@@ -132,8 +133,13 @@ func (w *Worker) normalizeBatch(
 			})
 			continue
 		}
+		if unrecognized {
+			drift[driftKey{e.value.TenantID, e.value.FeedID}]++
+		}
 		normalized = append(normalized, event)
 	}
+
+	w.recordDrift(ctx, drift)
 
 	if len(rejected) > 0 {
 		w.log.Warn(ctx, "events rejected during normalization",
@@ -142,41 +148,82 @@ func (w *Worker) normalizeBatch(
 	return normalized, rejected
 }
 
+// driftKey buckets the batch's drift tally by the feed it belongs to. A batch can carry
+// events from several feeds, and attributing them all to one would blame the wrong
+// customer for another's vendor change.
+type driftKey struct {
+	tenantID uuid.UUID
+	feedID   uuid.UUID
+}
+
+// recordDrift carries the batch's unrecognized-field tally into feed health.
+//
+// ONLY that counter is set. events_received is recorded by the INGEST service for the
+// same feed and minute, and feed_health is a SummingMergeTree — writing it again here
+// would double every feed's throughput figure. The two writes land in the same bucket
+// and sum, which is what makes DriftWarning's ratio of one to the other meaningful.
+//
+// Nothing is written for a clean batch. A row of zeroes would say the same as no row at
+// all while adding a write per batch per feed, forever.
+func (w *Worker) recordDrift(ctx context.Context, drift map[driftKey]int) {
+	if w.health == nil {
+		return
+	}
+	for key, count := range drift {
+		if count <= 0 {
+			continue
+		}
+		w.health.Record(ctx, ingest.HealthSample{
+			TenantID: key.tenantID, FeedID: key.feedID,
+			UnknownFieldEvents: count,
+			// True because this write says nothing about the credential. The column is a
+			// min() aggregate, so a false recorded by ingest in the same minute still
+			// wins — claiming validity here cannot mask a failure there.
+			CredentialValid: true,
+		})
+	}
+}
+
 // normalizeOne applies the adapter and the tenant's redaction policy.
+// normalizeOne reports whether the adapter met fields it did not recognise, alongside
+// the row. The row itself cannot carry that: migration 0006 dropped unknown_fields from
+// normalized_events, so the only place the answer exists is here, between the adapter
+// returning it and the row being built without it.
 func (w *Worker) normalizeOne(
 	ctx context.Context, value ingest.Envelope, policies *policyCache,
-) (chdata.NormalizedEvent, error) {
+) (chdata.NormalizedEvent, bool, error) {
 	adapter, err := w.registry.Get(value.Vendor)
 	if err != nil {
-		return chdata.NormalizedEvent{}, err
+		return chdata.NormalizedEvent{}, false, err
 	}
 
 	records, err := adapter.Parse(value.Payload, vendors.Format(value.Format))
 	if err != nil || len(records) == 0 {
-		return chdata.NormalizedEvent{}, fmt.Errorf("reparse event: %w", err)
+		return chdata.NormalizedEvent{}, false, fmt.Errorf("reparse event: %w", err)
 	}
 
 	event, err := adapter.Normalize(records[0])
 	if err != nil {
-		return chdata.NormalizedEvent{}, err
+		return chdata.NormalizedEvent{}, false, err
 	}
 	if err := checkEventAge(event.EventTime, value.ReceivedAt); err != nil {
-		return chdata.NormalizedEvent{}, err
+		return chdata.NormalizedEvent{}, false, err
 	}
 
 	redactedFields, err := policies.redactedFields(ctx, value.TenantID)
 	if err != nil {
-		return chdata.NormalizedEvent{}, fmt.Errorf("load tenant policy: %w", err)
+		return chdata.NormalizedEvent{}, false, fmt.Errorf("load tenant policy: %w", err)
 	}
 
 	// Redaction happens BEFORE the row is built, so a masked field is never written in
 	// readable form anywhere (FR-037).
 	event = Redact(event, redactedFields)
 
+	unrecognized := len(event.UnknownFields) > 0
 	w.drift.Observe(ctx, value.TenantID, value.FeedID, 1,
-		boolToInt(len(event.UnknownFields) > 0), event.UnknownFields)
+		boolToInt(unrecognized), event.UnknownFields)
 
-	return toRow(value, event), nil
+	return toRow(value, event), unrecognized, nil
 }
 
 // forwardBatch publishes every normalized event to the correlation stage in one call.

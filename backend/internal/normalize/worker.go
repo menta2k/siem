@@ -59,6 +59,36 @@ type Worker struct {
 	publisher Publisher
 	topic     string
 	log       mw.Logger
+	// health carries the schema-drift counter into feed health. Optional: a nil
+	// recorder means the counter is not written, which is what every test that does not
+	// care about health gets.
+	health HealthRecorder
+}
+
+// HealthRecorder accumulates per-feed counters.
+//
+// Declared here rather than imported as a concrete type because the normalizer needs
+// exactly one method of it, and because this is the seam a test replaces to assert on
+// what was counted.
+type HealthRecorder interface {
+	Record(ctx context.Context, sample ingest.HealthSample)
+}
+
+// WithHealth attaches the feed-health recorder, so unrecognized fields reach
+// feed_health.unknown_field_events.
+//
+// THE COUNTER HAD NO PRODUCER. It was declared on the sample, summed by the aggregator,
+// written to ClickHouse and read back by FeedHealth.DriftWarning — an entire pipeline
+// that nothing ever fed, so the ratio was 0 for every feed of every vendor and the
+// warning FR-012 promises could not fire. The reason is structural: the counter lives
+// on the INGEST health sample, and only the normalizer ever learns which fields an
+// adapter did not recognise. Nothing connected the two.
+//
+// Chainable rather than a constructor parameter so the existing call sites and their
+// tests are unaffected by a signal they do not exercise.
+func (w *Worker) WithHealth(health HealthRecorder) *Worker {
+	w.health = health
+	return w
 }
 
 // NewWorker constructs the worker.

@@ -151,3 +151,35 @@ func (d *DriftDetector) Reset() {
 	defer d.mu.Unlock()
 	d.windows = map[string]*driftWindow{}
 }
+
+// LogDriftSink reports a crossed drift threshold to the operator.
+//
+// WITHOUT A SINK THE DETECTOR IS A NO-OP. Observe computes the window, decides the
+// threshold was crossed, and then drops the warning on the floor when sink is nil —
+// which is exactly how the processor was wired, so the second half of FR-012 was as
+// inert as the counter feeding feed_health. The detector was never the missing piece;
+// somewhere for its answer to go was.
+//
+// A log line rather than an alert on purpose: a vendor adding a field must not page
+// anyone, and it must not take a customer's logging offline. It is a warning an
+// operator reads when a feed's parsed view starts looking thin, and the field names are
+// what turn "something changed" into a one-line adapter fix.
+func LogDriftSink(log DriftLogger) DriftSink {
+	if log == nil {
+		return nil
+	}
+	return func(ctx context.Context, warning DriftWarning) {
+		log.Warn(ctx, "schema drift: a feed is sending fields the adapter does not map",
+			"tenant_id", warning.TenantID.String(),
+			"feed_id", warning.FeedID.String(),
+			"ratio", warning.Ratio,
+			"fields", warning.Fields,
+		)
+	}
+}
+
+// DriftLogger is the logging surface the sink needs. Narrow so the normalize package
+// does not depend on the middleware package for one method.
+type DriftLogger interface {
+	Warn(ctx context.Context, msg string, args ...any)
+}

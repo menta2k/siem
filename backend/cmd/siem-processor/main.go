@@ -177,9 +177,15 @@ func buildWorkers(
 		// Drains the raw topic into raw_events and normalized_events.
 		newBatchConsumerWorker("normalizer", cfg.Redpanda, cfg.Redpanda.ConsumerGroupRaw,
 			[]string{cfg.Redpanda.TopicRaw}, producer, deps.Log,
+			// Both halves of FR-012 are wired here, and neither was before. The
+			// detector had a nil sink, so a crossed threshold was computed and
+			// discarded; the health recorder was absent, so the per-feed counter
+			// behind DriftWarning had no producer at all. A vendor changing their
+			// schema was invisible in both places it was designed to show up.
 			normalize.NewWorker(adapters, events, tenants,
-				normalize.NewDriftDetector(nil), producer,
-				cfg.Redpanda.TopicNormalized, deps.Log).HandleBatch),
+				normalize.NewDriftDetector(normalize.LogDriftSink(deps.Log)), producer,
+				cfg.Redpanda.TopicNormalized, deps.Log).
+				WithHealth(healthAggregator).HandleBatch),
 
 		// Drains the dead-letter topic into rejected_events. Deliberately a separate
 		// consumer group from the normalizer, so a backlog of malformed records can

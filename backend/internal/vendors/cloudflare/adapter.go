@@ -38,11 +38,58 @@ var knownFields = map[string]bool{
 	// preserved in RawExtra without being reported as drift.
 	"CacheCacheStatus": true, "CacheResponseStatus": true, "OriginResponseStatus": true,
 	"ClientRequestProtocol": true, "ClientSSLProtocol": true, "EdgeColoCode": true,
-	// The TLS client fingerprint, now mapped onto the common model rather than only
-	// preserved. Listing it here also stops it being counted as schema drift: it was
-	// reported as an unknown field on every record of a Logpush job that includes it,
-	// which is a standing false positive in the feed-health warning.
+	// The TLS client fingerprint, mapped onto the common model rather than only
+	// preserved.
 	"JA4": true,
+
+	// ---------------------------------------------------------------- the rest of a
+	// real Logpush job.
+	//
+	// THIS LIST WAS WRITTEN AGAINST A MINIMAL JOB AND NEVER GREW WITH IT. A production
+	// record carries 59 fields and this map recognised 20, so 39 of them were counted as
+	// drift on EVERY event. That did not show up only because the counter behind the
+	// warning had no producer; wiring it up without this would have lit a permanent
+	// 100%-drift alarm on a correctly-configured feed, which is the fastest way to teach
+	// an operator to ignore it.
+	//
+	// Declared known, not mapped. "Known" here means the field is a documented part of
+	// the dataset and its absence from the common model is a decision, not a surprise —
+	// which is exactly what drift has to mean to be worth alerting on.
+
+	// Bot Management. NOT MAPPED, and the most valuable thing in this list: the adapter
+	// still says the dataset carries no bot score, which was true of the job it was
+	// written for and is not true of this one. Mapping BotScore onto the common model's
+	// bot score is a real change to correlation and disagreement detection, so it is
+	// deliberately left as its own piece of work rather than smuggled in here.
+	"BotScore": true, "BotScoreSrc": true, "BotTags": true,
+	"BotDetectionIDs": true, "BotDetectionTags": true, "JSDetectionPassed": true,
+
+	// WAF scoring and the variable that matched. Also unmapped, for the same reason.
+	"WAFAttackScore": true, "WAFSQLiAttackScore": true, "WAFXSSAttackScore": true,
+	"WAFRCEAttackScore": true, "WAFFlags": true, "WAFMatchedVar": true,
+	"MatchedRules": true, "rules": true, "rulesetId": true, "rulesetVersion": true,
+
+	// Client geo, beyond the country the common model already carries.
+	"ClientCity": true, "ClientLatitude": true, "ClientLongitude": true,
+
+	// Edge routing and topology: which colo, which tier, which path. Operational
+	// context with no security meaning.
+	"EdgeColoID": true, "EdgeServerIP": true, "EdgePathingSrc": true,
+	"EdgePathingStatus": true, "EdgeCFConnectingO2O": true, "UpperTierColoID": true,
+	"SmartRouteColoID": true, "WorkerStatus": true, "ParentRayID": true,
+
+	// Content scanning results.
+	"ContentScanObjResults": true, "ContentScanObjTypes": true,
+
+	// The other TLS fingerprints alongside JA4.
+	"JA3Hash": true, "JA4Signals": true,
+
+	// Per-client rolling ratios and ranks this deployment adds to its job. Not part of
+	// the stock dataset, which is precisely why they must be declared: an operator's own
+	// custom fields are the one thing that is definitely not a vendor schema change.
+	"cache_ratio_1h": true, "h2h3_ratio_1h": true, "heuristic_ratio_1h": true,
+	"ips_quantile_1h": true, "ips_rank_1h": true, "paths_rank_1h": true,
+	"reqs_quantile_1h": true, "reqs_rank_1h": true, "uas_rank_1h": true,
 }
 
 // securityActionVerdicts maps Cloudflare's action vocabulary onto the common model.
