@@ -198,13 +198,13 @@ function numberOrUndefined(value: string): number | undefined {
         />
 
         <!-- The score the WAF gave the request, on its INVERTED scale: 1 is certainly
-             an attack, 99 certainly clean. The filter is worded as a maximum for that
+             an attack, 100 certainly clean. The filter is worded as a maximum for that
              reason — "at most 20" is what an analyst means by "show me the attacks". -->
         <v-text-field
           v-model.number="draft.maxWafAttackScore"
           label="WAF attack score at most"
           type="number"
-          hint="Low is bad: 1 is certainly an attack, 99 certainly clean"
+          hint="Low is bad: 1 is certainly an attack, 100 certainly clean"
           persistent-hint
           density="compact"
           variant="outlined"

@@ -767,7 +767,37 @@ func TestAnAbsentScoreIsNotZeroTheAttackValue(t *testing.T) {
 	}
 }
 
-// A value outside the documented 1-99 range is not a score. Clamping to 0 keeps the
+// THE BUG THIS CATCHES, found in production within minutes of deploying. Cloudflare
+// documents 1-99 but SENDS 100 for a definitively clean request, and 100 is the most
+// common value in real traffic — 31% of all requests here. A bound of 99 silently
+// reclassified every one of them as "not scored", which on this inverted scale is the
+// value reserved for "we know nothing", so a third of traffic vanished from the profile.
+//
+// The payload below is verbatim from production, including BotScoreSrc "Not Computed"
+// and the empty SecurityAction that go with a request nothing evaluated.
+func TestTheCleanestScoreIs100AndIsStillAScore(t *testing.T) {
+	payload := `{"ClientIP":"78.130.254.10","ClientRequestHost":"www.jobs.bg",` +
+		`"ClientRequestMethod":"GET","ClientRequestURI":"/",` +
+		`"EdgeStartTimestamp":"2026-08-14T10:22:15Z","EdgeResponseStatus":200,` +
+		`"BotScore":0,"BotScoreSrc":"Not Computed","SecurityAction":"",` +
+		`"WAFAttackScore":100,"WAFRCEAttackScore":100,"WAFSQLiAttackScore":100,` +
+		`"WAFXSSAttackScore":100}`
+
+	event, err := New().Normalize(recordFrom(t, payload))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+
+	if event.WAF.AttackScore != 100 {
+		t.Errorf("AttackScore = %d, want 100 — a clean request is scored, not unscored",
+			event.WAF.AttackScore)
+	}
+	if event.WAF.RCEScore != 100 || event.WAF.SQLiScore != 100 || event.WAF.XSSScore != 100 {
+		t.Errorf("sub-scores lost at the boundary: %+v", event.WAF)
+	}
+}
+
+// A value outside the real 1-100 range is not a score. Clamping to 0 keeps the
 // "unscored" meaning intact rather than letting a malformed 255 rank as clean.
 func TestAnOutOfRangeScoreIsTreatedAsUnscored(t *testing.T) {
 	payload := `{"RayID":"r","EdgeStartTimestamp":"2026-08-13T10:00:00Z",` +

@@ -8,10 +8,13 @@ type WafDetail = components['schemas']['WafDetail']
  * The WAF's own view of a request.
  *
  * THE SCALE IS INVERTED and this component exists largely to stop that being misread.
- * Cloudflare scores 1-99 where **1 is certainly an attack** and 99 is certainly clean —
- * the opposite direction to every other score in the console, where higher means worse.
- * Showing the bare number invites exactly the wrong reading, so the score is always
- * rendered with a word beside it.
+ * Cloudflare scores 1-100 where **1 is certainly an attack** and 100 is certainly clean
+ * — the opposite direction to every other score in the console, where higher means
+ * worse. Showing the bare number invites exactly the wrong reading, so the score is
+ * always rendered with a word beside it.
+ *
+ * 1-100, not the 1-99 Cloudflare documents: it sends 100 for a definitively clean
+ * request, and that is the most common value in real traffic.
  */
 const props = defineProps<{ waf: WafDetail }>()
 
@@ -20,8 +23,9 @@ const scored = computed(() => (props.waf.attackScore ?? 0) > 0)
 
 /**
  * Bands, on the inverted scale. The boundaries follow how the scores actually fall in
- * production: real detections land at 1-4 and the noise sits at 85-89, so the middle
- * bands are wide enough that nothing lands in them by accident.
+ * production: real detections land at 1-4, the noisy rules sit at 85-89, and untouched
+ * traffic scores 100 — so the middle bands are wide enough that nothing lands in them
+ * by accident.
  */
 const band = computed(() => {
   const score = props.waf.attackScore ?? 0
@@ -71,7 +75,7 @@ const actionColor = computed(() => {
     <!-- The number never travels alone. "2" means attack and "86" means clean, which is
          backwards from every other score on this screen. -->
     <v-chip v-if="scored" :color="band.color" size="x-small" variant="tonal">
-      {{ waf.attackScore }}/99 {{ band.label }}
+      {{ waf.attackScore }}/100 {{ band.label }}
     </v-chip>
 
     <v-chip v-if="waf.action" :color="actionColor" size="x-small" variant="tonal">

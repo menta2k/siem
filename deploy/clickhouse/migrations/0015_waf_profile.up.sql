@@ -7,14 +7,17 @@
 -- which is the difference between having the data and being able to act on it.
 --
 -- THE SCALE IS INVERTED and this is the single most important thing to know about these
--- columns. Cloudflare scores 1 to 99 where 1 means "certainly an attack" and 99 means
--- "certainly clean". F5's violation_rating, carried in the shared `score` column, runs
+-- columns. Cloudflare scores 1 to 100 where 1 means "certainly an attack" and 100 means
+-- "certainly clean" -- 1-100 despite the documentation describing 1-99, because 100 is
+-- what it actually sends for a clean request and that is the most common value there is.
+--
+-- F5's violation_rating, carried in the shared `score` column, runs
 -- the other way: higher is worse. That is why these are their own columns rather than
 -- more values in `score` -- mixing the two directions in one column would silently
 -- corrupt every threat comparison, the score-conflict disagreement detector and any
 -- alert rule keyed on score, and would do it quietly.
 --
--- 0 means NOT SCORED rather than "scored zero", which the 1-99 range leaves free.
+-- 0 means NOT SCORED rather than "scored zero", which the 1-100 range leaves free.
 ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS waf_attack_score UInt8 DEFAULT 0;
 ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS waf_sqli_score UInt8 DEFAULT 0;
 ALTER TABLE normalized_events ADD COLUMN IF NOT EXISTS waf_xss_score UInt8 DEFAULT 0;

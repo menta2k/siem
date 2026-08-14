@@ -14,18 +14,18 @@ function render(waf: Record<string, unknown>) {
 
 describe('WafScore', () => {
   // THE WHOLE REASON THIS COMPONENT EXISTS. Cloudflare's scale runs the opposite way to
-  // every other score in the console: 1 is certainly an attack, 99 certainly clean. A
+  // every other score in the console: 1 is certainly an attack, 100 certainly clean. A
   // bare number invites exactly the wrong reading, so the word travels with it.
   it('calls a low score an attack and a high score clean', () => {
     // A real SQL injection from production: overall 2, driven by the SQLi sub-score.
     const attack = render({ attackScore: 2, sqliScore: 4, xssScore: 98, rceScore: 98 })
-    expect(attack.text()).toContain('2/99')
+    expect(attack.text()).toContain('2/100')
     expect(attack.text()).toContain('attack')
     expect(attack.html()).toContain('text-error')
 
     // A rule that fires on traffic the ML considers clean — the false-positive shape.
     const clean = render({ attackScore: 86 })
-    expect(clean.text()).toContain('86/99')
+    expect(clean.text()).toContain('86/100')
     expect(clean.text()).toContain('clean')
     expect(clean.html()).toContain('text-success')
   })
@@ -33,7 +33,16 @@ describe('WafScore', () => {
   // 0 is not a score, it means the request was never scored. Rendering it would put the
   // most alarming value on this scale against every unscored request.
   it('shows no score when the request was not scored', () => {
-    expect(render({ attackScore: 0, action: 'allow' }).text()).not.toContain('/99')
+    expect(render({ attackScore: 0, action: 'allow' }).text()).not.toContain('/100')
+  })
+
+  // 100 is the most common value in real traffic and it IS a score. Treating it as
+  // out of range dropped a third of all requests out of the profile in production.
+  it('renders the cleanest possible score rather than hiding it', () => {
+    const wrapper = render({ attackScore: 100 })
+
+    expect(wrapper.text()).toContain('100/100')
+    expect(wrapper.text()).toContain('clean')
   })
 
   // The overall score is driven by whichever class fired. Listing all three buries it:

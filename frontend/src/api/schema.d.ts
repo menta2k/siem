@@ -1177,8 +1177,11 @@ export interface components {
             /**
              * Format: uint32
              * @description WAF attack score bounds, on Cloudflare's INVERTED scale: 1 is certainly an attack,
-             *      99 certainly clean, 0 not scored. `max_waf_attack_score = 20` is therefore "show me
+             *      100 certainly clean, 0 not scored. `max_waf_attack_score = 20` is therefore "show me
              *      what the WAF believes is an attack" — the filter ruleset tuning is built on.
+             *
+             *      1-100 and not the documented 1-99: Cloudflare emits 100 for a definitively clean
+             *      request, and it is the most common value in real traffic.
              */
             minWafAttackScore?: number;
             /** Format: uint32 */
@@ -1881,9 +1884,11 @@ export interface components {
          * @description WafDetail is the vendor WAF's scoring and rule-engine attribution for one request.
          *
          *      THE SCORES ARE INVERTED relative to every other score in this API: 1 means certainly
-         *      an attack and 99 means certainly clean, matching Cloudflare's own scale. 0 means the
-         *      request was not scored, which is distinct from scoring 0. Clients that rank by
-         *      severity must sort ASCENDING on these.
+         *      an attack and 100 means certainly clean. 0 means the request was not scored, which is
+         *      distinct from scoring 0. Clients that rank by severity must sort ASCENDING on these.
+         *
+         *      The range is 1-100, not the 1-99 Cloudflare documents — it emits 100 for a
+         *      definitively clean request, and that is the most common value in real traffic.
          */
         WafDetail: {
             /** Format: uint32 */

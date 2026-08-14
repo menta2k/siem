@@ -383,14 +383,19 @@ func wafDetail(fields map[string]any) vendors.WAFDetail {
 	}
 }
 
-// wafScore narrows a score to the 1-99 range the vendor documents.
+// wafScore narrows a score to the range the vendor actually emits.
 //
-// Anything outside it becomes 0, meaning "not scored". Cloudflare omits the fields
-// entirely on records from zones without the WAF, and a missing field must not read as
-// score 0 — on this inverted scale 0 would be the strongest possible attack signal.
+// 1-100, NOT the 1-99 the documentation describes. Cloudflare sends 100 for a request
+// it considers definitively clean — on this deployment that is the single most common
+// value, 31% of all requests — and a bound of 99 silently reclassified every one of
+// them as "not scored". The observed evidence beats the published range.
+//
+// Anything outside 1-100 becomes 0, meaning "not scored". A missing field must not read
+// as score 0: on this INVERTED scale 0 would be the strongest possible attack signal,
+// so every unscored request would top a report sorted by severity.
 func wafScore(value any) uint8 {
 	score := vendors.AsUint32(value)
-	if score == 0 || score > 99 {
+	if score == 0 || score > 100 {
 		return 0
 	}
 	return uint8(score)

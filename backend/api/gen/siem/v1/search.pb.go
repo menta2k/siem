@@ -115,8 +115,11 @@ type EventFilters struct {
 	// migration 0014. Older events carry no value and cannot be found by it.
 	Ja4 string `protobuf:"bytes,17,opt,name=ja4,proto3" json:"ja4,omitempty"`
 	// WAF attack score bounds, on Cloudflare's INVERTED scale: 1 is certainly an attack,
-	// 99 certainly clean, 0 not scored. `max_waf_attack_score = 20` is therefore "show me
+	// 100 certainly clean, 0 not scored. `max_waf_attack_score = 20` is therefore "show me
 	// what the WAF believes is an attack" — the filter ruleset tuning is built on.
+	//
+	// 1-100 and not the documented 1-99: Cloudflare emits 100 for a definitively clean
+	// request, and it is the most common value in real traffic.
 	MinWafAttackScore *uint32 `protobuf:"varint,18,opt,name=min_waf_attack_score,json=minWafAttackScore,proto3,oneof" json:"min_waf_attack_score,omitempty"`
 	MaxWafAttackScore *uint32 `protobuf:"varint,19,opt,name=max_waf_attack_score,json=maxWafAttackScore,proto3,oneof" json:"max_waf_attack_score,omitempty"`
 	// The vendor's own action verb, as opposed to the verdict it collapses into:
@@ -558,9 +561,11 @@ func (x *EventSummary) GetWaf() *WafDetail {
 // WafDetail is the vendor WAF's scoring and rule-engine attribution for one request.
 //
 // THE SCORES ARE INVERTED relative to every other score in this API: 1 means certainly
-// an attack and 99 means certainly clean, matching Cloudflare's own scale. 0 means the
-// request was not scored, which is distinct from scoring 0. Clients that rank by
-// severity must sort ASCENDING on these.
+// an attack and 100 means certainly clean. 0 means the request was not scored, which is
+// distinct from scoring 0. Clients that rank by severity must sort ASCENDING on these.
+//
+// The range is 1-100, not the 1-99 Cloudflare documents — it emits 100 for a
+// definitively clean request, and that is the most common value in real traffic.
 type WafDetail struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	AttackScore uint32                 `protobuf:"varint,1,opt,name=attack_score,json=attackScore,proto3" json:"attack_score,omitempty"`
