@@ -101,14 +101,41 @@ var securityActionVerdicts = map[string]string{
 	"drop":                 vendors.VerdictBlocked,
 	"challenge":            vendors.VerdictChallenged,
 	"jschallenge":          vendors.VerdictChallenged,
-	"managed_challenge":    vendors.VerdictChallenged,
 	"interactivechallenge": vendors.VerdictChallenged,
-	"connectionclose":      vendors.VerdictRateLimited,
-	"ratelimit":            vendors.VerdictRateLimited,
-	"allow":                vendors.VerdictAllowed,
-	"log":                  vendors.VerdictAllowed,
-	"skip":                 vendors.VerdictAllowed,
-	"bypass":               vendors.VerdictAllowed,
+
+	// MANAGED CHALLENGE, and the key that never matched anything.
+	//
+	// The lookup lowercases Cloudflare's camelCase, so "managedChallenge" arrives as
+	// "managedchallenge" — while this map held "managed_challenge" with an underscore
+	// no lowercasing could ever produce. Every other challenge key in this table is
+	// already in the concatenated form for exactly that reason; this one was written
+	// in snake_case and silently matched nothing.
+	//
+	// The cost was not cosmetic. Managed challenge is Cloudflare's default challenge
+	// action — 21,000 requests in three hours on this deployment — and all of them were
+	// recorded with no verdict at all. A challenged request that reads as `unknown` is
+	// invisible to disagreement detection, which is the entire purpose of correlating
+	// these vendors: Cloudflare challenging what F5 allowed is precisely the case the
+	// platform exists to surface, and it could not be seen.
+	"managedchallenge": vendors.VerdictChallenged,
+
+	// The outcomes of a managed challenge. All three record that the challenge engine
+	// ACTED on the request, which is what SecurityAction reports; whether the visitor
+	// then solved it, and how, is the result rather than a different action. Mapping
+	// the solved variants to `allowed` would erase the fact that Cloudflare found the
+	// request suspicious enough to challenge while another vendor waved it through.
+	//
+	// The exact string is preserved in RawExtra either way, so the distinction between
+	// issued, solved and bypassed is never lost — only summarised.
+	"managedchallengeinteractivesolved":    vendors.VerdictChallenged,
+	"managedchallengenoninteractivesolved": vendors.VerdictChallenged,
+	"managedchallengebypassed":             vendors.VerdictChallenged,
+	"connectionclose":                      vendors.VerdictRateLimited,
+	"ratelimit":                            vendors.VerdictRateLimited,
+	"allow":                                vendors.VerdictAllowed,
+	"log":                                  vendors.VerdictAllowed,
+	"skip":                                 vendors.VerdictAllowed,
+	"bypass":                               vendors.VerdictAllowed,
 	// "simulate" is a staging action: the rule matched but was not enforced. It maps
 	// to monitored, not allowed, so it does not manufacture a false disagreement
 	// against a vendor that genuinely blocked the same request.

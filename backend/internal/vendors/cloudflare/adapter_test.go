@@ -133,6 +133,13 @@ func TestParseRecordsOwnTheirBytes(t *testing.T) {
 
 // The full verdict mapping table. Correlation's disagreement detection is only as
 // good as this, so every action is pinned.
+//
+// This table used to say "managed_challenge", matching a map key that Cloudflare's
+// camelCase could never lowercase into — so the test and the code agreed with each
+// other and both were wrong about what the vendor actually sends. The value here is now
+// the one taken off the wire, and TestEverySecurityActionSeenInProductionMaps below
+// checks the whole vocabulary against a real traffic sample rather than against
+// whatever the table happens to claim.
 func TestVerdictMapping(t *testing.T) {
 	a := New()
 	tests := []struct {
@@ -143,7 +150,7 @@ func TestVerdictMapping(t *testing.T) {
 		{"drop", vendors.VerdictBlocked},
 		{"challenge", vendors.VerdictChallenged},
 		{"jschallenge", vendors.VerdictChallenged},
-		{"managed_challenge", vendors.VerdictChallenged},
+		{"managedChallenge", vendors.VerdictChallenged},
 		{"connectionClose", vendors.VerdictRateLimited},
 		{"allow", vendors.VerdictAllowed},
 		{"log", vendors.VerdictAllowed},
@@ -578,5 +585,92 @@ func TestAGenuinelyNewFieldStillReportsDrift(t *testing.T) {
 	}
 	if !saw {
 		t.Errorf("an undeclared field was not reported as drift: %v", event.UnknownFields)
+	}
+}
+
+// productionSecurityActions is every SecurityAction value observed in production over a
+// three-hour window, with the share of traffic each carried.
+//
+// THE BUG THIS PINS. The map held "managed_challenge" with an underscore, while the
+// lookup lowercases Cloudflare's camelCase to "managedchallenge" — a key nothing could
+// ever produce. Managed challenge is Cloudflare's default challenge action, so 21,000
+// requests in three hours were recorded with NO VERDICT. A challenged request that
+// reads as `unknown` is invisible to disagreement detection, which is the whole reason
+// these vendors are correlated.
+//
+// Listed with real counts rather than invented values, because the failure was that the
+// table did not match what the vendor actually sends. A test built from the same
+// imagination that wrote the table would have agreed with it.
+func TestEverySecurityActionSeenInProductionMaps(t *testing.T) {
+	tests := []struct {
+		action string
+		want   string
+		share  string
+	}{
+		{"", vendors.VerdictAllowed, "2,000,746 — no security action taken"},
+		{"skip", vendors.VerdictAllowed, "590,239"},
+		{"managedChallenge", vendors.VerdictChallenged, "21,023"},
+		{"allow", vendors.VerdictAllowed, "922"},
+		{"managedChallengeBypassed", vendors.VerdictChallenged, "407"},
+		{"managedChallengeNonInteractiveSolved", vendors.VerdictChallenged, "203"},
+		{"managedChallengeInteractiveSolved", vendors.VerdictChallenged, "16"},
+		{"log", vendors.VerdictAllowed, "1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			payload := `{"RayID":"8f1a2b3c4d5e6f70","EdgeStartTimestamp":"2026-08-13T10:00:00Z",` +
+				`"EdgeResponseStatus":200,"SecurityAction":"` + tt.action + `"}`
+
+			event, err := New().Normalize(recordFrom(t, payload))
+			if err != nil {
+				t.Fatalf("Normalize() error = %v", err)
+			}
+			if event.Verdict != tt.want {
+				t.Errorf("verdict = %q, want %q (seen on %s requests)",
+					event.Verdict, tt.want, tt.share)
+			}
+			if event.Verdict == vendors.VerdictUnknown {
+				t.Error("a real production action produced no verdict at all")
+			}
+		})
+	}
+}
+
+// The camelCase forms Cloudflare actually sends must survive the lowercasing, which is
+// the specific mechanism that broke. Asserting on the normalized key alone would have
+// passed against the underscore.
+func TestChallengeActionsMapInTheCasingCloudflareSends(t *testing.T) {
+	for _, action := range []string{
+		"managedChallenge", "MANAGEDCHALLENGE", "managedchallenge", " managedChallenge ",
+	} {
+		payload := `{"RayID":"r","EdgeStartTimestamp":"2026-08-13T10:00:00Z",` +
+			`"EdgeResponseStatus":200,"SecurityAction":"` + action + `"}`
+
+		event, err := New().Normalize(recordFrom(t, payload))
+		if err != nil {
+			t.Fatalf("Normalize(%q) error = %v", action, err)
+		}
+		if event.Verdict != vendors.VerdictChallenged {
+			t.Errorf("SecurityAction %q gave verdict %q, want challenged", action, event.Verdict)
+		}
+	}
+}
+
+// An action nobody has mapped must still be reported as unknown and kept verbatim, or
+// the next vocabulary change is silently mapped to something wrong instead of showing up.
+func TestAnUnmappedActionIsStillReportedAsUnknown(t *testing.T) {
+	payload := `{"RayID":"r","EdgeStartTimestamp":"2026-08-13T10:00:00Z",` +
+		`"EdgeResponseStatus":200,"SecurityAction":"someFutureAction"}`
+
+	event, err := New().Normalize(recordFrom(t, payload))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if event.Verdict != vendors.VerdictUnknown {
+		t.Errorf("verdict = %q, want unknown", event.Verdict)
+	}
+	if event.RawExtra["unmapped_security_action"] != "somefutureaction" {
+		t.Errorf("the original action was not preserved: %v", event.RawExtra)
 	}
 }
