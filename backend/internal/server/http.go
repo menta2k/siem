@@ -31,6 +31,7 @@ type Services struct {
 	Dashboards  pb.DashboardsHTTPServer
 	Alerts      pb.AlertsHTTPServer
 	Admin       pb.AdminHTTPServer
+	WafTuning   pb.WafTuningHTTPServer
 }
 
 // HTTPOptions are the cross-cutting concerns every route shares.
@@ -91,6 +92,7 @@ func NewHTTPServer(services Services, opts HTTPOptions) *http.Server {
 	pb.RegisterDashboardsHTTPServer(srv, services.Dashboards)
 	pb.RegisterAlertsHTTPServer(srv, services.Alerts)
 	pb.RegisterAdminHTTPServer(srv, services.Admin)
+	pb.RegisterWafTuningHTTPServer(srv, services.WafTuning)
 
 	mountOperational(srv, opts.Health)
 	return srv

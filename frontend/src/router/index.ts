@@ -64,6 +64,14 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Feeds' },
       },
       {
+        // Evidence for tuning a WAF ruleset. An analyst's job, not an administrator's,
+        // so it sits with the other investigative pages.
+        path: 'waf-tuning',
+        name: 'waf-tuning',
+        component: () => import('@/pages/WafTuning.vue'),
+        meta: { title: 'WAF tuning', roles: ['admin', 'analyst'] },
+      },
+      {
         path: 'alert-rules',
         name: 'alert-rules',
         component: () => import('@/pages/AlertRules.vue'),

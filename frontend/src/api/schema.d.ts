@@ -697,6 +697,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/waf-tuning/gaps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Traffic the WAF scored as an attack that no rule matched — the mirror image of a
+         *      false positive, and a hole in the ruleset rather than noise in it.
+         */
+        get: operations["WafTuning_GetCoverageGaps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/waf-tuning/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The profile: every rule that fired, split by host, action and matching engine. */
+        get: operations["WafTuning_GetRuleProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/waf-tuning/rules/{ruleId}/corroboration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description What the OTHER vendors did with the same requests. The strongest evidence a tuning
+         *      decision can have, and the one thing a single-vendor WAF console cannot show.
+         */
+        get: operations["WafTuning_GetCorroboration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/waf-tuning/rules/{ruleId}/paths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The URLs one rule matched on. Live over the events rather than a rollup, because
+         *      paths are effectively unbounded and this is only ever asked one rule at a time.
+         */
+        get: operations["WafTuning_GetRulePaths"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1880,6 +1957,31 @@ export interface components {
             vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             events?: string;
         };
+        WafCorroboration: {
+            ruleId?: string;
+            /**
+             * @description How many of the rule's requests joined another vendor's record at all. This is the
+             *      DENOMINATOR and the counts below cannot be read without it: two confirmations out
+             *      of two is a very different finding from two out of two hundred.
+             */
+            correlated?: string;
+            /**
+             * @description Records where a different vendor independently blocked or challenged. Evidence the
+             *      rule is catching something real.
+             */
+            confirmedByOthers?: string;
+            /** @description Records every other vendor let through. The shape of a false positive. */
+            allowedByOthers?: string;
+        };
+        WafCoverageGap: {
+            requestHost?: string;
+            events?: string;
+            attackEvents?: string;
+            suspiciousEvents?: string;
+        };
+        WafCoverageGapPanel: {
+            gaps?: components["schemas"]["WafCoverageGap"][];
+        };
         /**
          * @description WafDetail is the vendor WAF's scoring and rule-engine attribution for one request.
          *
@@ -1906,6 +2008,55 @@ export interface components {
             action?: string;
             /** @description firewallManaged | firewallCustom | ip | bic. It decides HOW a rule is tuned. */
             source?: string;
+        };
+        WafPathCount: {
+            requestHost?: string;
+            requestPath?: string;
+            events?: string;
+            /** Format: double */
+            meanScore?: number;
+        };
+        WafRulePathsPanel: {
+            paths?: components["schemas"]["WafPathCount"][];
+        };
+        /**
+         * @description WafRuleProfile is one rule's behaviour on one host.
+         *
+         *      THE SCORE SPLIT IS THE FINDING, not the total. A rule firing ten times on real
+         *      attacks and ninety times on clean traffic has a mean that reads as harmless; the
+         *      split says it works and is aimed too broadly. Clients should show the bands.
+         */
+        WafRuleProfile: {
+            ruleId?: string;
+            /**
+             * @description What the rule is CALLED, resolved on read from the tenant's own rule table. Empty
+             *      when it cannot be named — no API token configured, or the rule has been deleted.
+             */
+            ruleDescription?: string;
+            requestHost?: string;
+            /**
+             * @description The vendor's own verb: log | skip | block | managedChallenge | allow. `log` is the
+             *      state a tuning decision acts on, and `skip` disables everything downstream of it.
+             */
+            action?: string;
+            /**
+             * @description firewallManaged | firewallCustom. It decides HOW the rule is tuned: an override or
+             *      an exception, against an edit.
+             */
+            source?: string;
+            events?: string;
+            /** @description On the INVERTED attack-score scale: attack is 1-20, suspicious 21-50, clean above. */
+            attackEvents?: string;
+            suspiciousEvents?: string;
+            cleanEvents?: string;
+            /**
+             * Format: double
+             * @description 0 when nothing in the group carried a score.
+             */
+            meanScore?: number;
+        };
+        WafRuleProfilePanel: {
+            rules?: components["schemas"]["WafRuleProfile"][];
         };
     };
     responses: never;
@@ -3097,6 +3248,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportSearchResponse"];
+                };
+            };
+        };
+    };
+    WafTuning_GetCoverageGaps: {
+        parameters: {
+            query?: {
+                "timeRange.from"?: string;
+                "timeRange.to"?: string;
+                /** @description Caps the rows returned. Clamped server-side. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WafCoverageGapPanel"];
+                };
+            };
+        };
+    };
+    WafTuning_GetRuleProfile: {
+        parameters: {
+            query?: {
+                "timeRange.from"?: string;
+                "timeRange.to"?: string;
+                /** @description Caps the rows returned. Clamped server-side. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WafRuleProfilePanel"];
+                };
+            };
+        };
+    };
+    WafTuning_GetCorroboration: {
+        parameters: {
+            query?: {
+                "timeRange.from"?: string;
+                "timeRange.to"?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WafCorroboration"];
+                };
+            };
+        };
+    };
+    WafTuning_GetRulePaths: {
+        parameters: {
+            query?: {
+                "timeRange.from"?: string;
+                "timeRange.to"?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WafRulePathsPanel"];
                 };
             };
         };

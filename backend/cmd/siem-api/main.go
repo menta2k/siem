@@ -183,12 +183,23 @@ func buildServices(
 			retentionWorker(deps, ch, locker, tenants, events),
 			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL),
 			secrets.NewRedisStore(rdb), cfg.CloudflareRules.APIBase, deps.Log),
-		Alerts: service.NewAlertsService(
-			alertingRepo,
-			alerting.NewEvaluator(alerting.NewRepoStore(alertingRepo)),
-			secrets.NewRedisStore(rdb), auditLog,
-		),
+		// Reads the WAF rollups and the events behind them. The rule namer is the same
+		// resolver the rest of the console uses, so a rule reads by name here too.
+		WafTuning: service.NewWAFTuningService(
+			clickhouse.NewWAFTuningRepo(ch), limits, ruleNames),
+		Alerts: buildAlertsService(rdb, alertingRepo, auditLog),
 	}
+}
+
+// buildAlertsService assembles the alerting read and write path.
+func buildAlertsService(
+	rdb *redis.Client, alertingRepo *clickhouse.AlertingRepo, auditLog *clickhouse.AuditRepo,
+) *service.AlertsService {
+	return service.NewAlertsService(
+		alertingRepo,
+		alerting.NewEvaluator(alerting.NewRepoStore(alertingRepo)),
+		secrets.NewRedisStore(rdb), auditLog,
+	)
 }
 
 // apiRateLimiter builds the API's request limits.

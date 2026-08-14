@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+// WAF rule profiling, for tuning a ruleset from evidence rather than from guesswork.
+//
+// A WAF console shows what a rule DID. Deciding what it SHOULD do needs three things it
+// does not show: whether the requests it matched actually looked like attacks, which
+// sites and URLs they arrived on, and whether any other vendor independently agreed.
+// This surface answers those, and stops there — it reports evidence and never generates
+// configuration, because the decision to enforce or exempt a rule belongs to the person
+// who owns the consequences.
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/api/annotations.proto";
+import "siem/v1/common.proto";
+
+service WafTuning {
+  // The profile: every rule that fired, split by host, action and matching engine.
+  rpc GetRuleProfile(WafTuningRequest) returns (WafRuleProfilePanel) {
+    option (google.api.http) = {get: "/api/v1/waf-tuning/rules"};
+  }
+
+  // The URLs one rule matched on. Live over the events rather than a rollup, because
+  // paths are effectively unbounded and this is only ever asked one rule at a time.
+  rpc GetRulePaths(WafRulePathsRequest) returns (WafRulePathsPanel) {
+    option (google.api.http) = {get: "/api/v1/waf-tuning/rules/{rule_id}/paths"};
+  }
+
+  // Traffic the WAF scored as an attack that no rule matched — the mirror image of a
+  // false positive, and a hole in the ruleset rather than noise in it.
+  rpc GetCoverageGaps(WafTuningRequest) returns (WafCoverageGapPanel) {
+    option (google.api.http) = {get: "/api/v1/waf-tuning/gaps"};
+  }
+
+  // What the OTHER vendors did with the same requests. The strongest evidence a tuning
+  // decision can have, and the one thing a single-vendor WAF console cannot show.
+  rpc GetCorroboration(WafRulePathsRequest) returns (WafCorroboration) {
+    option (google.api.http) = {get: "/api/v1/waf-tuning/rules/{rule_id}/corroboration"};
+  }
+}
+
+message WafTuningRequest {
+  // Required. An unbounded scan is rejected, exactly as elsewhere.
+  TimeRange time_range = 1;
+  // Caps the rows returned. Clamped server-side.
+  uint32 limit = 2;
+}
+
+message WafRulePathsRequest {
+  string rule_id = 1;
+  TimeRange time_range = 2;
+  uint32 limit = 3;
+}
+
+// WafRuleProfile is one rule's behaviour on one host.
+//
+// THE SCORE SPLIT IS THE FINDING, not the total. A rule firing ten times on real
+// attacks and ninety times on clean traffic has a mean that reads as harmless; the
+// split says it works and is aimed too broadly. Clients should show the bands.
+message WafRuleProfile {
+  string rule_id = 1;
+  // What the rule is CALLED, resolved on read from the tenant's own rule table. Empty
+  // when it cannot be named — no API token configured, or the rule has been deleted.
+  string rule_description = 2;
+  string request_host = 3;
+  // The vendor's own verb: log | skip | block | managedChallenge | allow. `log` is the
+  // state a tuning decision acts on, and `skip` disables everything downstream of it.
+  string action = 4;
+  // firewallManaged | firewallCustom. It decides HOW the rule is tuned: an override or
+  // an exception, against an edit.
+  string source = 5;
+
+  uint64 events = 6;
+  // On the INVERTED attack-score scale: attack is 1-20, suspicious 21-50, clean above.
+  uint64 attack_events = 7;
+  uint64 suspicious_events = 8;
+  uint64 clean_events = 9;
+  // 0 when nothing in the group carried a score.
+  double mean_score = 10;
+}
+
+message WafRuleProfilePanel {
+  repeated WafRuleProfile rules = 1;
+}
+
+message WafPathCount {
+  string request_host = 1;
+  string request_path = 2;
+  uint64 events = 3;
+  double mean_score = 4;
+}
+
+message WafRulePathsPanel {
+  repeated WafPathCount paths = 1;
+}
+
+message WafCoverageGap {
+  string request_host = 1;
+  uint64 events = 2;
+  uint64 attack_events = 3;
+  uint64 suspicious_events = 4;
+}
+
+message WafCoverageGapPanel {
+  repeated WafCoverageGap gaps = 1;
+}
+
+message WafCorroboration {
+  string rule_id = 1;
+  // How many of the rule's requests joined another vendor's record at all. This is the
+  // DENOMINATOR and the counts below cannot be read without it: two confirmations out
+  // of two is a very different finding from two out of two hundred.
+  uint64 correlated = 2;
+  // Records where a different vendor independently blocked or challenged. Evidence the
+  // rule is catching something real.
+  uint64 confirmed_by_others = 3;
+  // Records every other vendor let through. The shape of a false positive.
+  uint64 allowed_by_others = 4;
+}

@@ -51,6 +51,13 @@ p, admin, *, /api/v1/alerts/:id, GET
 p, admin, *, /api/v1/alerts/:id/acknowledge, POST
 p, admin, *, /api/v1/alerts/:id/resolve, POST
 
+# WAF rule profiling. Read-only evidence for tuning a ruleset, so it sits with the
+# other analytical reads rather than with the admin writes -- an analyst is who tunes.
+p, admin, *, /api/v1/waf-tuning/rules, GET
+p, admin, *, /api/v1/waf-tuning/rules/:id/paths, GET
+p, admin, *, /api/v1/waf-tuning/rules/:id/corroboration, GET
+p, admin, *, /api/v1/waf-tuning/gaps, GET
+
 p, admin, *, /api/v1/admin/users, GET
 p, admin, *, /api/v1/admin/users, POST
 p, admin, *, /api/v1/admin/users/:id, PATCH
@@ -91,6 +98,11 @@ p, analyst, *, /api/v1/dashboards/rules, GET
 p, analyst, *, /api/v1/dashboards/sources, GET
 p, analyst, *, /api/v1/dashboards/disagreements, GET
 p, analyst, *, /api/v1/dashboards/feed-health, GET
+
+p, analyst, *, /api/v1/waf-tuning/rules, GET
+p, analyst, *, /api/v1/waf-tuning/rules/:id/paths, GET
+p, analyst, *, /api/v1/waf-tuning/rules/:id/corroboration, GET
+p, analyst, *, /api/v1/waf-tuning/gaps, GET
 
 p, analyst, *, /api/v1/alert-rules, GET
 p, analyst, *, /api/v1/alert-rules/:id/preview, POST

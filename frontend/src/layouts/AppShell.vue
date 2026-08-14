@@ -27,6 +27,12 @@ const navItems = computed<NavItem[]>(() => [
     visible: auth.can.search,
   },
   { title: 'Alerts', icon: 'mdi-bell-alert', to: '/alerts', visible: auth.can.search },
+  {
+    title: 'WAF tuning',
+    icon: 'mdi-shield-search',
+    to: '/waf-tuning',
+    visible: auth.can.manageRules || auth.can.triageAlerts,
+  },
   { title: 'Feeds', icon: 'mdi-import', to: '/feeds', visible: auth.can.search },
   { title: 'Audit', icon: 'mdi-clipboard-text-clock', to: '/audit', visible: auth.can.readAudit },
   { title: 'Administration', icon: 'mdi-cog', to: '/admin', visible: auth.can.manageUsers },
