@@ -54,37 +54,61 @@ const (
 
 // dataDomeVerdict maps the protection API's answer onto the common model.
 //
-// The response type decides it when present, because it is what DataDome actually did.
-// The status is the fallback, and it is a lossy one: it cannot separate a Device Check
-// from a hard block, so it errs toward `challenged` exactly as this adapter did before
-// Logs Enrichment was available. Events recorded then keep that reading, which is why
-// the fallback stays rather than being replaced.
+// IT TAKES BOTH, and neither alone is enough. The STATUS says whether DataDome enforced
+// its decision; the RESPONSE TYPE says what that decision was. DataDome's own
+// documentation is explicit that the header reports "the response type applied by
+// DataDome OR THE TYPE THAT WOULD HAVE BEEN APPLIED if DataDome protection was enabled",
+// and production shows both: hard_block appears 338 times with a 403 and 113 times with
+// a 200 in the same ten minutes.
 //
-// Anything unrecognised falls through to the status too. A vocabulary this small will
-// grow, and a new value must degrade to the old behaviour rather than to no verdict.
+// A 200 means the request was served whatever the type says, so a hard_block there is
+// DataDome reporting what it WOULD have done — detection without enforcement, which is
+// what `monitored` means and what Cloudflare's `log` action already maps to. Reading it
+// as blocked invents a block that never happened, which is the same error as missing one,
+// pointed the other way.
+//
+// The status alone is the fallback for events stored before Logs Enrichment was enabled.
+// It is lossy — it cannot separate a Device Check from a hard block — and errs toward
+// `challenged`, which is the reading those events were given when they were written.
+// An unrecognised type degrades to it too: this vocabulary will grow, and a new value
+// must land on the old behaviour rather than on no verdict at all.
 //
 // 499 has neither: the client went away before the answer was delivered. DataDome DID
 // decide those — its dashboard logs them — but Cloudflare never saw which way, and
 // unknown ranks lowest in restrictiveness precisely so a non-observation can never mask
 // a real block.
 func dataDomeVerdict(status uint16, responseType string) string {
-	switch strings.ToLower(strings.TrimSpace(responseType)) {
-	case dataDomeAuthorize:
-		return vendors.VerdictAllowed
-	case dataDomeInterstitial, dataDomeBlockChallenge:
-		return vendors.VerdictChallenged
-	case dataDomeHardBlock:
-		return vendors.VerdictBlocked
+	decision := strings.ToLower(strings.TrimSpace(responseType))
+
+	// Served. The type describes what DataDome decided, not what the visitor got.
+	if status == dataDomeAllowed {
+		switch decision {
+		case dataDomeInterstitial, dataDomeBlockChallenge, dataDomeHardBlock:
+			return vendors.VerdictMonitored
+		case dataDomeAuthorize:
+			return vendors.VerdictAllowed
+		default:
+			// No type at all, which is every event stored before Logs Enrichment was
+			// enabled. A 200 was a plain allow then and stays one now.
+			return vendors.VerdictAllowed
+		}
 	}
 
-	switch status {
-	case dataDomeAllowed:
-		return vendors.VerdictAllowed
-	case dataDomeChallenged:
-		return vendors.VerdictChallenged
-	default:
-		return vendors.VerdictUnknown
+	// Enforced. Now the type decides which of the three a 403 actually was.
+	if status == dataDomeChallenged {
+		switch decision {
+		case dataDomeHardBlock:
+			return vendors.VerdictBlocked
+		case dataDomeInterstitial, dataDomeBlockChallenge:
+			return vendors.VerdictChallenged
+		default:
+			// No type, or one nobody has mapped: the reading these events have always
+			// had.
+			return vendors.VerdictChallenged
+		}
 	}
+
+	return vendors.VerdictUnknown
 }
 
 // responseHeader reads one header out of the ResponseHeaders map Logpush attaches when a

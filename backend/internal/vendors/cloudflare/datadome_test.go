@@ -398,3 +398,63 @@ func TestTheResponseHeaderLookupIsCaseInsensitive(t *testing.T) {
 			event.Verdict)
 	}
 }
+
+// THE BUG THIS CATCHES, and it reached production for eleven minutes. hard_block arrives
+// with BOTH statuses — 338 times with a 403 and 113 times with a 200 in the same ten
+// minutes of live traffic. Mapping on the response type alone recorded those 113 as
+// blocked, when a 200 means the request was served.
+//
+// DataDome's header reports "the response type applied ... OR THE TYPE THAT WOULD HAVE
+// BEEN APPLIED if DataDome protection was enabled". So a decision paired with a 200 is
+// detection without enforcement — `monitored`, the same verdict Cloudflare's `log`
+// action maps to. Inventing a block that never happened is the same error as missing one,
+// pointed the other way.
+func TestADecisionServedWithA200IsMonitoredNotEnforced(t *testing.T) {
+	tests := []struct {
+		responseType string
+		want         string
+		why          string
+	}{
+		{"hard_block", vendors.VerdictMonitored, "would have blocked, served anyway"},
+		{"interstitial", vendors.VerdictMonitored, "would have challenged, served anyway"},
+		{"block", vendors.VerdictMonitored, "would have shown a slider, served anyway"},
+		{"authorize", vendors.VerdictAllowed, "decided to allow, and did"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.responseType, func(t *testing.T) {
+			event, err := New().Normalize(datadomeRecord(t, 200, tt.responseType))
+			if err != nil {
+				t.Fatalf("Normalize() error = %v", err)
+			}
+			if event.Verdict != tt.want {
+				t.Errorf("200 + %s = %q, want %q — %s",
+					tt.responseType, event.Verdict, tt.want, tt.why)
+			}
+		})
+	}
+}
+
+// The same response type means different things depending on whether it was enforced.
+// Asserting the pair together is what makes the dependency on BOTH signals explicit: a
+// mapping that read either one alone would agree with exactly half of this.
+func TestTheSameDecisionReadsDifferentlyWhenEnforced(t *testing.T) {
+	enforced, err := New().Normalize(datadomeRecord(t, 403, "hard_block"))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	served, err := New().Normalize(datadomeRecord(t, 200, "hard_block"))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+
+	if enforced.Verdict != vendors.VerdictBlocked {
+		t.Errorf("403 + hard_block = %q, want blocked", enforced.Verdict)
+	}
+	if served.Verdict != vendors.VerdictMonitored {
+		t.Errorf("200 + hard_block = %q, want monitored", served.Verdict)
+	}
+	if enforced.Verdict == served.Verdict {
+		t.Error("the status was ignored: an enforced block and a served one read alike")
+	}
+}
