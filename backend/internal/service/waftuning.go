@@ -12,7 +12,9 @@ import (
 
 // WAFTuningReader is the storage surface the tuning views read through.
 type WAFTuningReader interface {
-	RuleProfile(ctx context.Context, q chdata.DashboardQuery) ([]chdata.WAFRuleProfile, error)
+	RuleProfile(
+		ctx context.Context, q chdata.DashboardQuery, filter chdata.WAFRuleFilter,
+	) ([]chdata.WAFRuleProfile, error)
 	RulePaths(
 		ctx context.Context, ruleID string, q chdata.DashboardQuery,
 	) ([]chdata.WAFPathCount, error)
@@ -71,7 +73,10 @@ func (s *WAFTuningService) GetRuleProfile(
 	ctx, cancel := s.limits.WithTimeout(ctx)
 	defer cancel()
 
-	profiles, err := s.waf.RuleProfile(ctx, q)
+	profiles, err := s.waf.RuleProfile(ctx, q, chdata.WAFRuleFilter{
+		Action:  req.GetAction(),
+		Reading: req.GetReading(),
+	})
 	if err != nil {
 		return nil, query.TranslateError(err)
 	}
@@ -88,6 +93,7 @@ func (s *WAFTuningService) GetRuleProfile(
 			SuspiciousEvents: p.SuspiciousEvents,
 			CleanEvents:      p.CleanEvents,
 			MeanScore:        p.MeanScore,
+			Reading:          p.Reading,
 		})
 	}
 	// One lookup for the whole page, matching the other panels: resolving per row turns

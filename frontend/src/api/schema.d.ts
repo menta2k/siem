@@ -2054,6 +2054,18 @@ export interface components {
              * @description 0 when nothing in the group carried a score.
              */
             meanScore?: number;
+            /**
+             * @description How the split above reads, as one of: attacks | clean | mixed | exempting |
+             *      unscored. Computed from the bands server-side rather than derived by the client, so
+             *      that the value a filter matches on and the value shown beside it are the same value.
+             *
+             *        attacks   the WAF's own model agrees with the rule
+             *        clean     it disagrees: the rule fires on traffic scored as harmless
+             *        mixed     between the two, and reported as such rather than nudged
+             *        exempting a skip rule, which is not a detection at all
+             *        unscored  no attack score on these events
+             */
+            reading?: string;
         };
         WafRuleProfilePanel: {
             rules?: components["schemas"]["WafRuleProfile"][];
@@ -3259,6 +3271,22 @@ export interface operations {
                 "timeRange.to"?: string;
                 /** @description Caps the rows returned. Clamped server-side. */
                 limit?: number;
+                /**
+                 * @description Optional. The vendor's own verb: log | skip | block | managedChallenge.
+                 *
+                 *      Applied SERVER-SIDE and before the limit, which is the reason it exists as a request
+                 *      field rather than as something a client does to the response. Rules are ordered by
+                 *      volume, and an allowlist matching thousands of requests will always outrank a
+                 *      detection matching ten — so filtering after the fact returns an empty list for
+                 *      exactly the rules worth looking at.
+                 */
+                action?: string;
+                /**
+                 * @description Optional. One of: attacks | clean | mixed | exempting | unscored. The classification
+                 *      of the score split, computed server-side so the filter and the label cannot drift
+                 *      apart. Same reasoning as above: applied before the limit.
+                 */
+                reading?: string;
             };
             header?: never;
             path?: never;
@@ -3284,6 +3312,22 @@ export interface operations {
                 "timeRange.to"?: string;
                 /** @description Caps the rows returned. Clamped server-side. */
                 limit?: number;
+                /**
+                 * @description Optional. The vendor's own verb: log | skip | block | managedChallenge.
+                 *
+                 *      Applied SERVER-SIDE and before the limit, which is the reason it exists as a request
+                 *      field rather than as something a client does to the response. Rules are ordered by
+                 *      volume, and an allowlist matching thousands of requests will always outrank a
+                 *      detection matching ten — so filtering after the fact returns an empty list for
+                 *      exactly the rules worth looking at.
+                 */
+                action?: string;
+                /**
+                 * @description Optional. One of: attacks | clean | mixed | exempting | unscored. The classification
+                 *      of the score split, computed server-side so the filter and the label cannot drift
+                 *      apart. Same reasoning as above: applied before the limit.
+                 */
+                reading?: string;
             };
             header?: never;
             path?: never;

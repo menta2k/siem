@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/menta2k/siem/internal/query"
 	"github.com/menta2k/siem/internal/tenancy"
 )
@@ -31,6 +33,9 @@ type WAFRuleProfile struct {
 	CleanEvents      uint64
 	// MeanScore is 0 when nothing in the group carried a score.
 	MeanScore float64
+	// Reading is the classification of the split above: one of the Reading* constants.
+	// Computed in SQL so the filter and the label can never disagree.
+	Reading string
 }
 
 // WAFPathCount is one host and path a rule matched on.
@@ -68,6 +73,55 @@ type WAFCorroboration struct {
 	AllowedByOthers uint64
 }
 
+// WAF readings. The classification of a rule's score split, and the vocabulary the
+// filter offers.
+//
+// DEFINED ONCE, HERE, and computed in SQL rather than in the browser. Filtering has to
+// happen before the top-N limit — a detection matching ten requests would otherwise be
+// crowded out by an allowlist matching six thousand, and the filter would appear to
+// return nothing. Deriving the label a second time in the frontend would then be a
+// threshold that could drift from the one the filter uses.
+const (
+	// ReadingExempting is a skip rule: not a detection at all, but an exemption, and
+	// everything behind it never runs.
+	ReadingExempting = "exempting"
+	// ReadingAttacks means the WAF's own model agrees with the rule.
+	ReadingAttacks = "attacks"
+	// ReadingClean means it disagrees: the rule fires on traffic scored as harmless.
+	ReadingClean = "clean"
+	ReadingMixed = "mixed"
+	// ReadingUnscored is a rule whose events carry no score, which every row written
+	// before migration 0015 does.
+	ReadingUnscored = "unscored"
+)
+
+// readingExpr classifies a group by its score split.
+//
+// The thresholds are deliberately wide. A rule is worth acting on when it is
+// overwhelmingly one thing or the other, and anything between 20% and 80% is reported
+// as mixed rather than nudged toward a conclusion the numbers do not support.
+const readingExpr = `
+	multiIf(
+		waf_action = 'skip', '` + ReadingExempting + `',
+		sum(attack_events) + sum(suspicious_events) + sum(clean_events) = 0, '` + ReadingUnscored + `',
+		(sum(attack_events) + sum(suspicious_events)) /
+			(sum(attack_events) + sum(suspicious_events) + sum(clean_events)) >= 0.8,
+			'` + ReadingAttacks + `',
+		(sum(attack_events) + sum(suspicious_events)) /
+			(sum(attack_events) + sum(suspicious_events) + sum(clean_events)) <= 0.2,
+			'` + ReadingClean + `',
+		'` + ReadingMixed + `'
+	)`
+
+// WAFRuleFilter narrows the profile. Both fields are optional, and an empty value means
+// no filter rather than a match against the empty string.
+type WAFRuleFilter struct {
+	// Action matches the vendor's own verb: log, skip, block, managedChallenge.
+	Action string
+	// Reading matches one of the constants above.
+	Reading string
+}
+
 // WAFTuningRepo reads the WAF rule profile.
 type WAFTuningRepo struct {
 	client *Client
@@ -78,7 +132,7 @@ func NewWAFTuningRepo(client *Client) *WAFTuningRepo { return &WAFTuningRepo{cli
 
 // RuleProfile returns the top rules by volume, split by host, action and source.
 func (r *WAFTuningRepo) RuleProfile(
-	ctx context.Context, q DashboardQuery,
+	ctx context.Context, q DashboardQuery, filter WAFRuleFilter,
 ) ([]WAFRuleProfile, error) {
 	tenantID, err := tenancy.MustID(ctx)
 	if err != nil {
@@ -87,20 +141,9 @@ func (r *WAFTuningRepo) RuleProfile(
 
 	// The mean is derived here rather than stored, and guarded: score_count is 0 for a
 	// group where nothing was scored, and dividing by it would make every such row NaN.
-	const sql = `
-		SELECT rule_id, request_host, waf_action, waf_source,
-		       uniqCombinedMerge(12)(events) AS events,
-		       sum(attack_events)     AS attack_events,
-		       sum(suspicious_events) AS suspicious_events,
-		       sum(clean_events)      AS clean_events,
-		       if(sum(score_count) > 0, sum(score_sum) / sum(score_count), 0) AS mean_score
-		FROM rollup_waf_rules_1h
-		WHERE tenant_id = ? AND bucket >= ? AND bucket < ?
-		GROUP BY rule_id, request_host, waf_action, waf_source
-		ORDER BY events DESC
-		LIMIT ?`
+	sql, args := ruleProfileQuery(tenantID, q, filter)
 
-	rows, err := r.client.Query(ctx, sql, tenantID, q.Range.From, q.Range.To, q.limitOrDefault())
+	rows, err := r.client.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, query.TranslateError(err)
 	}
@@ -111,12 +154,51 @@ func (r *WAFTuningRepo) RuleProfile(
 		var p WAFRuleProfile
 		if err := rows.Scan(&p.RuleID, &p.RequestHost, &p.Action, &p.Source,
 			&p.Events, &p.AttackEvents, &p.SuspiciousEvents, &p.CleanEvents,
-			&p.MeanScore); err != nil {
+			&p.MeanScore, &p.Reading); err != nil {
 			return nil, fmt.Errorf("scan waf rule profile: %w", err)
 		}
 		out = append(out, p)
 	}
 	return out, query.TranslateError(rows.Err())
+}
+
+// ruleProfileQuery assembles the profile query and its arguments.
+//
+// Both filters run BEFORE the limit, which is the entire reason they are server-side. A
+// detection matching ten requests would never survive an ordering by volume against an
+// allowlist matching six thousand, so filtering the response instead would return an
+// empty list for exactly the rules worth looking at.
+func ruleProfileQuery(
+	tenantID uuid.UUID, q DashboardQuery, filter WAFRuleFilter,
+) (string, []any) {
+	sql := `
+		SELECT rule_id, request_host, waf_action, waf_source,
+		       uniqCombinedMerge(12)(events) AS events,
+		       sum(attack_events)     AS attack_events,
+		       sum(suspicious_events) AS suspicious_events,
+		       sum(clean_events)      AS clean_events,
+		       if(sum(score_count) > 0, sum(score_sum) / sum(score_count), 0) AS mean_score,
+		       ` + readingExpr + ` AS reading
+		FROM rollup_waf_rules_1h
+		WHERE tenant_id = ? AND bucket >= ? AND bucket < ?`
+	args := []any{tenantID, q.Range.From, q.Range.To}
+
+	// In the WHERE, before grouping: it is a key column and narrowing early is free.
+	if filter.Action != "" {
+		sql += ` AND waf_action = ?`
+		args = append(args, filter.Action)
+	}
+
+	sql += ` GROUP BY rule_id, request_host, waf_action, waf_source`
+
+	// In the HAVING, because the reading is an aggregate over the group.
+	if filter.Reading != "" {
+		sql += ` HAVING reading = ?`
+		args = append(args, filter.Reading)
+	}
+
+	sql += ` ORDER BY events DESC LIMIT ?`
+	return sql, append(args, q.limitOrDefault())
 }
 
 // RulePaths returns the URLs one rule matched on.

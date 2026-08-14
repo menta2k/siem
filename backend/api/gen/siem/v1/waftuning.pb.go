@@ -36,7 +36,19 @@ type WafTuningRequest struct {
 	// Required. An unbounded scan is rejected, exactly as elsewhere.
 	TimeRange *TimeRange `protobuf:"bytes,1,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
 	// Caps the rows returned. Clamped server-side.
-	Limit         uint32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	Limit uint32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Optional. The vendor's own verb: log | skip | block | managedChallenge.
+	//
+	// Applied SERVER-SIDE and before the limit, which is the reason it exists as a request
+	// field rather than as something a client does to the response. Rules are ordered by
+	// volume, and an allowlist matching thousands of requests will always outrank a
+	// detection matching ten — so filtering after the fact returns an empty list for
+	// exactly the rules worth looking at.
+	Action string `protobuf:"bytes,3,opt,name=action,proto3" json:"action,omitempty"`
+	// Optional. One of: attacks | clean | mixed | exempting | unscored. The classification
+	// of the score split, computed server-side so the filter and the label cannot drift
+	// apart. Same reasoning as above: applied before the limit.
+	Reading       string `protobuf:"bytes,4,opt,name=reading,proto3" json:"reading,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -83,6 +95,20 @@ func (x *WafTuningRequest) GetLimit() uint32 {
 		return x.Limit
 	}
 	return 0
+}
+
+func (x *WafTuningRequest) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *WafTuningRequest) GetReading() string {
+	if x != nil {
+		return x.Reading
+	}
+	return ""
 }
 
 type WafRulePathsRequest struct {
@@ -169,7 +195,17 @@ type WafRuleProfile struct {
 	SuspiciousEvents uint64 `protobuf:"varint,8,opt,name=suspicious_events,json=suspiciousEvents,proto3" json:"suspicious_events,omitempty"`
 	CleanEvents      uint64 `protobuf:"varint,9,opt,name=clean_events,json=cleanEvents,proto3" json:"clean_events,omitempty"`
 	// 0 when nothing in the group carried a score.
-	MeanScore     float64 `protobuf:"fixed64,10,opt,name=mean_score,json=meanScore,proto3" json:"mean_score,omitempty"`
+	MeanScore float64 `protobuf:"fixed64,10,opt,name=mean_score,json=meanScore,proto3" json:"mean_score,omitempty"`
+	// How the split above reads, as one of: attacks | clean | mixed | exempting |
+	// unscored. Computed from the bands server-side rather than derived by the client, so
+	// that the value a filter matches on and the value shown beside it are the same value.
+	//
+	//	attacks   the WAF's own model agrees with the rule
+	//	clean     it disagrees: the rule fires on traffic scored as harmless
+	//	mixed     between the two, and reported as such rather than nudged
+	//	exempting a skip rule, which is not a detection at all
+	//	unscored  no attack score on these events
+	Reading       string `protobuf:"bytes,11,opt,name=reading,proto3" json:"reading,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -272,6 +308,13 @@ func (x *WafRuleProfile) GetMeanScore() float64 {
 		return x.MeanScore
 	}
 	return 0
+}
+
+func (x *WafRuleProfile) GetReading() string {
+	if x != nil {
+		return x.Reading
+	}
+	return ""
 }
 
 type WafRuleProfilePanel struct {
@@ -620,16 +663,18 @@ var File_siem_v1_waftuning_proto protoreflect.FileDescriptor
 
 const file_siem_v1_waftuning_proto_rawDesc = "" +
 	"\n" +
-	"\x17siem/v1/waftuning.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x14siem/v1/common.proto\"[\n" +
+	"\x17siem/v1/waftuning.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x14siem/v1/common.proto\"\x8d\x01\n" +
 	"\x10WafTuningRequest\x121\n" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\rR\x05limit\"w\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x16\n" +
+	"\x06action\x18\x03 \x01(\tR\x06action\x12\x18\n" +
+	"\areading\x18\x04 \x01(\tR\areading\"w\n" +
 	"\x13WafRulePathsRequest\x12\x17\n" +
 	"\arule_id\x18\x01 \x01(\tR\x06ruleId\x121\n" +
 	"\n" +
 	"time_range\x18\x02 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\rR\x05limit\"\xd3\x02\n" +
+	"\x05limit\x18\x03 \x01(\rR\x05limit\"\xed\x02\n" +
 	"\x0eWafRuleProfile\x12\x17\n" +
 	"\arule_id\x18\x01 \x01(\tR\x06ruleId\x12)\n" +
 	"\x10rule_description\x18\x02 \x01(\tR\x0fruleDescription\x12!\n" +
@@ -642,7 +687,8 @@ const file_siem_v1_waftuning_proto_rawDesc = "" +
 	"\fclean_events\x18\t \x01(\x04R\vcleanEvents\x12\x1d\n" +
 	"\n" +
 	"mean_score\x18\n" +
-	" \x01(\x01R\tmeanScore\"D\n" +
+	" \x01(\x01R\tmeanScore\x12\x18\n" +
+	"\areading\x18\v \x01(\tR\areading\"D\n" +
 	"\x13WafRuleProfilePanel\x12-\n" +
 	"\x05rules\x18\x01 \x03(\v2\x17.siem.v1.WafRuleProfileR\x05rules\"\x8b\x01\n" +
 	"\fWafPathCount\x12!\n" +

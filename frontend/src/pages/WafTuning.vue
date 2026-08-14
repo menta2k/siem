@@ -18,6 +18,11 @@ type Corroboration = components['schemas']['WafCorroboration']
  */
 const tab = ref<'rules' | 'gaps'>('rules')
 const rangeHours = ref(24)
+// Both filters are sent to the server rather than applied here. Rules are ordered by
+// volume, so an allowlist matching thousands always outranks a detection matching ten —
+// filtering the response would return nothing for exactly the rules worth finding.
+const actionFilter = ref('')
+const readingFilter = ref('')
 const rules = ref<RuleProfile[]>([])
 const gaps = ref<CoverageGap[]>([])
 const loading = ref(false)
@@ -28,6 +33,24 @@ const expanded = ref<string | null>(null)
 const paths = ref<PathCount[]>([])
 const corroboration = ref<Corroboration | null>(null)
 const detailLoading = ref(false)
+
+const actionOptions = [
+  { title: 'Any action', value: '' },
+  { title: 'log — matched, not enforced', value: 'log' },
+  { title: 'block', value: 'block' },
+  { title: 'managedChallenge', value: 'managedChallenge' },
+  { title: 'skip — bypasses the rules behind it', value: 'skip' },
+]
+
+// The vocabulary the server computes, not a second definition of it.
+const readingOptions = [
+  { title: 'Any reading', value: '' },
+  { title: 'Scores as attacks', value: 'attacks' },
+  { title: 'Scores as clean', value: 'clean' },
+  { title: 'Mixed', value: 'mixed' },
+  { title: 'Exempting traffic', value: 'exempting' },
+  { title: 'Unscored', value: 'unscored' },
+]
 
 const rangeOptions = [
   { title: 'Last hour', value: 1 },
@@ -47,12 +70,17 @@ async function load(): Promise<void> {
   errorMessage.value = ''
   expanded.value = null
   const { from, to } = currentRange()
-  const params = { query: { 'timeRange.from': from, 'timeRange.to': to, limit: 50 } }
+  const base = { 'timeRange.from': from, 'timeRange.to': to, limit: 50 }
 
   try {
     const [r, g] = await Promise.all([
-      api.GET('/api/v1/waf-tuning/rules', { params }),
-      api.GET('/api/v1/waf-tuning/gaps', { params }),
+      api.GET('/api/v1/waf-tuning/rules', {
+        params: {
+          query: { ...base, action: actionFilter.value, reading: readingFilter.value },
+        },
+      }),
+      // The gaps view is keyed on the absence of a rule, so neither filter applies.
+      api.GET('/api/v1/waf-tuning/gaps', { params: { query: base } }),
     ])
     rules.value = r.data?.rules ?? []
     gaps.value = g.data?.gaps ?? []
@@ -111,51 +139,62 @@ function count(v: string | number | undefined): number {
 }
 
 /**
- * The reading of a rule's score split, stated as evidence rather than as an instruction.
+ * Presentation for the reading the SERVER computed.
  *
- * Deliberately never phrased as "do X". The platform does not carry the consequences of
- * enforcing a rule on live traffic, and a label that sounds like a command invites
- * someone to follow it without looking at the numbers beside it.
+ * The classification itself is deliberately not recomputed here. It decides which rows a
+ * filter returns, and a second copy of the thresholds in the browser would eventually
+ * disagree with the one the query used — showing a row labelled one thing that a filter
+ * for that same thing does not return.
  */
-function reading(r: RuleProfile): { label: string; color: string; detail: string } {
+function readingLabel(r: RuleProfile): string {
+  switch (r.reading) {
+    case 'exempting':
+      return 'exempting traffic'
+    case 'attacks':
+      return 'scores as attacks'
+    case 'clean':
+      return 'scores as clean'
+    case 'mixed':
+      return 'mixed'
+    case 'unscored':
+      return 'unscored'
+    default:
+      return r.reading ?? ''
+  }
+}
+
+function readingColor(r: RuleProfile): string {
+  switch (r.reading) {
+    case 'attacks':
+      return 'error'
+    case 'clean':
+      return 'success'
+    case 'mixed':
+      return 'warning'
+    case 'exempting':
+      return 'info'
+    default:
+      return 'default'
+  }
+}
+
+/** The numbers behind the label, so the reading is never asserted without its evidence. */
+function readingDetail(r: RuleProfile): string {
   const attack = count(r.attackEvents)
   const suspicious = count(r.suspiciousEvents)
   const clean = count(r.cleanEvents)
   const total = attack + suspicious + clean
 
-  // A skip rule is not a detection at all — it is an exemption, and a large one is the
-  // biggest single lever on a ruleset because everything downstream of it never runs.
-  if ((r.action ?? '').toLowerCase() === 'skip') {
-    return {
-      label: 'exempting traffic',
-      color: 'info',
-      detail: `${count(r.events).toLocaleString()} requests bypassed the rules behind this`,
-    }
+  if (r.reading === 'exempting') {
+    return `${count(r.events).toLocaleString()} requests bypassed the rules behind this`
   }
-  if (total === 0) {
-    return { label: 'unscored', color: 'default', detail: 'no attack score on these requests' }
+  if (r.reading === 'unscored' || total === 0) {
+    return 'no attack score on these requests'
   }
-
-  const attackShare = (attack + suspicious) / total
-  if (attackShare >= 0.8) {
-    return {
-      label: 'scores as attacks',
-      color: 'error',
-      detail: `${attack + suspicious} of ${total} scored 1-50`,
-    }
+  if (r.reading === 'clean') {
+    return `${clean} of ${total} scored above 50 — the WAF disagrees with this rule`
   }
-  if (attackShare <= 0.2) {
-    return {
-      label: 'scores as clean',
-      color: 'success',
-      detail: `${clean} of ${total} scored above 50 — the WAF disagrees with this rule`,
-    }
-  }
-  return {
-    label: 'mixed',
-    color: 'warning',
-    detail: `${attack + suspicious} of ${total} scored 1-50`,
-  }
+  return `${attack + suspicious} of ${total} scored 1-50`
 }
 
 /** `log` is the state a tuning decision acts on; `skip` disables everything behind it. */
@@ -188,6 +227,26 @@ const hasRules = computed(() => rules.value.length > 0)
         style="max-width: 180px"
         @update:model-value="load"
       />
+      <v-select
+        v-model="actionFilter"
+        :items="actionOptions"
+        label="Action"
+        density="compact"
+        variant="outlined"
+        hide-details
+        style="max-width: 260px"
+        @update:model-value="load"
+      />
+      <v-select
+        v-model="readingFilter"
+        :items="readingOptions"
+        label="Reading"
+        density="compact"
+        variant="outlined"
+        hide-details
+        style="max-width: 200px"
+        @update:model-value="load"
+      />
       <v-btn size="small" variant="text" :loading="loading" @click="load">Refresh</v-btn>
     </div>
 
@@ -214,8 +273,13 @@ const hasRules = computed(() => rules.value.length > 0)
       <v-window-item value="rules">
         <v-card v-if="!hasRules && !loading">
           <v-card-text class="text-medium-emphasis">
-            No rule matched in this window. Managed rules in log mode only produce a record when
-            traffic actually matches them, so a quiet period is normal.
+            <template v-if="actionFilter || readingFilter">
+              No rule matches these filters in this window.
+            </template>
+            <template v-else>
+              No rule matched in this window. Managed rules in log mode only produce a record when
+              traffic actually matches them, so a quiet period is normal.
+            </template>
           </v-card-text>
         </v-card>
 
@@ -247,10 +311,10 @@ const hasRules = computed(() => rules.value.length > 0)
                     <div class="text-caption text-medium-emphasis">{{ r.source }}</div>
                   </td>
                   <td>
-                    <v-chip :color="reading(r).color" size="x-small" variant="tonal">
-                      {{ reading(r).label }}
+                    <v-chip :color="readingColor(r)" size="x-small" variant="tonal">
+                      {{ readingLabel(r) }}
                     </v-chip>
-                    <div class="text-caption text-medium-emphasis">{{ reading(r).detail }}</div>
+                    <div class="text-caption text-medium-emphasis">{{ readingDetail(r) }}</div>
                   </td>
                   <td class="text-right text-caption text-no-wrap">
                     <span class="text-error">{{ count(r.attackEvents) }} attack</span> ·

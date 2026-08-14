@@ -60,6 +60,7 @@ describe('WAF tuning', () => {
         attackEvents: '10',
         suspiciousEvents: '0',
         cleanEvents: '0',
+        reading: 'attacks',
       },
       {
         ruleId: 'infodisc',
@@ -71,6 +72,7 @@ describe('WAF tuning', () => {
         attackEvents: '0',
         suspiciousEvents: '0',
         cleanEvents: '10',
+        reading: 'clean',
       },
     ])
 
@@ -95,6 +97,7 @@ describe('WAF tuning', () => {
         attackEvents: '0',
         suspiciousEvents: '0',
         cleanEvents: '350000',
+        reading: 'exempting',
       },
     ])
 
@@ -114,6 +117,58 @@ describe('WAF tuning', () => {
   it('explains an empty result rather than showing a blank table', async () => {
     const wrapper = await render([])
     expect(wrapper.text()).toContain('No rule matched in this window')
+  })
+
+  // THE FILTERS MUST REACH THE SERVER. Rules are ordered by volume, so an allowlist
+  // matching 350,000 requests outranks a detection matching ten — filtering the response
+  // in the browser would return an empty list for exactly the rules worth finding, and
+  // would do it silently.
+  it('sends both filters to the server rather than filtering the response', async () => {
+    const wrapper = await render([])
+
+    const selects = wrapper.findAllComponents({ name: 'VSelect' })
+    // Range, action, reading — the action select is the second.
+    await selects[1]?.setValue('log')
+    await flushPromises()
+
+    // The LAST matching call, not the first: the initial load fires before the filter is
+    // set, and finding that one would assert against an empty filter and always pass.
+    const calls = get.mock.calls.filter((c) => String(c[0]).includes('/waf-tuning/rules'))
+    expect(calls.at(-1)?.[1]?.params?.query?.action).toBe('log')
+  })
+
+  // The reading decides which rows a filter returns, so recomputing it in the browser
+  // would eventually label a row one thing while a filter for that thing excluded it.
+  it('renders the reading the server computed rather than deriving its own', async () => {
+    // Bands that a client-side rule would read as "attacks", labelled `clean` by the
+    // server. The label shown must follow the server.
+    const wrapper = await render([
+      {
+        ruleId: 'x',
+        ruleDescription: 'Disagreeing rule',
+        requestHost: 'h',
+        action: 'log',
+        source: 'firewallManaged',
+        events: '10',
+        attackEvents: '10',
+        suspiciousEvents: '0',
+        cleanEvents: '0',
+        reading: 'clean',
+      },
+    ])
+
+    expect(wrapper.text()).toContain('scores as clean')
+    expect(wrapper.text()).not.toContain('scores as attacks')
+  })
+
+  it('says so when filters exclude everything, rather than looking broken', async () => {
+    const wrapper = await render([])
+
+    const selects = wrapper.findAllComponents({ name: 'VSelect' })
+    await selects[2]?.setValue('attacks')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No rule matches these filters')
   })
 
   it('lists coverage gaps as hosts taking unmatched attacks', async () => {

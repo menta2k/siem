@@ -4,6 +4,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net"
 	"testing"
@@ -81,7 +82,7 @@ func TestRuleProfileSeparatesRealDetectionsFromFalsePositives(t *testing.T) {
 	seedWAFCorpus(ctx, t, f, tenant.ID)
 
 	profiles, err := chdata.NewWAFTuningRepo(f.ClickHouse).RuleProfile(ctx,
-		chdata.DashboardQuery{Range: wafRange(), Limit: 50})
+		chdata.DashboardQuery{Range: wafRange(), Limit: 50}, chdata.WAFRuleFilter{})
 	if err != nil {
 		t.Fatalf("RuleProfile: %v", err)
 	}
@@ -192,7 +193,7 @@ func TestWAFProfileIsTenantScoped(t *testing.T) {
 	otherCtx, _ := f.NewTenant(t, "waf-tenant-b")
 
 	profiles, err := chdata.NewWAFTuningRepo(f.ClickHouse).RuleProfile(otherCtx,
-		chdata.DashboardQuery{Range: wafRange(), Limit: 50})
+		chdata.DashboardQuery{Range: wafRange(), Limit: 50}, chdata.WAFRuleFilter{})
 	if err != nil {
 		t.Fatalf("RuleProfile: %v", err)
 	}
@@ -244,5 +245,103 @@ func TestUnscoredEventsDoNotProduceNaN(t *testing.T) {
 	}
 	if paths[0].MeanScore != 0 {
 		t.Errorf("mean score = %v, want 0 for events that were never scored", paths[0].MeanScore)
+	}
+}
+
+// THE REASON THE FILTERS ARE SERVER-SIDE. Rules are ordered by volume, so a noisy
+// allowlist always outranks a small detection. With a limit of 1 and no filter, only the
+// allowlist survives; the detection is invisible. Filtering a response in the browser
+// would therefore return an empty list for exactly the rule worth finding, and would do
+// it silently — the filter has to run BEFORE the limit, which only the server can do.
+func TestFiltersApplyBeforeTheLimit(t *testing.T) {
+	f := support.Shared(t)
+	ctx, tenant := f.NewTenant(t, "waf-filter-limit")
+
+	var events []chdata.NormalizedEvent
+	add := func(id, rule, action string, score uint8) {
+		events = append(events, chdata.NormalizedEvent{
+			TenantID: tenant.ID, EventID: id, Vendor: vendors.Cloudflare,
+			RequestHost: "api.example.com", RequestPath: "/", RequestMethod: "GET",
+			Verdict: vendors.VerdictMonitored, RuleID: rule,
+			WAFAttackScore: score, WAFAction: action, WAFSource: "firewallManaged",
+		})
+	}
+	// A loud allowlist, and a quiet detection it would always outrank.
+	for i := range 40 {
+		add(fmt.Sprintf("loud-%d", i), "allowlist-rule", "skip", 95)
+	}
+	add("quiet-1", "detection-rule", "log", 2)
+
+	for i := range events {
+		events[i].EventTime = wafBase.Add(time.Duration(i) * time.Second)
+		events[i].ReceivedAt = events[i].EventTime
+		events[i].IngestVersion = 1
+	}
+	if err := chdata.NewEventRepo(f.ClickHouse).InsertNormalized(ctx, events); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	f.Sync(t, "normalized_events")
+	f.Sync(t, "rollup_waf_rules_1h")
+
+	repo := chdata.NewWAFTuningRepo(f.ClickHouse)
+	q := chdata.DashboardQuery{Range: wafRange(), Limit: 1}
+
+	// Unfiltered at limit 1: the allowlist wins on volume and the detection is unseen.
+	unfiltered, err := repo.RuleProfile(ctx, q, chdata.WAFRuleFilter{})
+	if err != nil {
+		t.Fatalf("RuleProfile: %v", err)
+	}
+	if len(unfiltered) != 1 || unfiltered[0].RuleID != "allowlist-rule" {
+		t.Fatalf("unfiltered top row = %+v, want the loud allowlist", unfiltered)
+	}
+
+	// Filtered by action at the SAME limit: the detection is now the only candidate, so
+	// it survives. A response-side filter would have had nothing to work with.
+	byAction, err := repo.RuleProfile(ctx, q, chdata.WAFRuleFilter{Action: "log"})
+	if err != nil {
+		t.Fatalf("RuleProfile(action): %v", err)
+	}
+	if len(byAction) != 1 || byAction[0].RuleID != "detection-rule" {
+		t.Fatalf("action filter = %+v, want the quiet detection", byAction)
+	}
+
+	// And by reading, which is computed in the same query rather than derived after it.
+	byReading, err := repo.RuleProfile(ctx, q, chdata.WAFRuleFilter{
+		Reading: chdata.ReadingAttacks,
+	})
+	if err != nil {
+		t.Fatalf("RuleProfile(reading): %v", err)
+	}
+	if len(byReading) != 1 || byReading[0].RuleID != "detection-rule" {
+		t.Fatalf("reading filter = %+v, want the quiet detection", byReading)
+	}
+}
+
+// The reading is computed in SQL so the filter and the label cannot disagree. These are
+// the classifications the page renders, checked against the splits that produce them.
+func TestReadingsClassifyTheSplit(t *testing.T) {
+	f := support.Shared(t)
+	ctx, tenant := f.NewTenant(t, "waf-readings")
+	seedWAFCorpus(ctx, t, f, tenant.ID)
+
+	profiles, err := chdata.NewWAFTuningRepo(f.ClickHouse).RuleProfile(ctx,
+		chdata.DashboardQuery{Range: wafRange(), Limit: 50}, chdata.WAFRuleFilter{})
+	if err != nil {
+		t.Fatalf("RuleProfile: %v", err)
+	}
+
+	byHost := map[string]string{}
+	for _, p := range profiles {
+		if p.RuleID == "sqli-rule" {
+			byHost[p.RequestHost] = p.Reading
+		}
+	}
+	if byHost["api.example.com"] != chdata.ReadingAttacks {
+		t.Errorf("attacked host read as %q, want %q",
+			byHost["api.example.com"], chdata.ReadingAttacks)
+	}
+	if byHost["shop.example.com"] != chdata.ReadingClean {
+		t.Errorf("clean host read as %q, want %q — the WAF disagrees with the rule there",
+			byHost["shop.example.com"], chdata.ReadingClean)
 	}
 }
