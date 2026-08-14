@@ -1174,6 +1174,22 @@ export interface components {
              *      migration 0014. Older events carry no value and cannot be found by it.
              */
             ja4?: string;
+            /**
+             * Format: uint32
+             * @description WAF attack score bounds, on Cloudflare's INVERTED scale: 1 is certainly an attack,
+             *      99 certainly clean, 0 not scored. `max_waf_attack_score = 20` is therefore "show me
+             *      what the WAF believes is an attack" — the filter ruleset tuning is built on.
+             */
+            minWafAttackScore?: number;
+            /** Format: uint32 */
+            maxWafAttackScore?: number;
+            /**
+             * @description The vendor's own action verb, as opposed to the verdict it collapses into:
+             *      log | skip | block | managedChallenge | allow | bypass.
+             */
+            wafAction?: string;
+            /** @description The engine that matched: firewallManaged | firewallCustom | ip | bic. */
+            wafSource?: string;
         };
         /**
          * @description EventSummary is one search hit.
@@ -1221,6 +1237,11 @@ export interface components {
             scoreKind?: string;
             /** @description TLS client fingerprint, so a result row can be pivoted on without opening it. */
             ja4?: string;
+            /**
+             * @description The WAF's own view of the request, shown so a result row carries the evidence
+             *      rather than only the outcome.
+             */
+            waf?: components["schemas"]["WafDetail"];
         };
         ExportSearchRequest: {
             timeRange?: components["schemas"]["TimeRange"];
@@ -1855,6 +1876,31 @@ export interface components {
              */
             vendor?: "VENDOR_UNSPECIFIED" | "VENDOR_CLOUDFLARE" | "VENDOR_F5" | "VENDOR_DATADOME" | "VENDOR_NGINX";
             events?: string;
+        };
+        /**
+         * @description WafDetail is the vendor WAF's scoring and rule-engine attribution for one request.
+         *
+         *      THE SCORES ARE INVERTED relative to every other score in this API: 1 means certainly
+         *      an attack and 99 means certainly clean, matching Cloudflare's own scale. 0 means the
+         *      request was not scored, which is distinct from scoring 0. Clients that rank by
+         *      severity must sort ASCENDING on these.
+         */
+        WafDetail: {
+            /** Format: uint32 */
+            attackScore?: number;
+            /** Format: uint32 */
+            sqliScore?: number;
+            /** Format: uint32 */
+            xssScore?: number;
+            /** Format: uint32 */
+            rceScore?: number;
+            /**
+             * @description The vendor's verb, kept beside the verdict it collapses into. `log` is the one that
+             *      matters for tuning: the rule matched and was deliberately not enforced.
+             */
+            action?: string;
+            /** @description firewallManaged | firewallCustom | ip | bic. It decides HOW a rule is tuned. */
+            source?: string;
         };
     };
     responses: never;

@@ -133,9 +133,20 @@ var securityActionVerdicts = map[string]string{
 	"connectionclose":                      vendors.VerdictRateLimited,
 	"ratelimit":                            vendors.VerdictRateLimited,
 	"allow":                                vendors.VerdictAllowed,
-	"log":                                  vendors.VerdictAllowed,
-	"skip":                                 vendors.VerdictAllowed,
-	"bypass":                               vendors.VerdictAllowed,
+
+	// LOG IS NOT ALLOWED. The rule matched and was deliberately not enforced, which is
+	// exactly what `monitored` means — the same verdict "simulate" already maps to. It
+	// sat under `allowed` alongside skip and bypass, which made a detection-only rule
+	// indistinguishable from clean traffic and left the platform unable to answer the
+	// one question ruleset tuning asks: what is Cloudflare catching but not acting on.
+	//
+	// This moves existing numbers. The verdict-mix panel shifts, and a Cloudflare
+	// `monitored` against an F5 `blocked` now registers as a disagreement — correctly,
+	// because that is precisely the case worth looking at.
+	"log": vendors.VerdictMonitored,
+
+	"skip":   vendors.VerdictAllowed,
+	"bypass": vendors.VerdictAllowed,
 	// "simulate" is a staging action: the rule matched but was not enforced. It maps
 	// to monitored, not allowed, so it does not manufacture a false disagreement
 	// against a vendor that genuinely blocked the same request.
@@ -314,6 +325,7 @@ func normalizeRequest(fields map[string]any) (vendors.Event, error) {
 		UserAgent:     vendors.AsString(record.Fields["ClientRequestUserAgent"]),
 		HTTPStatus:    vendors.ToStatus(record.Fields["EdgeResponseStatus"]),
 		JA4:           vendors.AsString(record.Fields["JA4"]),
+		WAF:           wafDetail(record.Fields),
 
 		VerdictReason: vendors.AsString(record.Fields["SecurityRuleDescription"]),
 		RuleID:        vendors.AsString(record.Fields["SecurityRuleID"]),
@@ -346,6 +358,50 @@ func mapVerdict(fields map[string]any, event *vendors.Event) string {
 	}
 	event.RawExtra["unmapped_security_action"] = action
 	return vendors.VerdictUnknown
+}
+
+// wafDetail reads Cloudflare's WAF scoring and rule-engine attribution.
+//
+// The scores are 1-99 with LOW MEANING ATTACK, which is the opposite direction to every
+// other score in the platform. They are carried on their own struct for that reason;
+// see the note on vendors.WAFDetail.
+func wafDetail(fields map[string]any) vendors.WAFDetail {
+	return vendors.WAFDetail{
+		AttackScore: wafScore(fields["WAFAttackScore"]),
+		SQLiScore:   wafScore(fields["WAFSQLiAttackScore"]),
+		XSSScore:    wafScore(fields["WAFXSSAttackScore"]),
+		RCEScore:    wafScore(fields["WAFRCEAttackScore"]),
+
+		// The action verbatim, in Cloudflare's own casing. mapVerdict lowercases its
+		// copy for the lookup; this one is what an operator reads back and matches
+		// against the Cloudflare dashboard, so it is not normalised.
+		Action: vendors.AsString(fields["SecurityAction"]),
+		// FIRST source only. The field is an array and in practice carries one entry;
+		// where it carries more, the first is the engine that produced the action, and
+		// storing a list would make the column ungroupable for no gain.
+		Source: firstOfSlice(vendors.AsStringSlice(fields["SecuritySources"])),
+	}
+}
+
+// wafScore narrows a score to the 1-99 range the vendor documents.
+//
+// Anything outside it becomes 0, meaning "not scored". Cloudflare omits the fields
+// entirely on records from zones without the WAF, and a missing field must not read as
+// score 0 — on this inverted scale 0 would be the strongest possible attack signal.
+func wafScore(value any) uint8 {
+	score := vendors.AsUint32(value)
+	if score == 0 || score > 99 {
+		return 0
+	}
+	return uint8(score)
+}
+
+// firstOfSlice returns the first entry, or empty for none.
+func firstOfSlice(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 // collectExtra preserves unmapped fields and reports genuinely unrecognized ones.

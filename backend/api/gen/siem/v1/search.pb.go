@@ -113,7 +113,17 @@ type EventFilters struct {
 	//
 	// Only matches events ingested after the fingerprint became a stored column — see
 	// migration 0014. Older events carry no value and cannot be found by it.
-	Ja4           string `protobuf:"bytes,17,opt,name=ja4,proto3" json:"ja4,omitempty"`
+	Ja4 string `protobuf:"bytes,17,opt,name=ja4,proto3" json:"ja4,omitempty"`
+	// WAF attack score bounds, on Cloudflare's INVERTED scale: 1 is certainly an attack,
+	// 99 certainly clean, 0 not scored. `max_waf_attack_score = 20` is therefore "show me
+	// what the WAF believes is an attack" — the filter ruleset tuning is built on.
+	MinWafAttackScore *uint32 `protobuf:"varint,18,opt,name=min_waf_attack_score,json=minWafAttackScore,proto3,oneof" json:"min_waf_attack_score,omitempty"`
+	MaxWafAttackScore *uint32 `protobuf:"varint,19,opt,name=max_waf_attack_score,json=maxWafAttackScore,proto3,oneof" json:"max_waf_attack_score,omitempty"`
+	// The vendor's own action verb, as opposed to the verdict it collapses into:
+	// log | skip | block | managedChallenge | allow | bypass.
+	WafAction string `protobuf:"bytes,20,opt,name=waf_action,json=wafAction,proto3" json:"waf_action,omitempty"`
+	// The engine that matched: firewallManaged | firewallCustom | ip | bic.
+	WafSource     string `protobuf:"bytes,21,opt,name=waf_source,json=wafSource,proto3" json:"waf_source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -267,6 +277,34 @@ func (x *EventFilters) GetJa4() string {
 	return ""
 }
 
+func (x *EventFilters) GetMinWafAttackScore() uint32 {
+	if x != nil && x.MinWafAttackScore != nil {
+		return *x.MinWafAttackScore
+	}
+	return 0
+}
+
+func (x *EventFilters) GetMaxWafAttackScore() uint32 {
+	if x != nil && x.MaxWafAttackScore != nil {
+		return *x.MaxWafAttackScore
+	}
+	return 0
+}
+
+func (x *EventFilters) GetWafAction() string {
+	if x != nil {
+		return x.WafAction
+	}
+	return ""
+}
+
+func (x *EventFilters) GetWafSource() string {
+	if x != nil {
+		return x.WafSource
+	}
+	return ""
+}
+
 type SearchEventsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Required. An unbounded scan is rejected, not queued.
@@ -360,7 +398,10 @@ type EventSummary struct {
 	Score           *float32 `protobuf:"fixed32,12,opt,name=score,proto3,oneof" json:"score,omitempty"`
 	ScoreKind       string   `protobuf:"bytes,13,opt,name=score_kind,json=scoreKind,proto3" json:"score_kind,omitempty"`
 	// TLS client fingerprint, so a result row can be pivoted on without opening it.
-	Ja4           string `protobuf:"bytes,17,opt,name=ja4,proto3" json:"ja4,omitempty"`
+	Ja4 string `protobuf:"bytes,17,opt,name=ja4,proto3" json:"ja4,omitempty"`
+	// The WAF's own view of the request, shown so a result row carries the evidence
+	// rather than only the outcome.
+	Waf           *WafDetail `protobuf:"bytes,18,opt,name=waf,proto3" json:"waf,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -507,6 +548,106 @@ func (x *EventSummary) GetJa4() string {
 	return ""
 }
 
+func (x *EventSummary) GetWaf() *WafDetail {
+	if x != nil {
+		return x.Waf
+	}
+	return nil
+}
+
+// WafDetail is the vendor WAF's scoring and rule-engine attribution for one request.
+//
+// THE SCORES ARE INVERTED relative to every other score in this API: 1 means certainly
+// an attack and 99 means certainly clean, matching Cloudflare's own scale. 0 means the
+// request was not scored, which is distinct from scoring 0. Clients that rank by
+// severity must sort ASCENDING on these.
+type WafDetail struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	AttackScore uint32                 `protobuf:"varint,1,opt,name=attack_score,json=attackScore,proto3" json:"attack_score,omitempty"`
+	SqliScore   uint32                 `protobuf:"varint,2,opt,name=sqli_score,json=sqliScore,proto3" json:"sqli_score,omitempty"`
+	XssScore    uint32                 `protobuf:"varint,3,opt,name=xss_score,json=xssScore,proto3" json:"xss_score,omitempty"`
+	RceScore    uint32                 `protobuf:"varint,4,opt,name=rce_score,json=rceScore,proto3" json:"rce_score,omitempty"`
+	// The vendor's verb, kept beside the verdict it collapses into. `log` is the one that
+	// matters for tuning: the rule matched and was deliberately not enforced.
+	Action string `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
+	// firewallManaged | firewallCustom | ip | bic. It decides HOW a rule is tuned.
+	Source        string `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WafDetail) Reset() {
+	*x = WafDetail{}
+	mi := &file_siem_v1_search_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WafDetail) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WafDetail) ProtoMessage() {}
+
+func (x *WafDetail) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_search_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WafDetail.ProtoReflect.Descriptor instead.
+func (*WafDetail) Descriptor() ([]byte, []int) {
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *WafDetail) GetAttackScore() uint32 {
+	if x != nil {
+		return x.AttackScore
+	}
+	return 0
+}
+
+func (x *WafDetail) GetSqliScore() uint32 {
+	if x != nil {
+		return x.SqliScore
+	}
+	return 0
+}
+
+func (x *WafDetail) GetXssScore() uint32 {
+	if x != nil {
+		return x.XssScore
+	}
+	return 0
+}
+
+func (x *WafDetail) GetRceScore() uint32 {
+	if x != nil {
+		return x.RceScore
+	}
+	return 0
+}
+
+func (x *WafDetail) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *WafDetail) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
 type SearchEventsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Items []*EventSummary        `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
@@ -520,7 +661,7 @@ type SearchEventsResponse struct {
 
 func (x *SearchEventsResponse) Reset() {
 	*x = SearchEventsResponse{}
-	mi := &file_siem_v1_search_proto_msgTypes[3]
+	mi := &file_siem_v1_search_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -532,7 +673,7 @@ func (x *SearchEventsResponse) String() string {
 func (*SearchEventsResponse) ProtoMessage() {}
 
 func (x *SearchEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[3]
+	mi := &file_siem_v1_search_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -545,7 +686,7 @@ func (x *SearchEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchEventsResponse.ProtoReflect.Descriptor instead.
 func (*SearchEventsResponse) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{3}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SearchEventsResponse) GetItems() []*EventSummary {
@@ -592,7 +733,7 @@ type CorrelatedFilters struct {
 
 func (x *CorrelatedFilters) Reset() {
 	*x = CorrelatedFilters{}
-	mi := &file_siem_v1_search_proto_msgTypes[4]
+	mi := &file_siem_v1_search_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -604,7 +745,7 @@ func (x *CorrelatedFilters) String() string {
 func (*CorrelatedFilters) ProtoMessage() {}
 
 func (x *CorrelatedFilters) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[4]
+	mi := &file_siem_v1_search_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -617,7 +758,7 @@ func (x *CorrelatedFilters) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CorrelatedFilters.ProtoReflect.Descriptor instead.
 func (*CorrelatedFilters) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{4}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CorrelatedFilters) GetClientIp() string {
@@ -722,7 +863,7 @@ type SearchCorrelatedRequest struct {
 
 func (x *SearchCorrelatedRequest) Reset() {
 	*x = SearchCorrelatedRequest{}
-	mi := &file_siem_v1_search_proto_msgTypes[5]
+	mi := &file_siem_v1_search_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -734,7 +875,7 @@ func (x *SearchCorrelatedRequest) String() string {
 func (*SearchCorrelatedRequest) ProtoMessage() {}
 
 func (x *SearchCorrelatedRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[5]
+	mi := &file_siem_v1_search_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -747,7 +888,7 @@ func (x *SearchCorrelatedRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchCorrelatedRequest.ProtoReflect.Descriptor instead.
 func (*SearchCorrelatedRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{5}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SearchCorrelatedRequest) GetTimeRange() *TimeRange {
@@ -781,7 +922,7 @@ type SearchCorrelatedResponse struct {
 
 func (x *SearchCorrelatedResponse) Reset() {
 	*x = SearchCorrelatedResponse{}
-	mi := &file_siem_v1_search_proto_msgTypes[6]
+	mi := &file_siem_v1_search_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -793,7 +934,7 @@ func (x *SearchCorrelatedResponse) String() string {
 func (*SearchCorrelatedResponse) ProtoMessage() {}
 
 func (x *SearchCorrelatedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[6]
+	mi := &file_siem_v1_search_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -806,7 +947,7 @@ func (x *SearchCorrelatedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchCorrelatedResponse.ProtoReflect.Descriptor instead.
 func (*SearchCorrelatedResponse) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{6}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SearchCorrelatedResponse) GetItems() []*CorrelatedRequest {
@@ -836,7 +977,7 @@ type ExportSearchRequest struct {
 
 func (x *ExportSearchRequest) Reset() {
 	*x = ExportSearchRequest{}
-	mi := &file_siem_v1_search_proto_msgTypes[7]
+	mi := &file_siem_v1_search_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -848,7 +989,7 @@ func (x *ExportSearchRequest) String() string {
 func (*ExportSearchRequest) ProtoMessage() {}
 
 func (x *ExportSearchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[7]
+	mi := &file_siem_v1_search_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -861,7 +1002,7 @@ func (x *ExportSearchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportSearchRequest.ProtoReflect.Descriptor instead.
 func (*ExportSearchRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{7}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExportSearchRequest) GetTimeRange() *TimeRange {
@@ -910,7 +1051,7 @@ type ExportSearchResponse struct {
 
 func (x *ExportSearchResponse) Reset() {
 	*x = ExportSearchResponse{}
-	mi := &file_siem_v1_search_proto_msgTypes[8]
+	mi := &file_siem_v1_search_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -922,7 +1063,7 @@ func (x *ExportSearchResponse) String() string {
 func (*ExportSearchResponse) ProtoMessage() {}
 
 func (x *ExportSearchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[8]
+	mi := &file_siem_v1_search_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -935,7 +1076,7 @@ func (x *ExportSearchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportSearchResponse.ProtoReflect.Descriptor instead.
 func (*ExportSearchResponse) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{8}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ExportSearchResponse) GetContent() []byte {
@@ -982,7 +1123,7 @@ type GetEventRequest struct {
 
 func (x *GetEventRequest) Reset() {
 	*x = GetEventRequest{}
-	mi := &file_siem_v1_search_proto_msgTypes[9]
+	mi := &file_siem_v1_search_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -994,7 +1135,7 @@ func (x *GetEventRequest) String() string {
 func (*GetEventRequest) ProtoMessage() {}
 
 func (x *GetEventRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[9]
+	mi := &file_siem_v1_search_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1007,7 +1148,7 @@ func (x *GetEventRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEventRequest.ProtoReflect.Descriptor instead.
 func (*GetEventRequest) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{9}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetEventRequest) GetEventId() string {
@@ -1049,7 +1190,7 @@ type EventDetail struct {
 
 func (x *EventDetail) Reset() {
 	*x = EventDetail{}
-	mi := &file_siem_v1_search_proto_msgTypes[10]
+	mi := &file_siem_v1_search_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1061,7 +1202,7 @@ func (x *EventDetail) String() string {
 func (*EventDetail) ProtoMessage() {}
 
 func (x *EventDetail) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[10]
+	mi := &file_siem_v1_search_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1074,7 +1215,7 @@ func (x *EventDetail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EventDetail.ProtoReflect.Descriptor instead.
 func (*EventDetail) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{10}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *EventDetail) GetSummary() *EventSummary {
@@ -1143,7 +1284,7 @@ type AsmFindings struct {
 
 func (x *AsmFindings) Reset() {
 	*x = AsmFindings{}
-	mi := &file_siem_v1_search_proto_msgTypes[11]
+	mi := &file_siem_v1_search_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1155,7 +1296,7 @@ func (x *AsmFindings) String() string {
 func (*AsmFindings) ProtoMessage() {}
 
 func (x *AsmFindings) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[11]
+	mi := &file_siem_v1_search_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1168,7 +1309,7 @@ func (x *AsmFindings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AsmFindings.ProtoReflect.Descriptor instead.
 func (*AsmFindings) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{11}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AsmFindings) GetViolations() []*AsmViolation {
@@ -1213,7 +1354,7 @@ type AsmViolation struct {
 
 func (x *AsmViolation) Reset() {
 	*x = AsmViolation{}
-	mi := &file_siem_v1_search_proto_msgTypes[12]
+	mi := &file_siem_v1_search_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1225,7 +1366,7 @@ func (x *AsmViolation) String() string {
 func (*AsmViolation) ProtoMessage() {}
 
 func (x *AsmViolation) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[12]
+	mi := &file_siem_v1_search_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1238,7 +1379,7 @@ func (x *AsmViolation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AsmViolation.ProtoReflect.Descriptor instead.
 func (*AsmViolation) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{12}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *AsmViolation) GetTitle() string {
@@ -1314,7 +1455,7 @@ type AsmSignature struct {
 
 func (x *AsmSignature) Reset() {
 	*x = AsmSignature{}
-	mi := &file_siem_v1_search_proto_msgTypes[13]
+	mi := &file_siem_v1_search_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1326,7 +1467,7 @@ func (x *AsmSignature) String() string {
 func (*AsmSignature) ProtoMessage() {}
 
 func (x *AsmSignature) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_search_proto_msgTypes[13]
+	mi := &file_siem_v1_search_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1339,7 +1480,7 @@ func (x *AsmSignature) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AsmSignature.ProtoReflect.Descriptor instead.
 func (*AsmSignature) Descriptor() ([]byte, []int) {
-	return file_siem_v1_search_proto_rawDescGZIP(), []int{13}
+	return file_siem_v1_search_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AsmSignature) GetId() uint64 {
@@ -1409,7 +1550,7 @@ var File_siem_v1_search_proto protoreflect.FileDescriptor
 
 const file_siem_v1_search_proto_rawDesc = "" +
 	"\n" +
-	"\x14siem/v1/search.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x14siem/v1/common.proto\x1a\x19siem/v1/correlation.proto\"\xe8\x04\n" +
+	"\x14siem/v1/search.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x14siem/v1/common.proto\x1a\x19siem/v1/correlation.proto\"\xc4\x06\n" +
 	"\fEventFilters\x12\x1b\n" +
 	"\tclient_ip\x18\x01 \x01(\tR\bclientIp\x12!\n" +
 	"\frequest_host\x18\x02 \x01(\tR\vrequestHost\x12!\n" +
@@ -1430,18 +1571,26 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\vhttp_status\x18\x0f \x01(\rH\x03R\n" +
 	"httpStatus\x88\x01\x01\x12&\n" +
 	"\x0fvendor_event_id\x18\x10 \x01(\tR\rvendorEventId\x12\x10\n" +
-	"\x03ja4\x18\x11 \x01(\tR\x03ja4B\f\n" +
+	"\x03ja4\x18\x11 \x01(\tR\x03ja4\x124\n" +
+	"\x14min_waf_attack_score\x18\x12 \x01(\rH\x04R\x11minWafAttackScore\x88\x01\x01\x124\n" +
+	"\x14max_waf_attack_score\x18\x13 \x01(\rH\x05R\x11maxWafAttackScore\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"waf_action\x18\x14 \x01(\tR\twafAction\x12\x1d\n" +
+	"\n" +
+	"waf_source\x18\x15 \x01(\tR\twafSourceB\f\n" +
 	"\n" +
 	"_min_scoreB\f\n" +
 	"\n" +
 	"_max_scoreB\x06\n" +
 	"\x04_asnB\x0e\n" +
-	"\f_http_status\"\xa3\x01\n" +
+	"\f_http_statusB\x17\n" +
+	"\x15_min_waf_attack_scoreB\x17\n" +
+	"\x15_max_waf_attack_score\"\xa3\x01\n" +
 	"\x13SearchEventsRequest\x121\n" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12/\n" +
 	"\afilters\x18\x02 \x01(\v2\x15.siem.v1.EventFiltersR\afilters\x12(\n" +
-	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\xe5\x04\n" +
+	"\x04page\x18\x03 \x01(\v2\x14.siem.v1.PageRequestR\x04page\"\x8b\x05\n" +
 	"\fEventSummary\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x129\n" +
 	"\n" +
@@ -1461,8 +1610,17 @@ const file_siem_v1_search_proto_rawDesc = "" +
 	"\x05score\x18\f \x01(\x02H\x00R\x05score\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"score_kind\x18\r \x01(\tR\tscoreKind\x12\x10\n" +
-	"\x03ja4\x18\x11 \x01(\tR\x03ja4B\b\n" +
-	"\x06_scoreJ\x04\b\x0e\x10\x0f\"n\n" +
+	"\x03ja4\x18\x11 \x01(\tR\x03ja4\x12$\n" +
+	"\x03waf\x18\x12 \x01(\v2\x12.siem.v1.WafDetailR\x03wafB\b\n" +
+	"\x06_scoreJ\x04\b\x0e\x10\x0f\"\xb7\x01\n" +
+	"\tWafDetail\x12!\n" +
+	"\fattack_score\x18\x01 \x01(\rR\vattackScore\x12\x1d\n" +
+	"\n" +
+	"sqli_score\x18\x02 \x01(\rR\tsqliScore\x12\x1b\n" +
+	"\txss_score\x18\x03 \x01(\rR\bxssScore\x12\x1b\n" +
+	"\trce_score\x18\x04 \x01(\rR\brceScore\x12\x16\n" +
+	"\x06action\x18\x05 \x01(\tR\x06action\x12\x16\n" +
+	"\x06source\x18\x06 \x01(\tR\x06source\"n\n" +
 	"\x14SearchEventsResponse\x12+\n" +
 	"\x05items\x18\x01 \x03(\v2\x15.siem.v1.EventSummaryR\x05items\x12)\n" +
 	"\x04page\x18\x02 \x01(\v2\x15.siem.v1.PageResponseR\x04page\"\xc2\x04\n" +
@@ -1573,78 +1731,80 @@ func file_siem_v1_search_proto_rawDescGZIP() []byte {
 }
 
 var file_siem_v1_search_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_siem_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_siem_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_siem_v1_search_proto_goTypes = []any{
 	(ExportFormat)(0),                // 0: siem.v1.ExportFormat
 	(*EventFilters)(nil),             // 1: siem.v1.EventFilters
 	(*SearchEventsRequest)(nil),      // 2: siem.v1.SearchEventsRequest
 	(*EventSummary)(nil),             // 3: siem.v1.EventSummary
-	(*SearchEventsResponse)(nil),     // 4: siem.v1.SearchEventsResponse
-	(*CorrelatedFilters)(nil),        // 5: siem.v1.CorrelatedFilters
-	(*SearchCorrelatedRequest)(nil),  // 6: siem.v1.SearchCorrelatedRequest
-	(*SearchCorrelatedResponse)(nil), // 7: siem.v1.SearchCorrelatedResponse
-	(*ExportSearchRequest)(nil),      // 8: siem.v1.ExportSearchRequest
-	(*ExportSearchResponse)(nil),     // 9: siem.v1.ExportSearchResponse
-	(*GetEventRequest)(nil),          // 10: siem.v1.GetEventRequest
-	(*EventDetail)(nil),              // 11: siem.v1.EventDetail
-	(*AsmFindings)(nil),              // 12: siem.v1.AsmFindings
-	(*AsmViolation)(nil),             // 13: siem.v1.AsmViolation
-	(*AsmSignature)(nil),             // 14: siem.v1.AsmSignature
-	nil,                              // 15: siem.v1.EventDetail.RawExtraEntry
-	(Vendor)(0),                      // 16: siem.v1.Vendor
-	(Verdict)(0),                     // 17: siem.v1.Verdict
-	(*TimeRange)(nil),                // 18: siem.v1.TimeRange
-	(*PageRequest)(nil),              // 19: siem.v1.PageRequest
-	(*timestamppb.Timestamp)(nil),    // 20: google.protobuf.Timestamp
-	(*ClientInfo)(nil),               // 21: siem.v1.ClientInfo
-	(*RequestInfo)(nil),              // 22: siem.v1.RequestInfo
-	(*PageResponse)(nil),             // 23: siem.v1.PageResponse
-	(DisagreementKind)(0),            // 24: siem.v1.DisagreementKind
-	(Confidence)(0),                  // 25: siem.v1.Confidence
-	(*CorrelatedRequest)(nil),        // 26: siem.v1.CorrelatedRequest
+	(*WafDetail)(nil),                // 4: siem.v1.WafDetail
+	(*SearchEventsResponse)(nil),     // 5: siem.v1.SearchEventsResponse
+	(*CorrelatedFilters)(nil),        // 6: siem.v1.CorrelatedFilters
+	(*SearchCorrelatedRequest)(nil),  // 7: siem.v1.SearchCorrelatedRequest
+	(*SearchCorrelatedResponse)(nil), // 8: siem.v1.SearchCorrelatedResponse
+	(*ExportSearchRequest)(nil),      // 9: siem.v1.ExportSearchRequest
+	(*ExportSearchResponse)(nil),     // 10: siem.v1.ExportSearchResponse
+	(*GetEventRequest)(nil),          // 11: siem.v1.GetEventRequest
+	(*EventDetail)(nil),              // 12: siem.v1.EventDetail
+	(*AsmFindings)(nil),              // 13: siem.v1.AsmFindings
+	(*AsmViolation)(nil),             // 14: siem.v1.AsmViolation
+	(*AsmSignature)(nil),             // 15: siem.v1.AsmSignature
+	nil,                              // 16: siem.v1.EventDetail.RawExtraEntry
+	(Vendor)(0),                      // 17: siem.v1.Vendor
+	(Verdict)(0),                     // 18: siem.v1.Verdict
+	(*TimeRange)(nil),                // 19: siem.v1.TimeRange
+	(*PageRequest)(nil),              // 20: siem.v1.PageRequest
+	(*timestamppb.Timestamp)(nil),    // 21: google.protobuf.Timestamp
+	(*ClientInfo)(nil),               // 22: siem.v1.ClientInfo
+	(*RequestInfo)(nil),              // 23: siem.v1.RequestInfo
+	(*PageResponse)(nil),             // 24: siem.v1.PageResponse
+	(DisagreementKind)(0),            // 25: siem.v1.DisagreementKind
+	(Confidence)(0),                  // 26: siem.v1.Confidence
+	(*CorrelatedRequest)(nil),        // 27: siem.v1.CorrelatedRequest
 }
 var file_siem_v1_search_proto_depIdxs = []int32{
-	16, // 0: siem.v1.EventFilters.vendor:type_name -> siem.v1.Vendor
-	17, // 1: siem.v1.EventFilters.verdict:type_name -> siem.v1.Verdict
-	18, // 2: siem.v1.SearchEventsRequest.time_range:type_name -> siem.v1.TimeRange
+	17, // 0: siem.v1.EventFilters.vendor:type_name -> siem.v1.Vendor
+	18, // 1: siem.v1.EventFilters.verdict:type_name -> siem.v1.Verdict
+	19, // 2: siem.v1.SearchEventsRequest.time_range:type_name -> siem.v1.TimeRange
 	1,  // 3: siem.v1.SearchEventsRequest.filters:type_name -> siem.v1.EventFilters
-	19, // 4: siem.v1.SearchEventsRequest.page:type_name -> siem.v1.PageRequest
-	20, // 5: siem.v1.EventSummary.event_time:type_name -> google.protobuf.Timestamp
-	16, // 6: siem.v1.EventSummary.vendor:type_name -> siem.v1.Vendor
-	21, // 7: siem.v1.EventSummary.client:type_name -> siem.v1.ClientInfo
-	22, // 8: siem.v1.EventSummary.request:type_name -> siem.v1.RequestInfo
-	17, // 9: siem.v1.EventSummary.verdict:type_name -> siem.v1.Verdict
-	3,  // 10: siem.v1.SearchEventsResponse.items:type_name -> siem.v1.EventSummary
-	23, // 11: siem.v1.SearchEventsResponse.page:type_name -> siem.v1.PageResponse
-	24, // 12: siem.v1.CorrelatedFilters.disagreement_kind:type_name -> siem.v1.DisagreementKind
-	25, // 13: siem.v1.CorrelatedFilters.confidence:type_name -> siem.v1.Confidence
-	17, // 14: siem.v1.CorrelatedFilters.combined_outcome:type_name -> siem.v1.Verdict
-	18, // 15: siem.v1.SearchCorrelatedRequest.time_range:type_name -> siem.v1.TimeRange
-	5,  // 16: siem.v1.SearchCorrelatedRequest.filters:type_name -> siem.v1.CorrelatedFilters
-	19, // 17: siem.v1.SearchCorrelatedRequest.page:type_name -> siem.v1.PageRequest
-	26, // 18: siem.v1.SearchCorrelatedResponse.items:type_name -> siem.v1.CorrelatedRequest
-	23, // 19: siem.v1.SearchCorrelatedResponse.page:type_name -> siem.v1.PageResponse
-	18, // 20: siem.v1.ExportSearchRequest.time_range:type_name -> siem.v1.TimeRange
-	1,  // 21: siem.v1.ExportSearchRequest.filters:type_name -> siem.v1.EventFilters
-	0,  // 22: siem.v1.ExportSearchRequest.format:type_name -> siem.v1.ExportFormat
-	3,  // 23: siem.v1.EventDetail.summary:type_name -> siem.v1.EventSummary
-	15, // 24: siem.v1.EventDetail.raw_extra:type_name -> siem.v1.EventDetail.RawExtraEntry
-	12, // 25: siem.v1.EventDetail.asm:type_name -> siem.v1.AsmFindings
-	13, // 26: siem.v1.AsmFindings.violations:type_name -> siem.v1.AsmViolation
-	14, // 27: siem.v1.AsmFindings.signatures:type_name -> siem.v1.AsmSignature
-	2,  // 28: siem.v1.Search.SearchEvents:input_type -> siem.v1.SearchEventsRequest
-	6,  // 29: siem.v1.Search.SearchCorrelated:input_type -> siem.v1.SearchCorrelatedRequest
-	8,  // 30: siem.v1.Search.ExportSearch:input_type -> siem.v1.ExportSearchRequest
-	10, // 31: siem.v1.Search.GetEvent:input_type -> siem.v1.GetEventRequest
-	4,  // 32: siem.v1.Search.SearchEvents:output_type -> siem.v1.SearchEventsResponse
-	7,  // 33: siem.v1.Search.SearchCorrelated:output_type -> siem.v1.SearchCorrelatedResponse
-	9,  // 34: siem.v1.Search.ExportSearch:output_type -> siem.v1.ExportSearchResponse
-	11, // 35: siem.v1.Search.GetEvent:output_type -> siem.v1.EventDetail
-	32, // [32:36] is the sub-list for method output_type
-	28, // [28:32] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	20, // 4: siem.v1.SearchEventsRequest.page:type_name -> siem.v1.PageRequest
+	21, // 5: siem.v1.EventSummary.event_time:type_name -> google.protobuf.Timestamp
+	17, // 6: siem.v1.EventSummary.vendor:type_name -> siem.v1.Vendor
+	22, // 7: siem.v1.EventSummary.client:type_name -> siem.v1.ClientInfo
+	23, // 8: siem.v1.EventSummary.request:type_name -> siem.v1.RequestInfo
+	18, // 9: siem.v1.EventSummary.verdict:type_name -> siem.v1.Verdict
+	4,  // 10: siem.v1.EventSummary.waf:type_name -> siem.v1.WafDetail
+	3,  // 11: siem.v1.SearchEventsResponse.items:type_name -> siem.v1.EventSummary
+	24, // 12: siem.v1.SearchEventsResponse.page:type_name -> siem.v1.PageResponse
+	25, // 13: siem.v1.CorrelatedFilters.disagreement_kind:type_name -> siem.v1.DisagreementKind
+	26, // 14: siem.v1.CorrelatedFilters.confidence:type_name -> siem.v1.Confidence
+	18, // 15: siem.v1.CorrelatedFilters.combined_outcome:type_name -> siem.v1.Verdict
+	19, // 16: siem.v1.SearchCorrelatedRequest.time_range:type_name -> siem.v1.TimeRange
+	6,  // 17: siem.v1.SearchCorrelatedRequest.filters:type_name -> siem.v1.CorrelatedFilters
+	20, // 18: siem.v1.SearchCorrelatedRequest.page:type_name -> siem.v1.PageRequest
+	27, // 19: siem.v1.SearchCorrelatedResponse.items:type_name -> siem.v1.CorrelatedRequest
+	24, // 20: siem.v1.SearchCorrelatedResponse.page:type_name -> siem.v1.PageResponse
+	19, // 21: siem.v1.ExportSearchRequest.time_range:type_name -> siem.v1.TimeRange
+	1,  // 22: siem.v1.ExportSearchRequest.filters:type_name -> siem.v1.EventFilters
+	0,  // 23: siem.v1.ExportSearchRequest.format:type_name -> siem.v1.ExportFormat
+	3,  // 24: siem.v1.EventDetail.summary:type_name -> siem.v1.EventSummary
+	16, // 25: siem.v1.EventDetail.raw_extra:type_name -> siem.v1.EventDetail.RawExtraEntry
+	13, // 26: siem.v1.EventDetail.asm:type_name -> siem.v1.AsmFindings
+	14, // 27: siem.v1.AsmFindings.violations:type_name -> siem.v1.AsmViolation
+	15, // 28: siem.v1.AsmFindings.signatures:type_name -> siem.v1.AsmSignature
+	2,  // 29: siem.v1.Search.SearchEvents:input_type -> siem.v1.SearchEventsRequest
+	7,  // 30: siem.v1.Search.SearchCorrelated:input_type -> siem.v1.SearchCorrelatedRequest
+	9,  // 31: siem.v1.Search.ExportSearch:input_type -> siem.v1.ExportSearchRequest
+	11, // 32: siem.v1.Search.GetEvent:input_type -> siem.v1.GetEventRequest
+	5,  // 33: siem.v1.Search.SearchEvents:output_type -> siem.v1.SearchEventsResponse
+	8,  // 34: siem.v1.Search.SearchCorrelated:output_type -> siem.v1.SearchCorrelatedResponse
+	10, // 35: siem.v1.Search.ExportSearch:output_type -> siem.v1.ExportSearchResponse
+	12, // 36: siem.v1.Search.GetEvent:output_type -> siem.v1.EventDetail
+	33, // [33:37] is the sub-list for method output_type
+	29, // [29:33] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_siem_v1_search_proto_init() }
@@ -1656,14 +1816,14 @@ func file_siem_v1_search_proto_init() {
 	file_siem_v1_correlation_proto_init()
 	file_siem_v1_search_proto_msgTypes[0].OneofWrappers = []any{}
 	file_siem_v1_search_proto_msgTypes[2].OneofWrappers = []any{}
-	file_siem_v1_search_proto_msgTypes[4].OneofWrappers = []any{}
+	file_siem_v1_search_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_search_proto_rawDesc), len(file_siem_v1_search_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

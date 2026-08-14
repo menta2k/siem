@@ -153,7 +153,7 @@ func TestVerdictMapping(t *testing.T) {
 		{"managedChallenge", vendors.VerdictChallenged},
 		{"connectionClose", vendors.VerdictRateLimited},
 		{"allow", vendors.VerdictAllowed},
-		{"log", vendors.VerdictAllowed},
+		{"log", vendors.VerdictMonitored},
 		{"skip", vendors.VerdictAllowed},
 		{"unknown", vendors.VerdictAllowed},
 		{"", vendors.VerdictAllowed},
@@ -614,7 +614,7 @@ func TestEverySecurityActionSeenInProductionMaps(t *testing.T) {
 		{"managedChallengeBypassed", vendors.VerdictChallenged, "407"},
 		{"managedChallengeNonInteractiveSolved", vendors.VerdictChallenged, "203"},
 		{"managedChallengeInteractiveSolved", vendors.VerdictChallenged, "16"},
-		{"log", vendors.VerdictAllowed, "1"},
+		{"log", vendors.VerdictMonitored, "1"},
 	}
 
 	for _, tt := range tests {
@@ -672,5 +672,112 @@ func TestAnUnmappedActionIsStillReportedAsUnknown(t *testing.T) {
 	}
 	if event.RawExtra["unmapped_security_action"] != "somefutureaction" {
 		t.Errorf("the original action was not preserved: %v", event.RawExtra)
+	}
+}
+
+// A verbatim production record for a managed-rule detection in log mode — the exact
+// shape ruleset tuning reads. Values are the ones observed on jobs.bg.
+const wafDetectionRecord = `{"RayID":"8f1a2b3c4d5e6f70",` +
+	`"EdgeStartTimestamp":"2026-08-13T10:00:00Z","ClientIP":"203.0.113.10",` +
+	`"ClientRequestHost":"www.jobs.bg","ClientRequestURI":"/?a=%27or%201=1%27",` +
+	`"ClientRequestMethod":"GET","EdgeResponseStatus":200,` +
+	`"SecurityAction":"log","SecurityActions":["log"],` +
+	`"SecurityRuleDescription":"SQLi - Equation - URI",` +
+	`"SecurityRuleID":"46b937649a424b7ead90f6d0e1149ea6",` +
+	`"SecurityRuleIDs":["46b937649a424b7ead90f6d0e1149ea6"],` +
+	`"SecuritySources":["firewallManaged"],` +
+	`"WAFAttackScore":2,"WAFFlags":"0","WAFMatchedVar":"",` +
+	`"WAFRCEAttackScore":98,"WAFSQLiAttackScore":4,"WAFXSSAttackScore":98}`
+
+// THE SCALE IS INVERTED and everything downstream depends on reading it that way:
+// 1 is certainly an attack, 99 certainly clean. This record is a real SQL injection —
+// overall 2, driven by the SQLi sub-score of 4, while RCE and XSS sit at 98 because it
+// is not those things. Getting the direction wrong would rank the cleanest traffic as
+// the most dangerous.
+func TestWAFScoresAreExtractedOnTheirInvertedScale(t *testing.T) {
+	event, err := New().Normalize(recordFrom(t, wafDetectionRecord))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+
+	checks := []struct {
+		field string
+		got   uint8
+		want  uint8
+	}{
+		{"AttackScore", event.WAF.AttackScore, 2},
+		{"SQLiScore", event.WAF.SQLiScore, 4},
+		{"XSSScore", event.WAF.XSSScore, 98},
+		{"RCEScore", event.WAF.RCEScore, 98},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s = %d, want %d", c.field, c.got, c.want)
+		}
+	}
+
+	if event.WAF.Source != "firewallManaged" {
+		t.Errorf("source = %q, want firewallManaged — it decides how the rule is tuned",
+			event.WAF.Source)
+	}
+	// Verbatim, in Cloudflare's casing, so it matches what the dashboard shows.
+	if event.WAF.Action != "log" {
+		t.Errorf("action = %q, want log", event.WAF.Action)
+	}
+}
+
+// A LOGGED DETECTION IS NOT AN ALLOWED REQUEST. The rule matched and was deliberately
+// not enforced, which is what `monitored` means. Under `allowed` it was
+// indistinguishable from clean traffic, and the question tuning asks — what is
+// Cloudflare catching but not acting on — had no answer.
+func TestALoggedDetectionIsMonitoredNotAllowed(t *testing.T) {
+	event, err := New().Normalize(recordFrom(t, wafDetectionRecord))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+
+	if event.Verdict != vendors.VerdictMonitored {
+		t.Errorf("verdict = %q, want monitored", event.Verdict)
+	}
+	// The rule identity still has to survive, or the detection cannot be attributed.
+	if event.RuleID != "46b937649a424b7ead90f6d0e1149ea6" {
+		t.Errorf("rule id = %q", event.RuleID)
+	}
+	if event.VerdictReason != "SQLi - Equation - URI" {
+		t.Errorf("rule description = %q", event.VerdictReason)
+	}
+}
+
+// A record from a zone with no WAF omits the fields entirely, and that must read as
+// "not scored" rather than as 0. On this inverted scale a fabricated 0 is the strongest
+// attack signal there is, so every unscored request would top the tuning report.
+func TestAnAbsentScoreIsNotZeroTheAttackValue(t *testing.T) {
+	payload := `{"RayID":"r","EdgeStartTimestamp":"2026-08-13T10:00:00Z",` +
+		`"EdgeResponseStatus":200,"SecurityAction":"allow"}`
+
+	event, err := New().Normalize(recordFrom(t, payload))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if event.WAF.AttackScore != 0 {
+		t.Errorf("AttackScore = %d, want 0 meaning unscored", event.WAF.AttackScore)
+	}
+	if event.WAF.Source != "" || event.WAF.Action != "allow" {
+		t.Errorf("unexpected WAF detail: %+v", event.WAF)
+	}
+}
+
+// A value outside the documented 1-99 range is not a score. Clamping to 0 keeps the
+// "unscored" meaning intact rather than letting a malformed 255 rank as clean.
+func TestAnOutOfRangeScoreIsTreatedAsUnscored(t *testing.T) {
+	payload := `{"RayID":"r","EdgeStartTimestamp":"2026-08-13T10:00:00Z",` +
+		`"EdgeResponseStatus":200,"SecurityAction":"allow","WAFAttackScore":255}`
+
+	event, err := New().Normalize(recordFrom(t, payload))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if event.WAF.AttackScore != 0 {
+		t.Errorf("AttackScore = %d, want 0 for an out-of-range value", event.WAF.AttackScore)
 	}
 }

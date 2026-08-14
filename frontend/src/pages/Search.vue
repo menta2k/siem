@@ -10,6 +10,7 @@ import { usePreferencesStore } from '@/stores/preferences'
 import EventTable from '@/components/EventTable.vue'
 import SearchFilters from '@/components/SearchFilters.vue'
 import AsmFindings from '@/components/AsmFindings.vue'
+import WafScore from '@/components/WafScore.vue'
 import { formatPayload } from '@/lib/json-format'
 
 const prefs = usePreferencesStore()
@@ -282,6 +283,13 @@ function downloadExport(base64: string, contentType: string, filename: string): 
                 <!-- Only when the vendor reported one. An empty row here would read as
                      "this client has no fingerprint" rather than "this feed does not
                      send them", which are different facts. -->
+                <!-- Only when the vendor scored the request. An empty row would read as
+                     "this request scored nothing", and on the inverted scale that is the
+                     most alarming thing it could say. -->
+                <tr v-if="detail.summary?.waf">
+                  <td class="text-medium-emphasis">WAF</td>
+                  <td><WafScore :waf="detail.summary.waf" /></td>
+                </tr>
                 <tr v-if="detail.summary?.ja4">
                   <td class="text-medium-emphasis">JA4</td>
                   <td>

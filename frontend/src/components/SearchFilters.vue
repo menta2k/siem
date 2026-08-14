@@ -197,6 +197,33 @@ function numberOrUndefined(value: string): number | undefined {
           class="mb-3"
         />
 
+        <!-- The score the WAF gave the request, on its INVERTED scale: 1 is certainly
+             an attack, 99 certainly clean. The filter is worded as a maximum for that
+             reason — "at most 20" is what an analyst means by "show me the attacks". -->
+        <v-text-field
+          v-model.number="draft.maxWafAttackScore"
+          label="WAF attack score at most"
+          type="number"
+          hint="Low is bad: 1 is certainly an attack, 99 certainly clean"
+          persistent-hint
+          density="compact"
+          variant="outlined"
+          clearable
+          class="mb-3"
+        />
+
+        <v-select
+          v-model="draft.wafAction"
+          :items="['', 'log', 'block', 'skip', 'managedChallenge', 'allow']"
+          label="WAF action"
+          hint="log means the rule matched but was not enforced"
+          persistent-hint
+          density="compact"
+          variant="outlined"
+          clearable
+          class="mb-3"
+        />
+
         <!-- The fingerprint of the client's TLS stack, not of the client. One value
              across many addresses is one tool run from many hosts, which is what makes
              it the pivot that survives an attacker rotating IP and user agent. Exact

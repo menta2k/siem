@@ -113,6 +113,14 @@ type Event struct {
 	// Empty for vendors that do not report it. Only Cloudflare does today.
 	JA4 string
 
+	// WAF is the vendor's own scoring and rule-engine detail, when it reports any.
+	//
+	// Kept apart from Score/ScoreKind above rather than folded into them, because the
+	// scales run in OPPOSITE DIRECTIONS: Cloudflare's attack score is 1-99 where 1 is
+	// certainly an attack, while F5's violation_rating is 1-5 where 5 is worst. One
+	// column carrying both would make every comparison between them wrong.
+	WAF WAFDetail
+
 	Verdict       string
 	VerdictReason string
 	RuleID        string
@@ -125,6 +133,30 @@ type Event struct {
 	// UnknownFields names incoming keys the adapter did not recognize, which drives
 	// the schema-drift warning (FR-012).
 	UnknownFields []string
+}
+
+// WAFDetail is a vendor's WAF scoring and rule-engine attribution.
+//
+// Cloudflare-shaped today because Cloudflare is the only vendor that reports it. The
+// fields are named for what they mean rather than for their source, so a second vendor
+// with the same concepts maps onto them instead of growing a parallel set.
+type WAFDetail struct {
+	// AttackScore is 1-99 where LOW MEANS ATTACK. 0 means the vendor did not score the
+	// request, which the 1-99 range leaves free as a distinct value.
+	AttackScore uint8
+	// The per-class scores behind AttackScore, on the same inverted scale. They are what
+	// say WHICH kind of attack the overall score reflects.
+	SQLiScore uint8
+	XSSScore  uint8
+	RCEScore  uint8
+
+	// Action is the vendor's own verb, kept verbatim beside the Verdict it maps to.
+	// Verdict deliberately collapses log, skip, allow and bypass into "allowed"; for
+	// tuning, the difference between them is the whole subject.
+	Action string
+	// Source names the engine that matched: firewallManaged, firewallCustom, ip, bic.
+	// It decides how a rule is tuned, not merely whether.
+	Source string
 }
 
 // Adapter converts one vendor's deliveries into common-model events.

@@ -71,6 +71,18 @@ type NormalizedEvent struct {
 	// 0014, and for vendors that do not report one.
 	JA4 string
 
+	// The vendor's WAF scoring, on Cloudflare's INVERTED scale: 1-99 where 1 is
+	// certainly an attack and 99 certainly clean. 0 means not scored. Deliberately not
+	// merged into Score/ScoreKind, which run the other way — see migration 0015.
+	WAFAttackScore uint8
+	WAFSQLiScore   uint8
+	WAFXSSScore    uint8
+	WAFRCEScore    uint8
+	// WAFAction is the vendor's own verb, kept beside the Verdict it collapses into.
+	WAFAction string
+	// WAFSource names the engine that matched: firewallManaged, firewallCustom, ip, bic.
+	WAFSource string
+
 	Verdict       string
 	VerdictReason string
 	RuleID        string
@@ -150,6 +162,8 @@ func (r *EventRepo) InsertNormalized(ctx context.Context, events []NormalizedEve
 			ipOrZero(e.ClientIP), e.ClientIPShared, e.ClientASN, e.ClientCountry,
 			e.RequestHost, e.RequestPath, e.RequestQuery, e.RequestMethod,
 			e.UserAgent, e.HTTPStatus, e.JA4,
+			e.WAFAttackScore, e.WAFSQLiScore, e.WAFXSSScore, e.WAFRCEScore,
+			e.WAFAction, e.WAFSource,
 			e.Verdict, e.VerdictReason, e.RuleID, orEmptySlice(e.RuleIDs),
 			e.Score, e.ScoreKind, e.IngestVersion,
 		); err != nil {
@@ -202,6 +216,7 @@ const normalizedColumns = `tenant_id, event_id, event_time, event_time_original,
 	client_ip, client_ip_shared, client_asn, client_country,
 	request_host, request_path, request_query, request_method, user_agent, http_status,
 	ja4,
+	waf_attack_score, waf_sqli_score, waf_xss_score, waf_rce_score, waf_action, waf_source,
 	verdict, verdict_reason, rule_id, rule_ids, score, score_kind, ingest_version`
 
 // GetNormalized loads one normalized event within the context's tenant.
@@ -441,6 +456,8 @@ func scanNormalized(row rowScanner) (NormalizedEvent, error) {
 		&e.ClientIP, &e.ClientIPShared, &e.ClientASN, &e.ClientCountry,
 		&e.RequestHost, &e.RequestPath, &e.RequestQuery, &e.RequestMethod,
 		&e.UserAgent, &e.HTTPStatus, &e.JA4,
+		&e.WAFAttackScore, &e.WAFSQLiScore, &e.WAFXSSScore, &e.WAFRCEScore,
+		&e.WAFAction, &e.WAFSource,
 		&e.Verdict, &e.VerdictReason, &e.RuleID, &e.RuleIDs, &e.Score, &e.ScoreKind,
 		&e.IngestVersion,
 	)

@@ -71,7 +71,9 @@ func paginate[T any](items []T, pageSize int32, cursorOf func(T) query.Cursor) P
 const eventSearchColumns = `event_id, event_time, vendor, feed_id, vendor_request_id,
 	vendor_event_id,
 	client_ip, client_ip_shared, client_asn, client_country, request_host, request_path,
-	request_query, request_method, user_agent, http_status, ja4, verdict, verdict_reason,
+	request_query, request_method, user_agent, http_status, ja4,
+	waf_attack_score, waf_sqli_score, waf_xss_score, waf_rce_score, waf_action, waf_source,
+	verdict, verdict_reason,
 	rule_id, rule_ids, score, score_kind`
 
 // EventSearchResult is one row of an event search.
@@ -101,6 +103,15 @@ type EventSearchResult struct {
 	UserAgent     string
 	HTTPStatus    uint16
 	JA4           string
+
+	// The vendor's WAF scoring, on Cloudflare's inverted 1-99 scale where 1 is an
+	// attack. 0 means not scored. See migration 0015.
+	WAFAttackScore uint8
+	WAFSQLiScore   uint8
+	WAFXSSScore    uint8
+	WAFRCEScore    uint8
+	WAFAction      string
+	WAFSource      string
 
 	Verdict       string
 	VerdictReason string
@@ -182,7 +193,10 @@ func scanEventSearchResult(row rowScanner) (EventSearchResult, error) {
 		&clientIP, &result.ClientIPShared, &result.ClientASN,
 		&result.ClientCountry, &result.RequestHost, &result.RequestPath,
 		&result.RequestQuery, &result.RequestMethod, &result.UserAgent,
-		&result.HTTPStatus, &result.JA4, &result.Verdict, &result.VerdictReason, &result.RuleID,
+		&result.HTTPStatus, &result.JA4,
+		&result.WAFAttackScore, &result.WAFSQLiScore, &result.WAFXSSScore,
+		&result.WAFRCEScore, &result.WAFAction, &result.WAFSource,
+		&result.Verdict, &result.VerdictReason, &result.RuleID,
 		&result.RuleIDs, &result.Score, &result.ScoreKind,
 	); err != nil {
 		return EventSearchResult{}, fmt.Errorf("scan event search result: %w", err)

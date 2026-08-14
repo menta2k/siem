@@ -293,6 +293,16 @@ func toRow(envelope ingest.Envelope, event vendors.Event) chdata.NormalizedEvent
 		HTTPStatus:    event.HTTPStatus,
 		JA4:           event.JA4,
 
+		// The WAF detail, flattened onto the row. Carried here for the same reason JA4
+		// is: toRow copies field by field, so anything not named here is dropped between
+		// an adapter that extracted it and an insert that would have stored it.
+		WAFAttackScore: event.WAF.AttackScore,
+		WAFSQLiScore:   event.WAF.SQLiScore,
+		WAFXSSScore:    event.WAF.XSSScore,
+		WAFRCEScore:    event.WAF.RCEScore,
+		WAFAction:      event.WAF.Action,
+		WAFSource:      event.WAF.Source,
+
 		Verdict:       event.Verdict,
 		VerdictReason: event.VerdictReason,
 		RuleID:        event.RuleID,

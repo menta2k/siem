@@ -61,7 +61,10 @@ func seedSearchCorpus(ctx context.Context, t *testing.T, f *support.Fixture, ten
 			RequestHost: "shop.example.com", RequestPath: "/checkout",
 			RequestMethod: "POST", HTTPStatus: 403,
 			UserAgent: "curl/8.0", Verdict: vendors.VerdictBlocked,
-			JA4:    "t13d1516h2_8daaf6152771_b0da82dd1658",
+			JA4: "t13d1516h2_8daaf6152771_b0da82dd1658",
+			// A real detection: the WAF scores it 2 of 99, and 2 is the ATTACK end.
+			WAFAttackScore: 2, WAFSQLiScore: 4, WAFXSSScore: 98, WAFRCEScore: 98,
+			WAFAction: "log", WAFSource: "firewallManaged",
 			RuleID: "waf-sqli", Score: score(0.9), ScoreKind: vendors.ScoreKindBot,
 		},
 		{
@@ -83,7 +86,12 @@ func seedSearchCorpus(ctx context.Context, t *testing.T, f *support.Fixture, ten
 			UserAgent: "python-requests/2.31", Verdict: vendors.VerdictChallenged,
 			// A different stack, so an over-broad fingerprint filter shows up as this
 			// row being swept in with the others.
-			JA4:    "t13d1517h2_abcdef123456_0123456789ab",
+			JA4: "t13d1517h2_abcdef123456_0123456789ab",
+			// The SAME rule as cf-blocked, on a different host, but the WAF scores it 86
+			// — the CLEAN end. This is the false-positive shape the tuning view exists
+			// to separate from the row above, and a corpus where both scored alike would
+			// pass without the feature working.
+			WAFAttackScore: 86, WAFAction: "log", WAFSource: "firewallManaged",
 			RuleID: "bot-1", Score: score(0.75), ScoreKind: vendors.ScoreKindBot,
 		},
 	}
@@ -133,6 +141,22 @@ func TestCrossVendorFilters(t *testing.T) {
 				b.Where("ja4", query.OpEqual, "t13d1516h2_8daaf6152771_b0da82dd1658")
 			},
 			want: []string{"cf-blocked", "f5-allowed"},
+		},
+		// The filter tuning is built on, and the one place the INVERTED scale bites:
+		// "at most 20" means "scored as an attack", and it must not sweep in the
+		// unscored rows, whose 0 would otherwise rank as the strongest signal of all.
+		"by waf attack score, the attack end": {
+			build: func(b *query.Builder) {
+				b.Where("waf_attack_score", query.OpLessEqual, uint32(20))
+				b.Where("waf_attack_score", query.OpGreaterEqual, uint32(1))
+			},
+			want: []string{"cf-blocked"},
+		},
+		"by waf action": {
+			build: func(b *query.Builder) {
+				b.Where("waf_action", query.OpEqual, "log")
+			},
+			want: []string{"cf-blocked", "dd-challenged"},
 		},
 		"by path": {
 			build: func(b *query.Builder) { b.Where("request_path", query.OpEqual, "/login") },
@@ -514,5 +538,57 @@ func TestEventIDsForReportsAnUnmatchedFingerprint(t *testing.T) {
 	}
 	if len(ids) != 0 {
 		t.Errorf("EventIDsFor(unknown fingerprint) = %v, want none", ids)
+	}
+}
+
+// THE COLUMNS MUST SURVIVE THE ROUND TRIP. normalizedColumns, the batch Append and
+// scanNormalized are three lists that have to stay aligned; migration 0006 shifted them
+// once in production and crash-looped the normalizer. Writing a row with distinct values
+// in every WAF column and reading it back is what catches an off-by-one between them —
+// values that differ from each other, so a shifted column cannot coincidentally match.
+func TestWAFColumnsRoundTripThroughStorage(t *testing.T) {
+	f := support.Shared(t)
+	ctx, tenant := f.NewTenant(t, "search-waf-roundtrip")
+
+	want := chdata.NormalizedEvent{
+		TenantID: tenant.ID, EventID: "waf-roundtrip", Vendor: vendors.Cloudflare,
+		EventTime: searchBase, ReceivedAt: searchBase, IngestVersion: 1,
+		RequestHost: "www.example.com", RequestPath: "/", RequestMethod: "GET",
+		Verdict: vendors.VerdictMonitored,
+		// Deliberately all different, so a shifted column shows up as a mismatch.
+		WAFAttackScore: 2, WAFSQLiScore: 4, WAFXSSScore: 97, WAFRCEScore: 98,
+		WAFAction: "log", WAFSource: "firewallManaged",
+	}
+
+	if err := chdata.NewEventRepo(f.ClickHouse).InsertNormalized(
+		ctx, []chdata.NormalizedEvent{want},
+	); err != nil {
+		t.Fatalf("InsertNormalized: %v", err)
+	}
+	f.Sync(t, "normalized_events")
+
+	got, err := chdata.NewEventRepo(f.ClickHouse).GetNormalized(ctx, "waf-roundtrip")
+	if err != nil {
+		t.Fatalf("GetNormalized: %v", err)
+	}
+
+	checks := []struct {
+		field string
+		got   any
+		want  any
+	}{
+		{"WAFAttackScore", got.WAFAttackScore, want.WAFAttackScore},
+		{"WAFSQLiScore", got.WAFSQLiScore, want.WAFSQLiScore},
+		{"WAFXSSScore", got.WAFXSSScore, want.WAFXSSScore},
+		{"WAFRCEScore", got.WAFRCEScore, want.WAFRCEScore},
+		{"WAFAction", got.WAFAction, want.WAFAction},
+		{"WAFSource", got.WAFSource, want.WAFSource},
+		// Carried alongside, because a shift in the WAF block would land here.
+		{"Verdict", got.Verdict, want.Verdict},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s = %v, want %v", c.field, c.got, c.want)
+		}
 	}
 }

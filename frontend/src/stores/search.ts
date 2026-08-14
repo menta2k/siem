@@ -170,6 +170,8 @@ export const useSearchStore = defineStore('search', () => {
       'vendorRequestId',
       'vendorEventId',
       'ja4',
+      'wafAction',
+      'wafSource',
       'requestMethod',
     ] as const) {
       const value = readString(key)
@@ -186,6 +188,8 @@ export const useSearchStore = defineStore('search', () => {
     if (minScore && Number.isFinite(Number(minScore))) restored.minScore = Number(minScore)
     const maxScore = readString('maxScore')
     if (maxScore && Number.isFinite(Number(maxScore))) restored.maxScore = Number(maxScore)
+    const maxWaf = readString('maxWafAttackScore')
+    if (maxWaf && Number.isFinite(Number(maxWaf))) restored.maxWafAttackScore = Number(maxWaf)
 
     filters.value = restored
   }

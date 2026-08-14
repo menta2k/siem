@@ -366,6 +366,21 @@ func eventConditions(f *pb.EventFilters) (string, []any, error) {
 	// identifies nothing. The bloom_filter index answers equality directly.
 	b.WhereIfSet("ja4", query.OpEqual, f.GetJa4())
 
+	// The WAF profile. The score bounds are the filter tuning is built on — "show me
+	// what scored as an attack" is max_waf_attack_score, because the scale is inverted.
+	if f.MinWafAttackScore != nil {
+		b.Where("waf_attack_score", query.OpGreaterEqual, f.GetMinWafAttackScore())
+	}
+	if f.MaxWafAttackScore != nil {
+		// Paired with a lower bound of 1 so "at most 20" does not sweep in every
+		// unscored request: 0 means NOT SCORED, and on this inverted scale it would
+		// otherwise rank as the strongest attack signal in the result.
+		b.Where("waf_attack_score", query.OpLessEqual, f.GetMaxWafAttackScore())
+		b.Where("waf_attack_score", query.OpGreaterEqual, uint32(1))
+	}
+	b.WhereIfSet("waf_action", query.OpEqual, f.GetWafAction())
+	b.WhereIfSet("waf_source", query.OpEqual, f.GetWafSource())
+
 	// Token match rather than LIKE: these columns carry token bloom indexes, and a
 	// leading-wildcard LIKE would read every granule instead of using them.
 	b.WhereIfSet("user_agent", query.OpHasToken, f.GetUserAgent())
@@ -520,6 +535,9 @@ func toSearchResult(e chdata.NormalizedEvent) chdata.EventSearchResult {
 		RequestHost: e.RequestHost, RequestPath: e.RequestPath,
 		RequestQuery: e.RequestQuery, RequestMethod: e.RequestMethod,
 		UserAgent: e.UserAgent, HTTPStatus: e.HTTPStatus, JA4: e.JA4,
+		WAFAttackScore: e.WAFAttackScore, WAFSQLiScore: e.WAFSQLiScore,
+		WAFXSSScore: e.WAFXSSScore, WAFRCEScore: e.WAFRCEScore,
+		WAFAction: e.WAFAction, WAFSource: e.WAFSource,
 		Verdict: e.Verdict, VerdictReason: e.VerdictReason,
 		RuleID: e.RuleID, RuleIDs: e.RuleIDs, Score: e.Score, ScoreKind: e.ScoreKind,
 	}
@@ -549,6 +567,7 @@ func toEventSummary(e chdata.EventSearchResult) *pb.EventSummary {
 			Status: uint32(e.HTTPStatus),
 		},
 		Ja4:           e.JA4,
+		Waf:           toWafDetail(e),
 		Verdict:       verdictToProto(e.Verdict),
 		VerdictReason: e.VerdictReason,
 		RuleId:        e.RuleID,
@@ -576,6 +595,8 @@ var exportColumns = []string{
 	"client_ip", "client_country", "client_asn",
 	"request_host", "request_path", "request_method", "http_status",
 	"user_agent", "ja4", "verdict", "verdict_reason", "rule_id", "score", "score_kind",
+	"waf_attack_score", "waf_sqli_score", "waf_xss_score", "waf_rce_score",
+	"waf_action", "waf_source",
 }
 
 // ExportSearch streams a row-capped export of an event search (FR-026).
@@ -706,6 +727,9 @@ func exportRow(e chdata.EventSearchResult) query.ExportRow {
 		"request_host": e.RequestHost, "request_path": e.RequestPath,
 		"request_method": e.RequestMethod, "http_status": e.HTTPStatus,
 		"user_agent": e.UserAgent, "ja4": e.JA4, "verdict": e.Verdict,
+		"waf_attack_score": e.WAFAttackScore, "waf_sqli_score": e.WAFSQLiScore,
+		"waf_xss_score": e.WAFXSSScore, "waf_rce_score": e.WAFRCEScore,
+		"waf_action": e.WAFAction, "waf_source": e.WAFSource,
 		"verdict_reason": e.VerdictReason, "rule_id": e.RuleID,
 		"score_kind": e.ScoreKind,
 	}

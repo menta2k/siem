@@ -79,6 +79,16 @@ message EventFilters {
   // Only matches events ingested after the fingerprint became a stored column — see
   // migration 0014. Older events carry no value and cannot be found by it.
   string ja4 = 17;
+  // WAF attack score bounds, on Cloudflare's INVERTED scale: 1 is certainly an attack,
+  // 99 certainly clean, 0 not scored. `max_waf_attack_score = 20` is therefore "show me
+  // what the WAF believes is an attack" — the filter ruleset tuning is built on.
+  optional uint32 min_waf_attack_score = 18;
+  optional uint32 max_waf_attack_score = 19;
+  // The vendor's own action verb, as opposed to the verdict it collapses into:
+  // log | skip | block | managedChallenge | allow | bypass.
+  string waf_action = 20;
+  // The engine that matched: firewallManaged | firewallCustom | ip | bic.
+  string waf_source = 21;
 }
 
 message SearchEventsRequest {
@@ -122,6 +132,9 @@ message EventSummary {
   string score_kind = 13;
   // TLS client fingerprint, so a result row can be pivoted on without opening it.
   string ja4 = 17;
+  // The WAF's own view of the request, shown so a result row carries the evidence
+  // rather than only the outcome.
+  WafDetail waf = 18;
 
   // Field 14 was unknown_fields, carried on EVERY search row. It is a per-event
   // schema-drift signal on a list endpoint that never displayed it, and it cost 2.82 GiB
@@ -129,6 +142,24 @@ message EventSummary {
   // detector aggregates it per feed into feed health, which is where an operator acts on
   // it, and EventDetail reports the per-event list for the one event being inspected.
   reserved 14;
+}
+
+// WafDetail is the vendor WAF's scoring and rule-engine attribution for one request.
+//
+// THE SCORES ARE INVERTED relative to every other score in this API: 1 means certainly
+// an attack and 99 means certainly clean, matching Cloudflare's own scale. 0 means the
+// request was not scored, which is distinct from scoring 0. Clients that rank by
+// severity must sort ASCENDING on these.
+message WafDetail {
+  uint32 attack_score = 1;
+  uint32 sqli_score = 2;
+  uint32 xss_score = 3;
+  uint32 rce_score = 4;
+  // The vendor's verb, kept beside the verdict it collapses into. `log` is the one that
+  // matters for tuning: the rule matched and was deliberately not enforced.
+  string action = 5;
+  // firewallManaged | firewallCustom | ip | bic. It decides HOW a rule is tuned.
+  string source = 6;
 }
 
 message SearchEventsResponse {
