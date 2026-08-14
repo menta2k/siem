@@ -1,5 +1,14 @@
 -- Per-rule WAF profile, for tuning rulesets.
 --
+-- NO BACKFILL. Both views read waf_attack_score and waf_action, which migration 0015
+-- added and which fill forward only -- every row written before it reads 0 and empty, so
+-- a backfill would insert a large block of rows saying nothing. The rollups start from
+-- the point the columns became real.
+--
+-- Every comment in this file sits BEFORE a statement. The migration runner splits on
+-- the semicolon, so a comment trailing the final one becomes a chunk containing no
+-- statement at all, and ClickHouse rejects it as an empty query.
+--
 -- rollup_top_rules_1h answers "which rules fire most" and nothing else -- no host, no
 -- action, no score. None of those are optional for tuning: a rule is adjusted per site,
 -- the decision turns on whether it is enforced or merely logged, and whether a hit is a
@@ -111,8 +120,3 @@ FROM normalized_events
 -- keeps the row count small: the overwhelming majority of traffic scores above 50.
 WHERE vendor = 'cloudflare' AND rule_id = '' AND waf_attack_score BETWEEN 1 AND 50
 GROUP BY tenant_id, bucket, request_host;
-
--- No backfill. Both views read waf_attack_score and waf_action, which migration 0015
--- added and which fill forward only -- every row written before it reads 0 and empty,
--- so a backfill would insert a large block of rows saying nothing. The rollups start
--- from the point the columns became real.
