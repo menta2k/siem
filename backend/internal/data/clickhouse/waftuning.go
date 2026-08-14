@@ -3,6 +3,8 @@ package clickhouse
 import (
 	"context"
 	"fmt"
+	"net"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -44,6 +46,28 @@ type WAFPathCount struct {
 	RequestPath string
 	Events      uint64
 	MeanScore   float64
+}
+
+// WAFRuleSample is one request a rule matched, for reading rather than counting.
+//
+// The aggregates say a rule fires 4,000 times on /checkout. They cannot say whether the
+// query string carried a SQL injection or a product filter, and that is the whole of the
+// decision. This is the evidence behind the number.
+type WAFRuleSample struct {
+	EventID     string
+	EventTime   time.Time
+	ClientIP    net.IP
+	Country     string
+	RequestHost string
+	RequestPath string
+	// RequestQuery is the field that usually decides it: injection payloads live in the
+	// query string, and a rule firing on `?id=1 OR 1=1` reads very differently from one
+	// firing on `?sort=price`.
+	RequestQuery  string
+	RequestMethod string
+	HTTPStatus    uint16
+	AttackScore   uint8
+	Verdict       string
 }
 
 // WAFCoverageGap is traffic the WAF scored as an attack that no rule matched.
@@ -270,6 +294,59 @@ func (r *WAFTuningRepo) RulePaths(
 			return nil, fmt.Errorf("scan waf rule path: %w", err)
 		}
 		out = append(out, p)
+	}
+	return out, query.TranslateError(rows.Err())
+}
+
+// RuleSamples returns individual requests a rule matched, newest first.
+//
+// Live over the events for the same reason RulePaths is: no rollup can carry a query
+// string, and this is only ever asked about one rule at a time.
+//
+// LIMIT 1 BY event_id rather than FINAL. normalized_events is a ReplacingMergeTree and a
+// redelivered event would otherwise appear twice in a list of ten, which reads as two
+// attacks where there was one — but FINAL merges every part in range before the rule_id
+// filter runs, which is what made the other drill-down queries time out.
+func (r *WAFTuningRepo) RuleSamples(
+	ctx context.Context, ruleID string, q DashboardQuery,
+) ([]WAFRuleSample, error) {
+	tenantID, err := tenancy.MustID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	const sql = `
+		SELECT event_id, event_time, client_ip, client_country,
+		       request_host, request_path, request_query, request_method,
+		       http_status, waf_attack_score, verdict
+		FROM normalized_events
+		WHERE tenant_id = ? AND vendor = 'cloudflare' AND rule_id = ?
+		  AND event_time >= ? AND event_time < ?
+		ORDER BY event_time DESC
+		LIMIT 1 BY event_id
+		LIMIT ?`
+
+	rows, err := r.client.Query(ctx, sql,
+		tenantID, ruleID, q.Range.From, q.Range.To, q.limitOrDefault())
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]WAFRuleSample, 0, q.limitOrDefault())
+	for rows.Next() {
+		var (
+			sample   WAFRuleSample
+			clientIP net.IP
+		)
+		if err := rows.Scan(&sample.EventID, &sample.EventTime, &clientIP,
+			&sample.Country, &sample.RequestHost, &sample.RequestPath,
+			&sample.RequestQuery, &sample.RequestMethod, &sample.HTTPStatus,
+			&sample.AttackScore, &sample.Verdict); err != nil {
+			return nil, fmt.Errorf("scan waf rule sample: %w", err)
+		}
+		sample.ClientIP = ipOrNil(clientIP)
+		out = append(out, sample)
 	}
 	return out, query.TranslateError(rows.Err())
 }

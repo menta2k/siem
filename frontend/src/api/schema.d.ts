@@ -774,6 +774,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/waf-tuning/rules/{ruleId}/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Individual requests the rule matched, for reading rather than counting. The
+         *      aggregates say a rule fires 4,000 times on /checkout; only the requests themselves
+         *      say whether the query string carried an injection or a product filter.
+         */
+        get: operations["WafTuning_GetRuleSamples"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2069,6 +2090,37 @@ export interface components {
         };
         WafRuleProfilePanel: {
             rules?: components["schemas"]["WafRuleProfile"][];
+        };
+        /** @description WafRuleSample is one request a rule matched. */
+        WafRuleSample: {
+            /**
+             * @description The id of the stored event, so a client can link straight to its full detail —
+             *      raw vendor payload included.
+             */
+            eventId?: string;
+            /** Format: date-time */
+            eventTime?: string;
+            clientIp?: string;
+            country?: string;
+            requestHost?: string;
+            requestPath?: string;
+            /**
+             * @description Usually the deciding field: injection payloads live in the query string, and a rule
+             *      firing on `?id=1 OR 1=1` reads very differently from one firing on `?sort=price`.
+             */
+            requestQuery?: string;
+            requestMethod?: string;
+            /** Format: uint32 */
+            httpStatus?: number;
+            /**
+             * Format: uint32
+             * @description On the INVERTED scale: 1 is certainly an attack, 100 certainly clean.
+             */
+            attackScore?: number;
+            verdict?: string;
+        };
+        WafRuleSamplePanel: {
+            samples?: components["schemas"]["WafRuleSample"][];
         };
     };
     responses: never;
@@ -3394,6 +3446,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WafRulePathsPanel"];
+                };
+            };
+        };
+    };
+    WafTuning_GetRuleSamples: {
+        parameters: {
+            query?: {
+                "timeRange.from"?: string;
+                "timeRange.to"?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ruleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WafRuleSamplePanel"];
                 };
             };
         };

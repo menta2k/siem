@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
+import { usePreferencesStore } from '@/stores/preferences'
 import type { components } from '@/api/schema'
 
 type RuleProfile = components['schemas']['WafRuleProfile']
 type CoverageGap = components['schemas']['WafCoverageGap']
 type PathCount = components['schemas']['WafPathCount']
 type Corroboration = components['schemas']['WafCorroboration']
+type RuleSample = components['schemas']['WafRuleSample']
 
 /**
  * Evidence for tuning a Cloudflare ruleset.
@@ -16,6 +18,8 @@ type Corroboration = components['schemas']['WafCorroboration']
  * the numbers behind that decision on one screen and make them hard to misread — above
  * all the attack score, whose scale runs backwards from every other score in the console.
  */
+const prefs = usePreferencesStore()
+
 const tab = ref<'rules' | 'gaps'>('rules')
 const rangeHours = ref(24)
 // Both filters are sent to the server rather than applied here. Rules are ordered by
@@ -32,6 +36,7 @@ const errorMessage = ref('')
 const expanded = ref<string | null>(null)
 const paths = ref<PathCount[]>([])
 const corroboration = ref<Corroboration | null>(null)
+const samples = ref<RuleSample[]>([])
 const detailLoading = ref(false)
 
 const actionOptions = [
@@ -107,6 +112,7 @@ async function toggle(rule: RuleProfile): Promise<void> {
 
   expanded.value = key
   paths.value = []
+  samples.value = []
   corroboration.value = null
   detailLoading.value = true
 
@@ -117,12 +123,14 @@ async function toggle(rule: RuleProfile): Promise<void> {
   }
 
   try {
-    const [p, c] = await Promise.all([
+    const [p, c, s] = await Promise.all([
       api.GET('/api/v1/waf-tuning/rules/{ruleId}/paths', { params }),
       api.GET('/api/v1/waf-tuning/rules/{ruleId}/corroboration', { params }),
+      api.GET('/api/v1/waf-tuning/rules/{ruleId}/samples', { params }),
     ])
     paths.value = p.data?.paths ?? []
     corroboration.value = c.data ?? null
+    samples.value = s.data?.samples ?? []
   } catch (err) {
     errorMessage.value = toDisplayMessage(err)
   } finally {
@@ -212,6 +220,37 @@ function actionColor(action: string | undefined): string {
 }
 
 const hasRules = computed(() => rules.value.length > 0)
+
+/**
+ * A link into the full search, filtered to this rule over the same window.
+ *
+ * The samples below are a handful of recent requests, which is enough to judge a rule
+ * and not enough to investigate one. This hands the question to the page built for it,
+ * where the raw vendor payload and the correlated view are a click away.
+ */
+function searchLink(rule: RuleProfile) {
+  const { from, to } = currentRange()
+  return { name: 'search', query: { ruleId: rule.ruleId ?? '', from, to } }
+}
+
+/** Reconstructs what the client actually asked for, which is what a rule matched on. */
+function fullPath(sample: RuleSample): string {
+  const query = sample.requestQuery ?? ''
+  return `${sample.requestPath ?? ''}${query ? `?${query}` : ''}`
+}
+
+function verdictColor(verdict: string | undefined): string {
+  switch (verdict) {
+    case 'blocked':
+      return 'error'
+    case 'challenged':
+      return 'warning'
+    case 'monitored':
+      return 'info'
+    default:
+      return 'default'
+  }
+}
 </script>
 
 <template>
@@ -350,6 +389,67 @@ const hasRules = computed(() => rules.value.length > 0)
                           allowed, out of {{ count(corroboration.correlated) }} requests another
                           vendor also saw.
                         </div>
+                      </div>
+
+                      <!-- The requests themselves, first. The aggregates below say a
+                           rule fires; only these say what it fires ON, and that is the
+                           whole of a false-positive judgement. -->
+                      <div class="d-flex align-center mb-1">
+                        <div class="text-caption font-weight-medium">Sample requests</div>
+                        <router-link :to="searchLink(r)" class="text-caption ml-3">
+                          open all in search →
+                        </router-link>
+                      </div>
+                      <v-table v-if="samples.length" density="compact" class="mb-3">
+                        <thead>
+                          <tr>
+                            <th class="text-caption">Time</th>
+                            <th class="text-caption">Client</th>
+                            <th class="text-caption">Request</th>
+                            <th class="text-caption text-right">Score</th>
+                            <th class="text-caption text-right">Verdict</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="sm in samples" :key="sm.eventId">
+                            <td class="text-caption text-no-wrap">
+                              {{ prefs.dateTime(sm.eventTime) }}
+                            </td>
+                            <td class="text-caption text-no-wrap">
+                              <code>{{ sm.clientIp || '—' }}</code>
+                              <span v-if="sm.country" class="text-medium-emphasis ml-1">
+                                {{ sm.country }}
+                              </span>
+                            </td>
+                            <td class="text-caption text-break">
+                              <!-- Interpolated, never v-html: this is attacker-controlled
+                                   text and is precisely where a payload would arrive. -->
+                              <span class="text-medium-emphasis">{{ sm.requestMethod }}</span>
+                              {{ sm.requestHost }}<code>{{ fullPath(sm) }}</code>
+                              <router-link
+                                :to="{ name: 'search', query: { q: sm.eventId } }"
+                                class="ml-2"
+                              >
+                                detail
+                              </router-link>
+                            </td>
+                            <td class="text-caption text-right">
+                              {{ count(sm.attackScore) || '—' }}
+                            </td>
+                            <td class="text-right">
+                              <v-chip
+                                :color="verdictColor(sm.verdict)"
+                                size="x-small"
+                                variant="tonal"
+                              >
+                                {{ sm.verdict }}
+                              </v-chip>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </v-table>
+                      <div v-else class="text-body-2 text-medium-emphasis mb-3">
+                        No matching requests remain in the retained window.
                       </div>
 
                       <div class="text-caption font-weight-medium mb-1">Where it fires</div>

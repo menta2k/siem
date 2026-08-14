@@ -19,6 +19,7 @@ import (
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -473,6 +474,180 @@ func (x *WafRulePathsPanel) GetPaths() []*WafPathCount {
 	return nil
 }
 
+// WafRuleSample is one request a rule matched.
+type WafRuleSample struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The id of the stored event, so a client can link straight to its full detail —
+	// raw vendor payload included.
+	EventId     string                 `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	EventTime   *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=event_time,json=eventTime,proto3" json:"event_time,omitempty"`
+	ClientIp    string                 `protobuf:"bytes,3,opt,name=client_ip,json=clientIp,proto3" json:"client_ip,omitempty"`
+	Country     string                 `protobuf:"bytes,4,opt,name=country,proto3" json:"country,omitempty"`
+	RequestHost string                 `protobuf:"bytes,5,opt,name=request_host,json=requestHost,proto3" json:"request_host,omitempty"`
+	RequestPath string                 `protobuf:"bytes,6,opt,name=request_path,json=requestPath,proto3" json:"request_path,omitempty"`
+	// Usually the deciding field: injection payloads live in the query string, and a rule
+	// firing on `?id=1 OR 1=1` reads very differently from one firing on `?sort=price`.
+	RequestQuery  string `protobuf:"bytes,7,opt,name=request_query,json=requestQuery,proto3" json:"request_query,omitempty"`
+	RequestMethod string `protobuf:"bytes,8,opt,name=request_method,json=requestMethod,proto3" json:"request_method,omitempty"`
+	HttpStatus    uint32 `protobuf:"varint,9,opt,name=http_status,json=httpStatus,proto3" json:"http_status,omitempty"`
+	// On the INVERTED scale: 1 is certainly an attack, 100 certainly clean.
+	AttackScore   uint32 `protobuf:"varint,10,opt,name=attack_score,json=attackScore,proto3" json:"attack_score,omitempty"`
+	Verdict       string `protobuf:"bytes,11,opt,name=verdict,proto3" json:"verdict,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WafRuleSample) Reset() {
+	*x = WafRuleSample{}
+	mi := &file_siem_v1_waftuning_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WafRuleSample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WafRuleSample) ProtoMessage() {}
+
+func (x *WafRuleSample) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_waftuning_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WafRuleSample.ProtoReflect.Descriptor instead.
+func (*WafRuleSample) Descriptor() ([]byte, []int) {
+	return file_siem_v1_waftuning_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *WafRuleSample) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *WafRuleSample) GetEventTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EventTime
+	}
+	return nil
+}
+
+func (x *WafRuleSample) GetClientIp() string {
+	if x != nil {
+		return x.ClientIp
+	}
+	return ""
+}
+
+func (x *WafRuleSample) GetCountry() string {
+	if x != nil {
+		return x.Country
+	}
+	return ""
+}
+
+func (x *WafRuleSample) GetRequestHost() string {
+	if x != nil {
+		return x.RequestHost
+	}
+	return ""
+}
+
+func (x *WafRuleSample) GetRequestPath() string {
+	if x != nil {
+		return x.RequestPath
+	}
+	return ""
+}
+
+func (x *WafRuleSample) GetRequestQuery() string {
+	if x != nil {
+		return x.RequestQuery
+	}
+	return ""
+}
+
+func (x *WafRuleSample) GetRequestMethod() string {
+	if x != nil {
+		return x.RequestMethod
+	}
+	return ""
+}
+
+func (x *WafRuleSample) GetHttpStatus() uint32 {
+	if x != nil {
+		return x.HttpStatus
+	}
+	return 0
+}
+
+func (x *WafRuleSample) GetAttackScore() uint32 {
+	if x != nil {
+		return x.AttackScore
+	}
+	return 0
+}
+
+func (x *WafRuleSample) GetVerdict() string {
+	if x != nil {
+		return x.Verdict
+	}
+	return ""
+}
+
+type WafRuleSamplePanel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Samples       []*WafRuleSample       `protobuf:"bytes,1,rep,name=samples,proto3" json:"samples,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WafRuleSamplePanel) Reset() {
+	*x = WafRuleSamplePanel{}
+	mi := &file_siem_v1_waftuning_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WafRuleSamplePanel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WafRuleSamplePanel) ProtoMessage() {}
+
+func (x *WafRuleSamplePanel) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_waftuning_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WafRuleSamplePanel.ProtoReflect.Descriptor instead.
+func (*WafRuleSamplePanel) Descriptor() ([]byte, []int) {
+	return file_siem_v1_waftuning_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *WafRuleSamplePanel) GetSamples() []*WafRuleSample {
+	if x != nil {
+		return x.Samples
+	}
+	return nil
+}
+
 type WafCoverageGap struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	RequestHost      string                 `protobuf:"bytes,1,opt,name=request_host,json=requestHost,proto3" json:"request_host,omitempty"`
@@ -485,7 +660,7 @@ type WafCoverageGap struct {
 
 func (x *WafCoverageGap) Reset() {
 	*x = WafCoverageGap{}
-	mi := &file_siem_v1_waftuning_proto_msgTypes[6]
+	mi := &file_siem_v1_waftuning_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -497,7 +672,7 @@ func (x *WafCoverageGap) String() string {
 func (*WafCoverageGap) ProtoMessage() {}
 
 func (x *WafCoverageGap) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_waftuning_proto_msgTypes[6]
+	mi := &file_siem_v1_waftuning_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -510,7 +685,7 @@ func (x *WafCoverageGap) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WafCoverageGap.ProtoReflect.Descriptor instead.
 func (*WafCoverageGap) Descriptor() ([]byte, []int) {
-	return file_siem_v1_waftuning_proto_rawDescGZIP(), []int{6}
+	return file_siem_v1_waftuning_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *WafCoverageGap) GetRequestHost() string {
@@ -550,7 +725,7 @@ type WafCoverageGapPanel struct {
 
 func (x *WafCoverageGapPanel) Reset() {
 	*x = WafCoverageGapPanel{}
-	mi := &file_siem_v1_waftuning_proto_msgTypes[7]
+	mi := &file_siem_v1_waftuning_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -562,7 +737,7 @@ func (x *WafCoverageGapPanel) String() string {
 func (*WafCoverageGapPanel) ProtoMessage() {}
 
 func (x *WafCoverageGapPanel) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_waftuning_proto_msgTypes[7]
+	mi := &file_siem_v1_waftuning_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -575,7 +750,7 @@ func (x *WafCoverageGapPanel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WafCoverageGapPanel.ProtoReflect.Descriptor instead.
 func (*WafCoverageGapPanel) Descriptor() ([]byte, []int) {
-	return file_siem_v1_waftuning_proto_rawDescGZIP(), []int{7}
+	return file_siem_v1_waftuning_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *WafCoverageGapPanel) GetGaps() []*WafCoverageGap {
@@ -603,7 +778,7 @@ type WafCorroboration struct {
 
 func (x *WafCorroboration) Reset() {
 	*x = WafCorroboration{}
-	mi := &file_siem_v1_waftuning_proto_msgTypes[8]
+	mi := &file_siem_v1_waftuning_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -615,7 +790,7 @@ func (x *WafCorroboration) String() string {
 func (*WafCorroboration) ProtoMessage() {}
 
 func (x *WafCorroboration) ProtoReflect() protoreflect.Message {
-	mi := &file_siem_v1_waftuning_proto_msgTypes[8]
+	mi := &file_siem_v1_waftuning_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -628,7 +803,7 @@ func (x *WafCorroboration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WafCorroboration.ProtoReflect.Descriptor instead.
 func (*WafCorroboration) Descriptor() ([]byte, []int) {
-	return file_siem_v1_waftuning_proto_rawDescGZIP(), []int{8}
+	return file_siem_v1_waftuning_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *WafCorroboration) GetRuleId() string {
@@ -663,7 +838,7 @@ var File_siem_v1_waftuning_proto protoreflect.FileDescriptor
 
 const file_siem_v1_waftuning_proto_rawDesc = "" +
 	"\n" +
-	"\x17siem/v1/waftuning.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x14siem/v1/common.proto\"\x8d\x01\n" +
+	"\x17siem/v1/waftuning.proto\x12\asiem.v1\x1a\x1cgoogle/api/annotations.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x14siem/v1/common.proto\"\x8d\x01\n" +
 	"\x10WafTuningRequest\x121\n" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12\x14\n" +
@@ -698,7 +873,24 @@ const file_siem_v1_waftuning_proto_rawDesc = "" +
 	"\n" +
 	"mean_score\x18\x04 \x01(\x01R\tmeanScore\"@\n" +
 	"\x11WafRulePathsPanel\x12+\n" +
-	"\x05paths\x18\x01 \x03(\v2\x15.siem.v1.WafPathCountR\x05paths\"\x9d\x01\n" +
+	"\x05paths\x18\x01 \x03(\v2\x15.siem.v1.WafPathCountR\x05paths\"\x8c\x03\n" +
+	"\rWafRuleSample\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\x129\n" +
+	"\n" +
+	"event_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\teventTime\x12\x1b\n" +
+	"\tclient_ip\x18\x03 \x01(\tR\bclientIp\x12\x18\n" +
+	"\acountry\x18\x04 \x01(\tR\acountry\x12!\n" +
+	"\frequest_host\x18\x05 \x01(\tR\vrequestHost\x12!\n" +
+	"\frequest_path\x18\x06 \x01(\tR\vrequestPath\x12#\n" +
+	"\rrequest_query\x18\a \x01(\tR\frequestQuery\x12%\n" +
+	"\x0erequest_method\x18\b \x01(\tR\rrequestMethod\x12\x1f\n" +
+	"\vhttp_status\x18\t \x01(\rR\n" +
+	"httpStatus\x12!\n" +
+	"\fattack_score\x18\n" +
+	" \x01(\rR\vattackScore\x12\x18\n" +
+	"\averdict\x18\v \x01(\tR\averdict\"F\n" +
+	"\x12WafRuleSamplePanel\x120\n" +
+	"\asamples\x18\x01 \x03(\v2\x16.siem.v1.WafRuleSampleR\asamples\"\x9d\x01\n" +
 	"\x0eWafCoverageGap\x12!\n" +
 	"\frequest_host\x18\x01 \x01(\tR\vrequestHost\x12\x16\n" +
 	"\x06events\x18\x02 \x01(\x04R\x06events\x12#\n" +
@@ -712,11 +904,12 @@ const file_siem_v1_waftuning_proto_rawDesc = "" +
 	"correlated\x18\x02 \x01(\x04R\n" +
 	"correlated\x12.\n" +
 	"\x13confirmed_by_others\x18\x03 \x01(\x04R\x11confirmedByOthers\x12*\n" +
-	"\x11allowed_by_others\x18\x04 \x01(\x04R\x0fallowedByOthers2\xe9\x03\n" +
+	"\x11allowed_by_others\x18\x04 \x01(\x04R\x0fallowedByOthers2\xea\x04\n" +
 	"\tWafTuning\x12k\n" +
 	"\x0eGetRuleProfile\x12\x19.siem.v1.WafTuningRequest\x1a\x1c.siem.v1.WafRuleProfilePanel\" \x82\xd3\xe4\x93\x02\x1a\x12\x18/api/v1/waf-tuning/rules\x12z\n" +
 	"\fGetRulePaths\x12\x1c.siem.v1.WafRulePathsRequest\x1a\x1a.siem.v1.WafRulePathsPanel\"0\x82\xd3\xe4\x93\x02*\x12(/api/v1/waf-tuning/rules/{rule_id}/paths\x12k\n" +
-	"\x0fGetCoverageGaps\x12\x19.siem.v1.WafTuningRequest\x1a\x1c.siem.v1.WafCoverageGapPanel\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/waf-tuning/gaps\x12\x85\x01\n" +
+	"\x0fGetCoverageGaps\x12\x19.siem.v1.WafTuningRequest\x1a\x1c.siem.v1.WafCoverageGapPanel\"\x1f\x82\xd3\xe4\x93\x02\x19\x12\x17/api/v1/waf-tuning/gaps\x12\x7f\n" +
+	"\x0eGetRuleSamples\x12\x1c.siem.v1.WafRulePathsRequest\x1a\x1b.siem.v1.WafRuleSamplePanel\"2\x82\xd3\xe4\x93\x02,\x12*/api/v1/waf-tuning/rules/{rule_id}/samples\x12\x85\x01\n" +
 	"\x10GetCorroboration\x12\x1c.siem.v1.WafRulePathsRequest\x1a\x19.siem.v1.WafCorroboration\"8\x82\xd3\xe4\x93\x022\x120/api/v1/waf-tuning/rules/{rule_id}/corroborationB\x8a\x01\n" +
 	"\vcom.siem.v1B\x0eWaftuningProtoP\x01Z.github.com/menta2k/siem/api/gen/siem/v1;siemv1\xa2\x02\x03SXX\xaa\x02\aSiem.V1\xca\x02\aSiem\\V1\xe2\x02\x13Siem\\V1\\GPBMetadata\xea\x02\bSiem::V1b\x06proto3"
 
@@ -732,38 +925,45 @@ func file_siem_v1_waftuning_proto_rawDescGZIP() []byte {
 	return file_siem_v1_waftuning_proto_rawDescData
 }
 
-var file_siem_v1_waftuning_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_siem_v1_waftuning_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_siem_v1_waftuning_proto_goTypes = []any{
-	(*WafTuningRequest)(nil),    // 0: siem.v1.WafTuningRequest
-	(*WafRulePathsRequest)(nil), // 1: siem.v1.WafRulePathsRequest
-	(*WafRuleProfile)(nil),      // 2: siem.v1.WafRuleProfile
-	(*WafRuleProfilePanel)(nil), // 3: siem.v1.WafRuleProfilePanel
-	(*WafPathCount)(nil),        // 4: siem.v1.WafPathCount
-	(*WafRulePathsPanel)(nil),   // 5: siem.v1.WafRulePathsPanel
-	(*WafCoverageGap)(nil),      // 6: siem.v1.WafCoverageGap
-	(*WafCoverageGapPanel)(nil), // 7: siem.v1.WafCoverageGapPanel
-	(*WafCorroboration)(nil),    // 8: siem.v1.WafCorroboration
-	(*TimeRange)(nil),           // 9: siem.v1.TimeRange
+	(*WafTuningRequest)(nil),      // 0: siem.v1.WafTuningRequest
+	(*WafRulePathsRequest)(nil),   // 1: siem.v1.WafRulePathsRequest
+	(*WafRuleProfile)(nil),        // 2: siem.v1.WafRuleProfile
+	(*WafRuleProfilePanel)(nil),   // 3: siem.v1.WafRuleProfilePanel
+	(*WafPathCount)(nil),          // 4: siem.v1.WafPathCount
+	(*WafRulePathsPanel)(nil),     // 5: siem.v1.WafRulePathsPanel
+	(*WafRuleSample)(nil),         // 6: siem.v1.WafRuleSample
+	(*WafRuleSamplePanel)(nil),    // 7: siem.v1.WafRuleSamplePanel
+	(*WafCoverageGap)(nil),        // 8: siem.v1.WafCoverageGap
+	(*WafCoverageGapPanel)(nil),   // 9: siem.v1.WafCoverageGapPanel
+	(*WafCorroboration)(nil),      // 10: siem.v1.WafCorroboration
+	(*TimeRange)(nil),             // 11: siem.v1.TimeRange
+	(*timestamppb.Timestamp)(nil), // 12: google.protobuf.Timestamp
 }
 var file_siem_v1_waftuning_proto_depIdxs = []int32{
-	9, // 0: siem.v1.WafTuningRequest.time_range:type_name -> siem.v1.TimeRange
-	9, // 1: siem.v1.WafRulePathsRequest.time_range:type_name -> siem.v1.TimeRange
-	2, // 2: siem.v1.WafRuleProfilePanel.rules:type_name -> siem.v1.WafRuleProfile
-	4, // 3: siem.v1.WafRulePathsPanel.paths:type_name -> siem.v1.WafPathCount
-	6, // 4: siem.v1.WafCoverageGapPanel.gaps:type_name -> siem.v1.WafCoverageGap
-	0, // 5: siem.v1.WafTuning.GetRuleProfile:input_type -> siem.v1.WafTuningRequest
-	1, // 6: siem.v1.WafTuning.GetRulePaths:input_type -> siem.v1.WafRulePathsRequest
-	0, // 7: siem.v1.WafTuning.GetCoverageGaps:input_type -> siem.v1.WafTuningRequest
-	1, // 8: siem.v1.WafTuning.GetCorroboration:input_type -> siem.v1.WafRulePathsRequest
-	3, // 9: siem.v1.WafTuning.GetRuleProfile:output_type -> siem.v1.WafRuleProfilePanel
-	5, // 10: siem.v1.WafTuning.GetRulePaths:output_type -> siem.v1.WafRulePathsPanel
-	7, // 11: siem.v1.WafTuning.GetCoverageGaps:output_type -> siem.v1.WafCoverageGapPanel
-	8, // 12: siem.v1.WafTuning.GetCorroboration:output_type -> siem.v1.WafCorroboration
-	9, // [9:13] is the sub-list for method output_type
-	5, // [5:9] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	11, // 0: siem.v1.WafTuningRequest.time_range:type_name -> siem.v1.TimeRange
+	11, // 1: siem.v1.WafRulePathsRequest.time_range:type_name -> siem.v1.TimeRange
+	2,  // 2: siem.v1.WafRuleProfilePanel.rules:type_name -> siem.v1.WafRuleProfile
+	4,  // 3: siem.v1.WafRulePathsPanel.paths:type_name -> siem.v1.WafPathCount
+	12, // 4: siem.v1.WafRuleSample.event_time:type_name -> google.protobuf.Timestamp
+	6,  // 5: siem.v1.WafRuleSamplePanel.samples:type_name -> siem.v1.WafRuleSample
+	8,  // 6: siem.v1.WafCoverageGapPanel.gaps:type_name -> siem.v1.WafCoverageGap
+	0,  // 7: siem.v1.WafTuning.GetRuleProfile:input_type -> siem.v1.WafTuningRequest
+	1,  // 8: siem.v1.WafTuning.GetRulePaths:input_type -> siem.v1.WafRulePathsRequest
+	0,  // 9: siem.v1.WafTuning.GetCoverageGaps:input_type -> siem.v1.WafTuningRequest
+	1,  // 10: siem.v1.WafTuning.GetRuleSamples:input_type -> siem.v1.WafRulePathsRequest
+	1,  // 11: siem.v1.WafTuning.GetCorroboration:input_type -> siem.v1.WafRulePathsRequest
+	3,  // 12: siem.v1.WafTuning.GetRuleProfile:output_type -> siem.v1.WafRuleProfilePanel
+	5,  // 13: siem.v1.WafTuning.GetRulePaths:output_type -> siem.v1.WafRulePathsPanel
+	9,  // 14: siem.v1.WafTuning.GetCoverageGaps:output_type -> siem.v1.WafCoverageGapPanel
+	7,  // 15: siem.v1.WafTuning.GetRuleSamples:output_type -> siem.v1.WafRuleSamplePanel
+	10, // 16: siem.v1.WafTuning.GetCorroboration:output_type -> siem.v1.WafCorroboration
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_siem_v1_waftuning_proto_init() }
@@ -778,7 +978,7 @@ func file_siem_v1_waftuning_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_waftuning_proto_rawDesc), len(file_siem_v1_waftuning_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

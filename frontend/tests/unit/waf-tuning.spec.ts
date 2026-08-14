@@ -4,7 +4,17 @@ import { createVuetify } from 'vuetify'
 import * as vuetifyComponents from 'vuetify/components'
 import * as vuetifyDirectives from 'vuetify/directives'
 
+import { createPinia } from 'pinia'
+
 import WafTuning from '@/pages/WafTuning.vue'
+
+// No router is mounted, so router-link would not resolve to an anchor at all. The stub
+// serialises its destination into the href, which is what these tests actually care
+// about: that the link carries the right rule and window, not how Vue renders it.
+const RouterLinkStub = {
+  props: ['to'],
+  template: '<a :href="JSON.stringify(to)"><slot /></a>',
+}
 
 // jsdom has no ResizeObserver, and Vuetify's tab strip observes its container. Without
 // this the page throws before rendering anything.
@@ -26,17 +36,25 @@ vi.mock('@/api/client', () => ({
 }))
 
 /** Routes each endpoint to its own fixture, since the page fetches several at once. */
-function respondWith(rules: unknown[], gaps: unknown[] = []) {
+function respondWith(rules: unknown[], gaps: unknown[] = [], samples: unknown[] = []) {
   get.mockImplementation((path?: string) => {
     if (path?.includes('/gaps')) return Promise.resolve({ data: { gaps } })
+    if (path?.includes('/samples')) return Promise.resolve({ data: { samples } })
+    if (path?.includes('/paths')) return Promise.resolve({ data: { paths: [] } })
+    if (path?.includes('/corroboration')) return Promise.resolve({ data: {} })
     if (path?.includes('/rules')) return Promise.resolve({ data: { rules } })
     return Promise.resolve({ data: {} })
   })
 }
 
-async function render(rules: unknown[], gaps: unknown[] = []) {
-  respondWith(rules, gaps)
-  const wrapper = mount(WafTuning, { global: { plugins: [vuetify] } })
+async function render(rules: unknown[], gaps: unknown[] = [], samples: unknown[] = []) {
+  respondWith(rules, gaps, samples)
+  const wrapper = mount(WafTuning, {
+    global: {
+      plugins: [vuetify, createPinia()],
+      stubs: { RouterLink: RouterLinkStub },
+    },
+  })
   await flushPromises()
   return wrapper
 }
@@ -183,5 +201,85 @@ describe('WAF tuning', () => {
     const text = wrapper.text()
     expect(text).toContain('api.example.com')
     expect(text).toContain('no rule matched')
+  })
+})
+
+describe('WAF tuning rule samples', () => {
+  const rule = {
+    ruleId: 'sqli',
+    ruleDescription: 'SQLi - Equation - URI',
+    requestHost: 'www.jobs.bg',
+    action: 'log',
+    source: 'firewallManaged',
+    events: '10',
+    attackEvents: '10',
+    suspiciousEvents: '0',
+    cleanEvents: '0',
+    reading: 'attacks',
+  }
+
+  // A real detection from production. The query string is the point: the aggregates say
+  // this rule fires ten times, and only the request itself says whether that was an
+  // injection or a product filter.
+  const sample = {
+    eventId: 'abc123',
+    eventTime: '2026-08-14T10:00:00Z',
+    clientIp: '203.0.113.10',
+    country: 'US',
+    requestHost: 'www.jobs.bg',
+    requestPath: '/',
+    requestQuery: 'a=%27or%201=1%27',
+    requestMethod: 'GET',
+    httpStatus: 200,
+    attackScore: 2,
+    verdict: 'monitored',
+  }
+
+  it('shows the request that actually matched, query string included', async () => {
+    const wrapper = await render([rule], [], [sample])
+    await wrapper.findAll('tbody tr')[0]?.trigger('click')
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('Sample requests')
+    expect(text).toContain('203.0.113.10')
+    // The payload itself — without it the sample answers nothing the counts did not.
+    expect(text).toContain('a=%27or%201=1%27')
+  })
+
+  // The query string is attacker-controlled and is exactly where an injected payload
+  // would arrive. It must render as text.
+  it('renders an attacker-controlled query as text, not markup', async () => {
+    const wrapper = await render(
+      [rule],
+      [],
+      [{ ...sample, requestQuery: '<img src=x onerror=alert(1)>' }],
+    )
+    await wrapper.findAll('tbody tr')[0]?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.html()).not.toContain('<img src=x')
+    expect(wrapper.text()).toContain('<img src=x onerror=alert(1)>')
+  })
+
+  // A handful of samples judges a rule; it does not investigate one. The link hands that
+  // to the page built for it, carrying the same rule and window.
+  it('links to the full search for the same rule and window', async () => {
+    const wrapper = await render([rule], [], [sample])
+    await wrapper.findAll('tbody tr')[0]?.trigger('click')
+    await flushPromises()
+
+    const link = wrapper.findAll('a').find((a) => a.text().includes('open all in search'))
+    expect(link?.attributes('href')).toContain('sqli')
+    // Carries the window too, so the search opens on the same evidence.
+    expect(link?.attributes('href')).toContain('from')
+  })
+
+  it('says so when the window holds no matching requests', async () => {
+    const wrapper = await render([rule], [], [])
+    await wrapper.findAll('tbody tr')[0]?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No matching requests remain')
   })
 })

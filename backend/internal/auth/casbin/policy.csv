@@ -55,6 +55,7 @@ p, admin, *, /api/v1/alerts/:id/resolve, POST
 # other analytical reads rather than with the admin writes -- an analyst is who tunes.
 p, admin, *, /api/v1/waf-tuning/rules, GET
 p, admin, *, /api/v1/waf-tuning/rules/:id/paths, GET
+p, admin, *, /api/v1/waf-tuning/rules/:id/samples, GET
 p, admin, *, /api/v1/waf-tuning/rules/:id/corroboration, GET
 p, admin, *, /api/v1/waf-tuning/gaps, GET
 
@@ -101,6 +102,7 @@ p, analyst, *, /api/v1/dashboards/feed-health, GET
 
 p, analyst, *, /api/v1/waf-tuning/rules, GET
 p, analyst, *, /api/v1/waf-tuning/rules/:id/paths, GET
+p, analyst, *, /api/v1/waf-tuning/rules/:id/samples, GET
 p, analyst, *, /api/v1/waf-tuning/rules/:id/corroboration, GET
 p, analyst, *, /api/v1/waf-tuning/gaps, GET
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	pb "github.com/menta2k/siem/api/gen/siem/v1"
 	chdata "github.com/menta2k/siem/internal/data/clickhouse"
 	mw "github.com/menta2k/siem/internal/middleware"
@@ -18,6 +20,9 @@ type WAFTuningReader interface {
 	RulePaths(
 		ctx context.Context, ruleID string, q chdata.DashboardQuery,
 	) ([]chdata.WAFPathCount, error)
+	RuleSamples(
+		ctx context.Context, ruleID string, q chdata.DashboardQuery,
+	) ([]chdata.WAFRuleSample, error)
 	CoverageGaps(ctx context.Context, q chdata.DashboardQuery) ([]chdata.WAFCoverageGap, error)
 	Corroboration(
 		ctx context.Context, ruleID string, q chdata.DashboardQuery,
@@ -130,6 +135,50 @@ func (s *WAFTuningService) GetRulePaths(
 			Events:      p.Events,
 			MeanScore:   p.MeanScore,
 		})
+	}
+	return out, nil
+}
+
+// GetRuleSamples returns individual requests one rule matched.
+func (s *WAFTuningService) GetRuleSamples(
+	ctx context.Context, req *pb.WafRulePathsRequest,
+) (*pb.WafRuleSamplePanel, error) {
+	if req.GetRuleId() == "" {
+		return nil, mw.ValidationFailed("a rule id is required")
+	}
+	q, err := s.tuningQuery(req.GetTimeRange(), req.GetLimit())
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := s.limits.WithTimeout(ctx)
+	defer cancel()
+
+	samples, err := s.waf.RuleSamples(ctx, req.GetRuleId(), q)
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
+
+	out := &pb.WafRuleSamplePanel{Samples: make([]*pb.WafRuleSample, 0, len(samples))}
+	for _, sample := range samples {
+		item := &pb.WafRuleSample{
+			EventId:       sample.EventID,
+			EventTime:     timestamppb.New(sample.EventTime),
+			Country:       sample.Country,
+			RequestHost:   sample.RequestHost,
+			RequestPath:   sample.RequestPath,
+			RequestQuery:  sample.RequestQuery,
+			RequestMethod: sample.RequestMethod,
+			HttpStatus:    uint32(sample.HTTPStatus),
+			AttackScore:   uint32(sample.AttackScore),
+			Verdict:       sample.Verdict,
+		}
+		// Absent rather than "::" for the events that carry no client address — the
+		// DataDome subrequests do not, and a rendered zero address reads as a real one.
+		if sample.ClientIP != nil {
+			item.ClientIp = sample.ClientIP.String()
+		}
+		out.Samples = append(out.Samples, item)
 	}
 	return out, nil
 }

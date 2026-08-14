@@ -23,6 +23,7 @@ const OperationWafTuningGetCorroboration = "/siem.v1.WafTuning/GetCorroboration"
 const OperationWafTuningGetCoverageGaps = "/siem.v1.WafTuning/GetCoverageGaps"
 const OperationWafTuningGetRulePaths = "/siem.v1.WafTuning/GetRulePaths"
 const OperationWafTuningGetRuleProfile = "/siem.v1.WafTuning/GetRuleProfile"
+const OperationWafTuningGetRuleSamples = "/siem.v1.WafTuning/GetRuleSamples"
 
 type WafTuningHTTPServer interface {
 	// GetCorroboration What the OTHER vendors did with the same requests. The strongest evidence a tuning
@@ -36,6 +37,10 @@ type WafTuningHTTPServer interface {
 	GetRulePaths(context.Context, *WafRulePathsRequest) (*WafRulePathsPanel, error)
 	// GetRuleProfile The profile: every rule that fired, split by host, action and matching engine.
 	GetRuleProfile(context.Context, *WafTuningRequest) (*WafRuleProfilePanel, error)
+	// GetRuleSamples Individual requests the rule matched, for reading rather than counting. The
+	// aggregates say a rule fires 4,000 times on /checkout; only the requests themselves
+	// say whether the query string carried an injection or a product filter.
+	GetRuleSamples(context.Context, *WafRulePathsRequest) (*WafRuleSamplePanel, error)
 }
 
 func RegisterWafTuningHTTPServer(s *http.Server, srv WafTuningHTTPServer) {
@@ -43,6 +48,7 @@ func RegisterWafTuningHTTPServer(s *http.Server, srv WafTuningHTTPServer) {
 	r.GET("/api/v1/waf-tuning/rules", _WafTuning_GetRuleProfile0_HTTP_Handler(srv))
 	r.GET("/api/v1/waf-tuning/rules/{rule_id}/paths", _WafTuning_GetRulePaths0_HTTP_Handler(srv))
 	r.GET("/api/v1/waf-tuning/gaps", _WafTuning_GetCoverageGaps0_HTTP_Handler(srv))
+	r.GET("/api/v1/waf-tuning/rules/{rule_id}/samples", _WafTuning_GetRuleSamples0_HTTP_Handler(srv))
 	r.GET("/api/v1/waf-tuning/rules/{rule_id}/corroboration", _WafTuning_GetCorroboration0_HTTP_Handler(srv))
 }
 
@@ -106,6 +112,28 @@ func _WafTuning_GetCoverageGaps0_HTTP_Handler(srv WafTuningHTTPServer) func(ctx 
 	}
 }
 
+func _WafTuning_GetRuleSamples0_HTTP_Handler(srv WafTuningHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in WafRulePathsRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindVars(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationWafTuningGetRuleSamples)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.GetRuleSamples(ctx, req.(*WafRulePathsRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*WafRuleSamplePanel)
+		return ctx.Result(200, reply)
+	}
+}
+
 func _WafTuning_GetCorroboration0_HTTP_Handler(srv WafTuningHTTPServer) func(ctx http.Context) error {
 	return func(ctx http.Context) error {
 		var in WafRulePathsRequest
@@ -140,6 +168,10 @@ type WafTuningHTTPClient interface {
 	GetRulePaths(ctx context.Context, req *WafRulePathsRequest, opts ...http.CallOption) (rsp *WafRulePathsPanel, err error)
 	// GetRuleProfile The profile: every rule that fired, split by host, action and matching engine.
 	GetRuleProfile(ctx context.Context, req *WafTuningRequest, opts ...http.CallOption) (rsp *WafRuleProfilePanel, err error)
+	// GetRuleSamples Individual requests the rule matched, for reading rather than counting. The
+	// aggregates say a rule fires 4,000 times on /checkout; only the requests themselves
+	// say whether the query string carried an injection or a product filter.
+	GetRuleSamples(ctx context.Context, req *WafRulePathsRequest, opts ...http.CallOption) (rsp *WafRuleSamplePanel, err error)
 }
 
 type WafTuningHTTPClientImpl struct {
@@ -201,6 +233,22 @@ func (c *WafTuningHTTPClientImpl) GetRuleProfile(ctx context.Context, in *WafTun
 	pattern := "/api/v1/waf-tuning/rules"
 	path := binding.EncodeURL(pattern, in, true)
 	opts = append(opts, http.Operation(OperationWafTuningGetRuleProfile))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetRuleSamples Individual requests the rule matched, for reading rather than counting. The
+// aggregates say a rule fires 4,000 times on /checkout; only the requests themselves
+// say whether the query string carried an injection or a product filter.
+func (c *WafTuningHTTPClientImpl) GetRuleSamples(ctx context.Context, in *WafRulePathsRequest, opts ...http.CallOption) (*WafRuleSamplePanel, error) {
+	var out WafRuleSamplePanel
+	pattern := "/api/v1/waf-tuning/rules/{rule_id}/samples"
+	path := binding.EncodeURL(pattern, in, true)
+	opts = append(opts, http.Operation(OperationWafTuningGetRuleSamples))
 	opts = append(opts, http.PathTemplate(pattern))
 	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
 	if err != nil {

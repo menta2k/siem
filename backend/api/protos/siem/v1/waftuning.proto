@@ -13,6 +13,7 @@ package siem.v1;
 option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
 
 import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
 import "siem/v1/common.proto";
 
 service WafTuning {
@@ -31,6 +32,13 @@ service WafTuning {
   // false positive, and a hole in the ruleset rather than noise in it.
   rpc GetCoverageGaps(WafTuningRequest) returns (WafCoverageGapPanel) {
     option (google.api.http) = {get: "/api/v1/waf-tuning/gaps"};
+  }
+
+  // Individual requests the rule matched, for reading rather than counting. The
+  // aggregates say a rule fires 4,000 times on /checkout; only the requests themselves
+  // say whether the query string carried an injection or a product filter.
+  rpc GetRuleSamples(WafRulePathsRequest) returns (WafRuleSamplePanel) {
+    option (google.api.http) = {get: "/api/v1/waf-tuning/rules/{rule_id}/samples"};
   }
 
   // What the OTHER vendors did with the same requests. The strongest evidence a tuning
@@ -117,6 +125,30 @@ message WafPathCount {
 
 message WafRulePathsPanel {
   repeated WafPathCount paths = 1;
+}
+
+// WafRuleSample is one request a rule matched.
+message WafRuleSample {
+  // The id of the stored event, so a client can link straight to its full detail —
+  // raw vendor payload included.
+  string event_id = 1;
+  google.protobuf.Timestamp event_time = 2;
+  string client_ip = 3;
+  string country = 4;
+  string request_host = 5;
+  string request_path = 6;
+  // Usually the deciding field: injection payloads live in the query string, and a rule
+  // firing on `?id=1 OR 1=1` reads very differently from one firing on `?sort=price`.
+  string request_query = 7;
+  string request_method = 8;
+  uint32 http_status = 9;
+  // On the INVERTED scale: 1 is certainly an attack, 100 certainly clean.
+  uint32 attack_score = 10;
+  string verdict = 11;
+}
+
+message WafRuleSamplePanel {
+  repeated WafRuleSample samples = 1;
 }
 
 message WafCoverageGap {
