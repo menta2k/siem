@@ -84,6 +84,11 @@ var knownFields = map[string]bool{
 	// The other TLS fingerprints alongside JA4.
 	"JA3Hash": true, "JA4Signals": true,
 
+	// The custom-field header maps. Present on every event once a custom field is
+	// declared, and empty on most of them — an empty map is the vendor saying "the
+	// header was not on this request", not a missing field.
+	"RequestHeaders": true, "ResponseHeaders": true,
+
 	// Per-client rolling ratios and ranks this deployment adds to its job. Not part of
 	// the stock dataset, which is precisely why they must be declared: an operator's own
 	// custom fields are the one thing that is definitely not a vendor schema change.

@@ -1,6 +1,7 @@
 package cloudflare
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/menta2k/siem/internal/vendors"
@@ -246,5 +247,154 @@ func TestADataDomeCallKeepsThePayloadsOwnFields(t *testing.T) {
 		if event.RawExtra[key] == "" {
 			t.Errorf("raw_extra is missing %s, which an analyst opens this view to read", key)
 		}
+	}
+}
+
+// datadomeRecord builds the Worker's subrequest to the protection API, with the response
+// type Logs Enrichment attaches.
+func datadomeRecord(t *testing.T, status int, responseType string) vendors.RawRecord {
+	t.Helper()
+
+	headers := `{}`
+	if responseType != "" {
+		headers = `{"x-datadome-traffic-rule-response":"` + responseType + `"}`
+	}
+	payload := `{"ClientRequestHost":"api-cloudflare.datadome.co",` +
+		`"ClientRequestURI":"/validate-request/","ClientRequestMethod":"POST",` +
+		`"EdgeStartTimestamp":"2026-08-14T12:23:15Z",` +
+		`"EdgeResponseStatus":` + strconv.Itoa(status) + `,` +
+		`"ParentRayID":"8f1a2b3c4d5e6f70","RayID":"9a2b3c4d5e6f7081",` +
+		`"ResponseHeaders":` + headers + `}`
+
+	return recordFrom(t, payload)
+}
+
+// THE BUG THIS CLOSES, and it was live. A 403 from the protection API is returned for a
+// Device Check, a slider CAPTCHA and a HARD BLOCK alike. The adapter read every one of
+// them as challenged, and 11.7% of the 403s in production are hard blocks — roughly
+// 82,000 requests a day recorded as a softer verdict than they were.
+//
+// The four cases below are the four combinations observed on live traffic, with the
+// counts they appeared in over six minutes.
+func TestDataDomeResponseTypeDecidesTheVerdict(t *testing.T) {
+	tests := []struct {
+		responseType string
+		status       int
+		want         string
+		seen         string
+	}{
+		{"authorize", 200, vendors.VerdictAllowed, "3,828"},
+		{"interstitial", 403, vendors.VerdictChallenged, "135 — Device Check"},
+		{"block", 403, vendors.VerdictChallenged, "9 — slider CAPTCHA, despite the name"},
+		{"hard_block", 403, vendors.VerdictBlocked, "19 — a real block"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.responseType, func(t *testing.T) {
+			event, err := New().Normalize(datadomeRecord(t, tt.status, tt.responseType))
+			if err != nil {
+				t.Fatalf("Normalize() error = %v", err)
+			}
+
+			if event.Vendor != vendors.DataDome {
+				t.Fatalf("vendor = %q, want datadome", event.Vendor)
+			}
+			if event.Verdict != tt.want {
+				t.Errorf("verdict = %q, want %q (seen on %s requests)",
+					event.Verdict, tt.want, tt.seen)
+			}
+			// Kept verbatim, because the verdict collapses four values into three and
+			// the detail view is where the distinction is asked for.
+			if event.RawExtra["datadome_response_type"] != tt.responseType {
+				t.Errorf("response type not preserved: %v", event.RawExtra)
+			}
+		})
+	}
+}
+
+// `block` means slider CAPTCHA and `hard_block` means block. The names invite exactly
+// the wrong mapping, so the pair is pinned on its own: reading `block` as blocked would
+// manufacture false allow-vs-block disagreements against Cloudflare, which is the very
+// trap this adapter was originally written to avoid.
+func TestDataDomeBlockIsAChallengeAndHardBlockIsNot(t *testing.T) {
+	challenge, err := New().Normalize(datadomeRecord(t, 403, "block"))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if challenge.Verdict != vendors.VerdictChallenged {
+		t.Errorf("`block` = %q, want challenged — it is the slider CAPTCHA",
+			challenge.Verdict)
+	}
+
+	blocked, err := New().Normalize(datadomeRecord(t, 403, "hard_block"))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if blocked.Verdict != vendors.VerdictBlocked {
+		t.Errorf("`hard_block` = %q, want blocked", blocked.Verdict)
+	}
+}
+
+// Every event recorded before Logs Enrichment was enabled has no response type, and must
+// keep the reading it was stored with rather than losing its verdict entirely.
+func TestDataDomeFallsBackToTheStatusWithoutAResponseType(t *testing.T) {
+	tests := []struct {
+		status int
+		want   string
+	}{
+		{200, vendors.VerdictAllowed},
+		// Lossy on purpose: without the header a 403 cannot be told apart from a hard
+		// block, and challenged is the reading these events were always given.
+		{403, vendors.VerdictChallenged},
+		// The client went away before the answer arrived. DataDome decided; Cloudflare
+		// never saw which way, and unknown ranks lowest so it cannot mask a real block.
+		{499, vendors.VerdictUnknown},
+	}
+
+	for _, tt := range tests {
+		event, err := New().Normalize(datadomeRecord(t, tt.status, ""))
+		if err != nil {
+			t.Fatalf("Normalize(%d) error = %v", tt.status, err)
+		}
+		if event.Verdict != tt.want {
+			t.Errorf("status %d = %q, want %q", tt.status, event.Verdict, tt.want)
+		}
+	}
+}
+
+// A value nobody has mapped must degrade to the old status-based reading rather than to
+// no verdict. This vocabulary will grow, and an unknown addition arriving as `unknown`
+// would drop a real decision out of correlation entirely.
+func TestAnUnrecognisedResponseTypeFallsBackRatherThanFailing(t *testing.T) {
+	event, err := New().Normalize(datadomeRecord(t, 403, "some_future_action"))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if event.Verdict != vendors.VerdictChallenged {
+		t.Errorf("verdict = %q, want the status fallback of challenged", event.Verdict)
+	}
+	// Still recorded, so an operator can see what the vendor actually said.
+	if event.RawExtra["datadome_response_type"] != "some_future_action" {
+		t.Errorf("the unmapped value was not preserved: %v", event.RawExtra)
+	}
+}
+
+// Cloudflare emits the header lowercased today. A lookup depending on that silently
+// returns nothing the day it changes — and silently returning nothing here means falling
+// back to the status, which is the ambiguity this whole change exists to remove.
+func TestTheResponseHeaderLookupIsCaseInsensitive(t *testing.T) {
+	payload := `{"ClientRequestHost":"api-cloudflare.datadome.co",` +
+		`"ClientRequestURI":"/validate-request/","ClientRequestMethod":"POST",` +
+		`"EdgeStartTimestamp":"2026-08-14T12:23:15Z","EdgeResponseStatus":403,` +
+		`"ParentRayID":"8f1a2b3c4d5e6f70",` +
+		`"ResponseHeaders":{"X-DataDome-Traffic-Rule-Response":"hard_block"}}`
+
+	event, err := New().Normalize(recordFrom(t, payload))
+	if err != nil {
+		t.Fatalf("Normalize() error = %v", err)
+	}
+	if event.Verdict != vendors.VerdictBlocked {
+		t.Errorf("verdict = %q, want blocked — the header casing lost the lookup",
+			event.Verdict)
 	}
 }

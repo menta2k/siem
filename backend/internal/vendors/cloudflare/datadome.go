@@ -28,19 +28,55 @@ const (
 	dataDomeChallenged = 403
 )
 
+// trafficRuleResponse is DataDome's own name for what it decided, carried on the
+// protection API's response when Logs Enrichment is enabled.
+//
+// THE STATUS CODE CANNOT ANSWER THIS. A 403 is returned for a Device Check, for a slider
+// CAPTCHA and for a hard block alike, and measured here 11.7% of them are hard blocks —
+// roughly 82,000 requests a day that were being recorded as merely challenged. Reading a
+// real block as a softer verdict is the wrong direction for a SIEM to be wrong in, and it
+// also under-reports disagreement: a DataDome hard block against a Cloudflare allow is an
+// allow-vs-block conflict, not allow-vs-challenge.
+const trafficRuleResponseHeader = "x-datadome-traffic-rule-response"
+
+// The values DataDome sends. Taken from live traffic rather than from the documentation,
+// which describes the set without committing to the spelling.
+const (
+	dataDomeAuthorize = "authorize"
+	// interstitial is the Device Check: a JavaScript challenge the client may still pass.
+	dataDomeInterstitial = "interstitial"
+	// BLOCK IS A CHALLENGE, not a block. It is DataDome's name for the slider CAPTCHA,
+	// and the one value in this set whose name means the opposite of what it does — the
+	// hard block is the one below.
+	dataDomeBlockChallenge = "block"
+	dataDomeHardBlock      = "hard_block"
+)
+
 // dataDomeVerdict maps the protection API's answer onto the common model.
 //
-// 403 is CHALLENGED, not blocked. Every 403 DataDome's dashboard reported was a
-// "Device Check" — a JavaScript challenge the client may still pass — and calling that
-// a block would manufacture tens of thousands of false allow-vs-block disagreements a
-// day against Cloudflare, which allows the same requests. That is the same trap ASM's
-// "alerted" status sets, and it is worth being explicit about twice.
+// The response type decides it when present, because it is what DataDome actually did.
+// The status is the fallback, and it is a lossy one: it cannot separate a Device Check
+// from a hard block, so it errs toward `challenged` exactly as this adapter did before
+// Logs Enrichment was available. Events recorded then keep that reading, which is why
+// the fallback stays rather than being replaced.
 //
-// Anything else is unknown rather than a verdict. In practice that is 499: the client
-// went away before the answer was delivered. DataDome DID decide those — its dashboard
-// logs them — but Cloudflare never saw which way, and unknown ranks lowest in
-// restrictiveness precisely so a non-observation can never mask a real block.
-func dataDomeVerdict(status uint16) string {
+// Anything unrecognised falls through to the status too. A vocabulary this small will
+// grow, and a new value must degrade to the old behaviour rather than to no verdict.
+//
+// 499 has neither: the client went away before the answer was delivered. DataDome DID
+// decide those — its dashboard logs them — but Cloudflare never saw which way, and
+// unknown ranks lowest in restrictiveness precisely so a non-observation can never mask
+// a real block.
+func dataDomeVerdict(status uint16, responseType string) string {
+	switch strings.ToLower(strings.TrimSpace(responseType)) {
+	case dataDomeAuthorize:
+		return vendors.VerdictAllowed
+	case dataDomeInterstitial, dataDomeBlockChallenge:
+		return vendors.VerdictChallenged
+	case dataDomeHardBlock:
+		return vendors.VerdictBlocked
+	}
+
 	switch status {
 	case dataDomeAllowed:
 		return vendors.VerdictAllowed
@@ -49,6 +85,27 @@ func dataDomeVerdict(status uint16) string {
 	default:
 		return vendors.VerdictUnknown
 	}
+}
+
+// responseHeader reads one header out of the ResponseHeaders map Logpush attaches when a
+// custom field is configured for it.
+//
+// Matched case-insensitively. Cloudflare requires the custom field to be declared in
+// lowercase and emits it that way, but a lookup that depends on the vendor's casing is a
+// lookup that silently returns nothing the day it changes — and silently returning
+// nothing here means falling back to the status code, which is the very ambiguity this
+// exists to resolve.
+func responseHeader(fields map[string]any, name string) string {
+	headers, ok := fields["ResponseHeaders"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	for key, value := range headers {
+		if strings.EqualFold(key, name) {
+			return strings.TrimSpace(vendors.AsString(value))
+		}
+	}
+	return ""
 }
 
 // noParentRay is what Cloudflare writes in ParentRayID when a request is NOT a
@@ -103,6 +160,18 @@ func normalizeDataDomeCall(fields map[string]any) (vendors.Event, error) {
 	status := vendors.ToStatus(fields["EdgeResponseStatus"])
 	extra, unknown := collectExtra(fields)
 
+	// What DataDome says it did, which the status alone cannot express.
+	responseType := responseHeader(fields, trafficRuleResponseHeader)
+	if responseType != "" {
+		// Kept verbatim beside the verdict it produced. The verdict collapses four
+		// values into three, and the detail view is where an analyst asks which of the
+		// two challenge kinds a request actually got.
+		if extra == nil {
+			extra = map[string]string{}
+		}
+		extra["datadome_response_type"] = responseType
+	}
+
 	return vendors.Event{
 		Vendor: vendors.DataDome,
 		// Named for what it is. This is Cloudflare's view of DataDome, not DataDome's
@@ -129,12 +198,13 @@ func normalizeDataDomeCall(fields map[string]any) (vendors.Event, error) {
 		// events of the same request supply all of it correctly.
 
 		// The status the protection API returned. Stored so the observation survives
-		// independently of the verdict inferred from it: if DataDome ever starts
-		// issuing a hard block that also answers 403, this column is what makes the
-		// records recoverable without going back to the raw payloads.
+		// independently of the verdict inferred from it — and it earned that: DataDome
+		// does issue hard blocks answering 403, so for every event recorded before Logs
+		// Enrichment was enabled this column is the only thing that distinguishes a
+		// verdict read from the response type from one guessed from the status.
 		HTTPStatus: status,
 
-		Verdict: dataDomeVerdict(status),
+		Verdict: dataDomeVerdict(status, responseType),
 		// No rule id, no score. DataDome reports which model fired — "Offer Scrapers"
 		// on the traffic examined — but that never reaches Cloudflare, and inventing a
 		// reason here would be a claim the data does not support.
