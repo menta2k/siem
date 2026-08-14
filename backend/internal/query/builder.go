@@ -42,8 +42,13 @@ type Table struct {
 	// Sort is the column the cursor walks. It must be part of a total order together
 	// with Tiebreak, or paging can skip rows.
 	Sort Column
-	// Tiebreak makes the sort total when two rows share a Sort value.
+	// Tiebreak makes the sort total when two rows share a Sort value. It is also the
+	// row's identity — the ReplacingMergeTree key both searchable tables collapse on —
+	// which is what lets Dedupe below stand in for FINAL.
 	Tiebreak Column
+	// Version is the ReplacingMergeTree version column. Ordering by it descending makes
+	// the copy Dedupe keeps the newest one, which is the copy FINAL would have kept.
+	Version Column
 }
 
 // EventsTable is the searchable surface of normalized_events.
@@ -80,6 +85,7 @@ var EventsTable = Table{
 	},
 	Sort:     "event_time",
 	Tiebreak: "event_id",
+	Version:  "ingest_version",
 }
 
 // CorrelatedTable is the searchable surface of correlated_requests.
@@ -106,6 +112,7 @@ var CorrelatedTable = Table{
 	},
 	Sort:     "last_event_time",
 	Tiebreak: "correlation_id",
+	Version:  "version",
 }
 
 // Resolve maps an API field name to a physical column.
@@ -307,6 +314,29 @@ func (t Table) CursorCondition(cursor Cursor) (string, []any) {
 }
 
 // OrderBy renders the descending total order the cursor walks.
+//
+// Version comes last and does not affect paging: it only orders copies of one row
+// against each other, and every copy shares the Sort and Tiebreak values the cursor
+// compares. It is there so Dedupe keeps the newest copy rather than an arbitrary one.
 func (t Table) OrderBy() string {
-	return fmt.Sprintf(" ORDER BY %s DESC, %s DESC", t.Sort, t.Tiebreak)
+	return fmt.Sprintf(" ORDER BY %s DESC, %s DESC, %s DESC", t.Sort, t.Tiebreak, t.Version)
+}
+
+// Dedupe renders the collapse of re-ingested rows, and replaces FINAL — but ONLY for a
+// table whose Sort column cannot change between versions of a row.
+//
+// Where it can, keyset paging splits the versions across pages and this resurrects the
+// superseded one; see SearchCorrelated, which keeps FINAL for that reason.
+//
+// Both tables are ReplacingMergeTrees, so a redelivered row can be present more than
+// once until a merge collapses it, and an analyst counting occurrences of an attack
+// would count merges instead of requests. FINAL is the obvious way to say that and the
+// wrong one: it merges every part in the time range BEFORE the WHERE clause runs, so
+// the skip indexes never get to skip anything. Filtering 24h of events by rule_id took
+// 11.1s with FINAL and 0.054s without, because idx_rule could finally be used.
+//
+// LIMIT BY is applied after ORDER BY and before LIMIT, so this collapses each row to
+// its newest copy and the page limit then counts distinct rows, not copies.
+func (t Table) Dedupe() string {
+	return fmt.Sprintf(" LIMIT 1 BY %s", t.Tiebreak)
 }

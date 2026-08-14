@@ -132,9 +132,8 @@ type EventQuery struct {
 
 // SearchEvents returns one page of normalized events.
 //
-// FINAL is used because normalized_events is a ReplacingMergeTree: without it a
-// re-ingested event appears once per version, and an analyst counting occurrences of
-// an attack would count merges instead of requests.
+// Re-ingested events are collapsed with LIMIT 1 BY rather than FINAL — see
+// query.Table.Dedupe for why the obvious spelling is the slow one.
 func (r *SearchRepo) SearchEvents(
 	ctx context.Context, q EventQuery,
 ) (Page[EventSearchResult], error) {
@@ -143,7 +142,7 @@ func (r *SearchRepo) SearchEvents(
 		return Page[EventSearchResult]{}, err
 	}
 
-	sql := "SELECT " + eventSearchColumns + " FROM normalized_events FINAL " +
+	sql := "SELECT " + eventSearchColumns + " FROM normalized_events " +
 		"WHERE tenant_id = ? AND event_time >= ? AND event_time < ?"
 	args := []any{tenantID, q.Range.From, q.Range.To}
 
@@ -156,7 +155,7 @@ func (r *SearchRepo) SearchEvents(
 
 	// One row beyond the page, so "is there a next page" is answered without a second
 	// query and without a count. The extra row is trimmed before returning.
-	sql += query.EventsTable.OrderBy() + " LIMIT ?"
+	sql += query.EventsTable.OrderBy() + query.EventsTable.Dedupe() + " LIMIT ?"
 	args = append(args, q.PageSize+1)
 
 	rows, err := r.client.Query(ctx, sql, args...)
@@ -215,6 +214,18 @@ type CorrelatedQuery struct {
 }
 
 // SearchCorrelated returns one page of correlated requests.
+//
+// This one KEEPS FINAL, unlike SearchEvents. The cheap substitute there is unsafe here:
+// last_event_time is both the cursor's sort column and a value that ADVANCES when a late
+// vendor amends a record, so the versions of one record sort to different pages. Page 1
+// keeps the newest, then page 2's cursor excludes that version while still admitting the
+// superseded one — and the record appears twice, the second time reporting fewer vendors
+// than actually joined. Production holds a record in exactly that state, so this is
+// observed rather than hypothetical. An event's time never moves, which is what makes
+// the substitution safe for SearchEvents and only there.
+//
+// It also costs far less here: 1.6s over 24h against 11.1s, because this table holds
+// ~10M rows to normalized_events' ~38M and is not the query anyone reported as slow.
 func (r *SearchRepo) SearchCorrelated(
 	ctx context.Context, q CorrelatedQuery,
 ) (Page[CorrelatedRequest], error) {

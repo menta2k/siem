@@ -592,3 +592,87 @@ func TestWAFColumnsRoundTripThroughStorage(t *testing.T) {
 		}
 	}
 }
+
+// Redelivery plus paging, which the single-event case above cannot cover.
+//
+// SearchEvents drops FINAL and collapses versions with LIMIT 1 BY instead, because FINAL
+// merges every part in the time range before the WHERE clause runs and so defeats the
+// skip indexes — filtering a day of events by rule took 11.1s with it and 0.054s
+// without. The substitution is only sound while a row's SORT column cannot move between
+// versions: if it could, the versions would sort onto different pages, and the cursor
+// that excludes the newest would still admit the superseded one. That is why
+// SearchCorrelated keeps FINAL, and this test is what pins the difference.
+//
+// So: a re-ingested event sitting mid-page, walked one row at a time.
+func TestRedeliveredEventAppearsOnceWhenPaging(t *testing.T) {
+	f := support.Shared(t)
+	ctx, tenant := f.NewTenant(t, "search-redelivery-paging")
+
+	repo := chdata.NewEventRepo(f.ClickHouse)
+	newEvent := func(id string, offset time.Duration, version uint64, verdict string,
+	) chdata.NormalizedEvent {
+		return chdata.NormalizedEvent{
+			TenantID: tenant.ID, EventID: id, EventTime: searchBase.Add(offset),
+			ReceivedAt: searchBase.Add(offset), Vendor: vendors.Cloudflare,
+			ClientIP: net.ParseIP("203.0.113.11"), RequestHost: "paging.example.com",
+			RequestPath: "/checkout", RequestMethod: "GET",
+			Verdict: verdict, IngestVersion: version,
+		}
+	}
+
+	events := []chdata.NormalizedEvent{
+		newEvent("page-1", 3*time.Second, 1, vendors.VerdictAllowed),
+		newEvent("page-2", 2*time.Second, 1, vendors.VerdictAllowed),
+		newEvent("page-3", 1*time.Second, 1, vendors.VerdictAllowed),
+	}
+	if err := repo.InsertNormalized(ctx, events); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	// The middle row arrives again, corrected. Its event_time is unchanged — that is the
+	// property the whole substitution rests on.
+	amended := newEvent("page-2", 2*time.Second, 2, vendors.VerdictBlocked)
+	if err := repo.InsertNormalized(ctx, []chdata.NormalizedEvent{amended}); err != nil {
+		t.Fatalf("re-insert: %v", err)
+	}
+	f.Sync(t, "normalized_events")
+
+	search := chdata.NewSearchRepo(f.ClickHouse)
+	var seen []string
+	verdicts := map[string]string{}
+	var cursor query.Cursor
+
+	// One row per page, so every page boundary falls somewhere different — including
+	// straight after the re-ingested row, which is the position that would resurrect it.
+	for range 5 {
+		page, err := search.SearchEvents(ctx, chdata.EventQuery{
+			Range: searchRange(), PageSize: 1, Cursor: cursor,
+		})
+		if err != nil {
+			t.Fatalf("SearchEvents: %v", err)
+		}
+		if len(page.Items) == 0 {
+			break
+		}
+		for _, item := range page.Items {
+			seen = append(seen, item.EventID)
+			verdicts[item.EventID] = item.Verdict
+		}
+		if !page.HasMore() {
+			break
+		}
+		cursor = query.Cursor{
+			EventTime: page.Items[len(page.Items)-1].EventTime,
+			ID:        page.Items[len(page.Items)-1].EventID,
+		}
+	}
+
+	assertSameIDs(t, seen, []string{"page-1", "page-2", "page-3"})
+	if len(seen) != 3 {
+		t.Fatalf("walked %d rows for 3 events, want 3: %v — a superseded version came "+
+			"back on a later page", len(seen), seen)
+	}
+	if verdicts["page-2"] != vendors.VerdictBlocked {
+		t.Errorf("page-2 verdict = %q, want the latest version's value",
+			verdicts["page-2"])
+	}
+}
