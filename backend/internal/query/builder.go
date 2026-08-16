@@ -74,14 +74,25 @@ var EventsTable = Table{
 		"ja4":            "ja4",
 		// The WAF profile. `waf_attack_score` is filtered as a RANGE (show me what
 		// scored as an attack) and is backed by a minmax index for exactly that.
-		"waf_attack_score":  "waf_attack_score",
-		"waf_action":        "waf_action",
-		"waf_source":        "waf_source",
-		"verdict":           "verdict",
-		"rule_id":           "rule_id",
-		"score":             "score",
-		"score_kind":        "score_kind",
+		"waf_attack_score": "waf_attack_score",
+		"waf_action":       "waf_action",
+		"waf_source":       "waf_source",
+		"verdict":          "verdict",
+		"rule_id":          "rule_id",
+		"score":            "score",
+		"score_kind":       "score_kind",
+		// The two vendor identifiers. Both are exact-match lookups of a
+		// high-cardinality value and both are backed by a bloom filter, added with the
+		// columns in migrations 0008 and 0009.
+		//
+		// vendor_event_id was MISSING here while the search service filtered on it and
+		// the console offered it as a field, so every search by an F5 support id — the
+		// identifier printed on the block page a user quotes to support — failed with
+		// "unknown filter field". The allowlist is the only thing that admits a column,
+		// and a filter it rejects fails the whole query rather than being dropped, so
+		// the omission was total rather than silent.
 		"vendor_request_id": "vendor_request_id",
+		"vendor_event_id":   "vendor_event_id",
 	},
 	Sort:     "event_time",
 	Tiebreak: "event_id",
