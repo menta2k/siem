@@ -33,6 +33,7 @@ var endpoints = []endpoint{
 	{"change tenant settings", "/api/v1/admin/tenant", "PATCH"},
 	{"purge data", "/api/v1/admin/purge", "POST"},
 	{"read audit", "/api/v1/audit", "GET"},
+	{"read waf migration", "/api/v1/waf-migration/ready", "GET"},
 	{"ingest events", "/ingest/v1/cloudflare/abc", "POST"},
 }
 
@@ -44,24 +45,31 @@ var permissionMatrix = map[string]map[string]bool{
 		"read correlated": true, "read dashboards": true, "create alert rule": true,
 		"acknowledge alert": true, "manage users": true, "change tenant settings": true,
 		"purge data": true, "read audit": true, "ingest events": false,
+		"read waf migration": true,
 	},
 	auth.RoleAnalyst: {
 		"read feeds": true, "create feed": false, "search events": true, "export results": true,
 		"read correlated": true, "read dashboards": true, "create alert rule": false,
 		"acknowledge alert": true, "manage users": false, "change tenant settings": false,
 		"purge data": false, "read audit": false, "ingest events": false,
+		// An analyst is who runs a WAF migration; it is evidence, not administration.
+		"read waf migration": true,
 	},
 	auth.RoleAuditor: {
 		"read feeds": true, "create feed": false, "search events": true, "export results": false,
 		"read correlated": true, "read dashboards": true, "create alert rule": false,
 		"acknowledge alert": false, "manage users": false, "change tenant settings": false,
 		"purge data": false, "read audit": true, "ingest events": false,
+		// Read-only does not mean read-everything: an auditor reviews what was done, and
+		// tuning evidence is not part of that record.
+		"read waf migration": false,
 	},
 	auth.RoleIngestOnly: {
 		"read feeds": false, "create feed": false, "search events": false, "export results": false,
 		"read correlated": false, "read dashboards": false, "create alert rule": false,
 		"acknowledge alert": false, "manage users": false, "change tenant settings": false,
 		"purge data": false, "read audit": false, "ingest events": true,
+		"read waf migration": false,
 	},
 }
 

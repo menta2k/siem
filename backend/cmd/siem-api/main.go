@@ -187,6 +187,11 @@ func buildServices(
 		// resolver the rest of the console uses, so a rule reads by name here too.
 		WafTuning: service.NewWAFTuningService(
 			clickhouse.NewWAFTuningRepo(ch), limits, ruleNames),
+		// Reads the correlated records rather than the rollups: every question the
+		// migration asks is about what the OTHER vendor did with the same request, which
+		// only the correlated record can answer.
+		WafMigration: service.NewWAFMigrationService(
+			clickhouse.NewWAFMigrationRepo(ch), limits, ruleNames),
 		Alerts: buildAlertsService(rdb, alertingRepo, auditLog),
 	}
 }

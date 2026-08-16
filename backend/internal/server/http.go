@@ -32,6 +32,8 @@ type Services struct {
 	Alerts      pb.AlertsHTTPServer
 	Admin       pb.AdminHTTPServer
 	WafTuning   pb.WafTuningHTTPServer
+	// WafMigration is the F5-to-Cloudflare move, read from correlated records.
+	WafMigration pb.WafMigrationHTTPServer
 }
 
 // HTTPOptions are the cross-cutting concerns every route shares.
@@ -93,6 +95,7 @@ func NewHTTPServer(services Services, opts HTTPOptions) *http.Server {
 	pb.RegisterAlertsHTTPServer(srv, services.Alerts)
 	pb.RegisterAdminHTTPServer(srv, services.Admin)
 	pb.RegisterWafTuningHTTPServer(srv, services.WafTuning)
+	pb.RegisterWafMigrationHTTPServer(srv, services.WafMigration)
 
 	mountOperational(srv, opts.Health)
 	return srv

@@ -59,6 +59,14 @@ p, admin, *, /api/v1/waf-tuning/rules/:id/samples, GET
 p, admin, *, /api/v1/waf-tuning/rules/:id/corroboration, GET
 p, admin, *, /api/v1/waf-tuning/gaps, GET
 
+# Moving enforcement from F5 to Cloudflare. Read-only evidence like the tuning views
+# above, and gated the same way: it reports which rule is ready to enforce and never
+# writes one, so it belongs with the analytical reads and not with the admin writes.
+p, admin, *, /api/v1/waf-migration/uncovered, GET
+p, admin, *, /api/v1/waf-migration/ready, GET
+p, admin, *, /api/v1/waf-migration/false-positives, GET
+p, admin, *, /api/v1/waf-migration/samples, GET
+
 p, admin, *, /api/v1/admin/users, GET
 p, admin, *, /api/v1/admin/users, POST
 p, admin, *, /api/v1/admin/users/:id, PATCH
@@ -105,6 +113,11 @@ p, analyst, *, /api/v1/waf-tuning/rules/:id/paths, GET
 p, analyst, *, /api/v1/waf-tuning/rules/:id/samples, GET
 p, analyst, *, /api/v1/waf-tuning/rules/:id/corroboration, GET
 p, analyst, *, /api/v1/waf-tuning/gaps, GET
+
+p, analyst, *, /api/v1/waf-migration/uncovered, GET
+p, analyst, *, /api/v1/waf-migration/ready, GET
+p, analyst, *, /api/v1/waf-migration/false-positives, GET
+p, analyst, *, /api/v1/waf-migration/samples, GET
 
 p, analyst, *, /api/v1/alert-rules, GET
 p, analyst, *, /api/v1/alert-rules/:id/preview, POST

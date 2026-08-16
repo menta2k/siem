@@ -1,0 +1,314 @@
+package service
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	pb "github.com/menta2k/siem/api/gen/siem/v1"
+	chdata "github.com/menta2k/siem/internal/data/clickhouse"
+	"github.com/menta2k/siem/internal/query"
+)
+
+// stubMigrationReader records what the service asked for and returns what it is told to.
+type stubMigrationReader struct {
+	uncovered []chdata.WAFUncoveredGroup
+	rules     []chdata.WAFRuleAgreement
+	samples   []chdata.WAFMigrationSample
+
+	gotFilter   chdata.WAFMigrationFilter
+	gotReadings []string
+	gotSelector chdata.WAFMigrationSelector
+	gotLimit    int
+}
+
+func (s *stubMigrationReader) Uncovered(
+	_ context.Context, q chdata.DashboardQuery, filter chdata.WAFMigrationFilter,
+) ([]chdata.WAFUncoveredGroup, error) {
+	s.gotFilter, s.gotLimit = filter, q.Limit
+	return s.uncovered, nil
+}
+
+func (s *stubMigrationReader) RuleAgreement(
+	_ context.Context, q chdata.DashboardQuery, filter chdata.WAFMigrationFilter,
+	readings []string,
+) ([]chdata.WAFRuleAgreement, error) {
+	s.gotFilter, s.gotReadings, s.gotLimit = filter, readings, q.Limit
+	return s.rules, nil
+}
+
+func (s *stubMigrationReader) Samples(
+	_ context.Context, sel chdata.WAFMigrationSelector, q chdata.DashboardQuery,
+) ([]chdata.WAFMigrationSample, error) {
+	s.gotSelector, s.gotLimit = sel, q.Limit
+	return s.samples, nil
+}
+
+// stubRuleNamer stands in for the Cloudflare rule resolver.
+type stubRuleNamer struct{ names map[string]string }
+
+func (s stubRuleNamer) Describe(_ context.Context, _ []string) map[string]string {
+	return s.names
+}
+
+var migrationNow = time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+
+func migrationService(reader WAFMigrationReader, namer RuleNamer) *WAFMigrationService {
+	s := NewWAFMigrationService(reader, query.DefaultLimits(), namer)
+	s.now = func() time.Time { return migrationNow }
+	return s
+}
+
+func migrationRange() *pb.TimeRange {
+	return &pb.TimeRange{
+		From: timestamppb.New(migrationNow.Add(-24 * time.Hour)),
+		To:   timestamppb.New(migrationNow),
+	}
+}
+
+// An unbounded scan is rejected here exactly as everywhere else. A panel that offers a
+// control producing a guaranteed error teaches analysts the tool is broken.
+func TestMigrationRequiresATimeRange(t *testing.T) {
+	svc := migrationService(&stubMigrationReader{}, nil)
+
+	if _, err := svc.GetUncovered(context.Background(), &pb.WafMigrationRequest{}); err == nil {
+		t.Error("uncovered accepted a request with no time range")
+	}
+	if _, err := svc.GetReadyToEnforce(
+		context.Background(), &pb.WafMigrationRequest{}); err == nil {
+		t.Error("ready accepted a request with no time range")
+	}
+}
+
+func TestUncoveredCarriesEveryCountThrough(t *testing.T) {
+	reader := &stubMigrationReader{uncovered: []chdata.WAFUncoveredGroup{{
+		Violation:             "Illegal file type",
+		RequestHost:           "www.jobs.bg",
+		RequestMethod:         "GET",
+		Requests:              84,
+		Paths:                 60,
+		Clients:               67,
+		CloudflareAllowlisted: 1,
+		FirstSeen:             migrationNow.Add(-20 * time.Hour),
+		LastSeen:              migrationNow,
+	}}}
+
+	panel, err := migrationService(reader, nil).GetUncovered(
+		context.Background(), &pb.WafMigrationRequest{TimeRange: migrationRange()})
+	if err != nil {
+		t.Fatalf("GetUncovered: %v", err)
+	}
+
+	if len(panel.GetGroups()) != 1 {
+		t.Fatalf("groups = %d, want 1", len(panel.GetGroups()))
+	}
+	g := panel.GetGroups()[0]
+	if g.GetViolation() != "Illegal file type" || g.GetRequests() != 84 {
+		t.Errorf("group = %q/%d, want the violation and count as read", g.GetViolation(), g.GetRequests())
+	}
+	// The one that is easy to drop and changes the action entirely: an exemption already
+	// in place means a new detection rule behind it would do nothing.
+	if g.GetCloudflareAllowlisted() != 1 {
+		t.Errorf("allowlisted = %d, want 1", g.GetCloudflareAllowlisted())
+	}
+}
+
+// The host filter is what makes a migration runnable site by site, and it has to reach
+// storage rather than be applied to the response.
+func TestMigrationPassesTheHostFilterToStorage(t *testing.T) {
+	reader := &stubMigrationReader{}
+	_, err := migrationService(reader, nil).GetUncovered(
+		context.Background(), &pb.WafMigrationRequest{
+			TimeRange: migrationRange(), RequestHost: "api.jobs.bg", Limit: 25,
+		})
+	if err != nil {
+		t.Fatalf("GetUncovered: %v", err)
+	}
+
+	if reader.gotFilter.RequestHost != "api.jobs.bg" {
+		t.Errorf("host filter = %q, want it passed through to storage", reader.gotFilter.RequestHost)
+	}
+	if reader.gotLimit != 25 {
+		t.Errorf("limit = %d, want 25", reader.gotLimit)
+	}
+}
+
+// The two rule stages read the SAME measurement from opposite ends. Which readings each
+// asks for is the whole difference between them, and getting it wrong would show a rule
+// as ready to enforce on the false-positive screen.
+func TestRuleStagesAskForOppositeReadings(t *testing.T) {
+	reader := &stubMigrationReader{}
+	svc := migrationService(reader, nil)
+	req := &pb.WafMigrationRequest{TimeRange: migrationRange()}
+
+	if _, err := svc.GetReadyToEnforce(context.Background(), req); err != nil {
+		t.Fatalf("GetReadyToEnforce: %v", err)
+	}
+	// Disputed rides along with ready: a rule the vendors half agree on is the case that
+	// most needs a person, and it would otherwise appear on no screen at all.
+	if len(reader.gotReadings) != 2 ||
+		reader.gotReadings[0] != chdata.ReadingReady ||
+		reader.gotReadings[1] != chdata.ReadingDisputed {
+		t.Errorf("ready stage asked for %v, want ready and disputed", reader.gotReadings)
+	}
+
+	if _, err := svc.GetFalsePositives(context.Background(), req); err != nil {
+		t.Fatalf("GetFalsePositives: %v", err)
+	}
+	if len(reader.gotReadings) != 1 || reader.gotReadings[0] != chdata.ReadingFalsePositive {
+		t.Errorf("false-positive stage asked for %v, want false_positive alone", reader.gotReadings)
+	}
+}
+
+// The three F5 counts are the finding. Merging any two of them would make a rule read as
+// ready to enforce, or as a false positive, on evidence that says neither.
+func TestAgreementKeepsTheThreeF5CountsApart(t *testing.T) {
+	reader := &stubMigrationReader{rules: []chdata.WAFRuleAgreement{{
+		RuleID:     "23548ee2b36547a1be09bb2c0550c529",
+		Action:     "monitored",
+		Correlated: 147,
+		F5Blocked:  140,
+		F5Flagged:  4,
+		F5Allowed:  3,
+		Hosts:      2,
+		Reading:    chdata.ReadingReady,
+	}}}
+	namer := stubRuleNamer{names: map[string]string{
+		"23548ee2b36547a1be09bb2c0550c529": "Block WordPress probes",
+	}}
+
+	panel, err := migrationService(reader, namer).GetReadyToEnforce(
+		context.Background(), &pb.WafMigrationRequest{TimeRange: migrationRange()})
+	if err != nil {
+		t.Fatalf("GetReadyToEnforce: %v", err)
+	}
+
+	r := panel.GetRules()[0]
+	if r.GetF5Blocked() != 140 || r.GetF5Flagged() != 4 || r.GetF5Allowed() != 3 {
+		t.Errorf("counts = %d/%d/%d, want 140/4/3 kept separate",
+			r.GetF5Blocked(), r.GetF5Flagged(), r.GetF5Allowed())
+	}
+	if r.GetCorrelated() != 147 {
+		t.Errorf("correlated = %d, want the denominator carried through", r.GetCorrelated())
+	}
+	// A bare id is unreadable in a decision this consequential.
+	if r.GetRuleDescription() != "Block WordPress probes" {
+		t.Errorf("description = %q, want the rule named", r.GetRuleDescription())
+	}
+}
+
+// A deployment with no Cloudflare token has no namer. That is a degraded display, not an
+// error, and it must not panic.
+func TestAgreementWithoutANamerReturnsBareIDs(t *testing.T) {
+	reader := &stubMigrationReader{rules: []chdata.WAFRuleAgreement{{RuleID: "abc"}}}
+
+	panel, err := migrationService(reader, nil).GetFalsePositives(
+		context.Background(), &pb.WafMigrationRequest{TimeRange: migrationRange()})
+	if err != nil {
+		t.Fatalf("GetFalsePositives: %v", err)
+	}
+	if panel.GetRules()[0].GetRuleDescription() != "" {
+		t.Error("a rule was described without a resolver")
+	}
+}
+
+// Without a key this is "every correlated request in the range", which is a search — and
+// the search page already does that better.
+func TestSamplesRequireAGroupKey(t *testing.T) {
+	svc := migrationService(&stubMigrationReader{}, nil)
+
+	_, err := svc.GetMigrationSamples(context.Background(),
+		&pb.WafMigrationSampleRequest{TimeRange: migrationRange()})
+	if err == nil {
+		t.Error("samples were returned for no group at all")
+	}
+}
+
+// An unrecognised verdict would return nothing, which reads as "no such traffic" rather
+// than "that is not a verdict".
+func TestSamplesRejectAnUnknownVerdict(t *testing.T) {
+	svc := migrationService(&stubMigrationReader{}, nil)
+
+	_, err := svc.GetMigrationSamples(context.Background(), &pb.WafMigrationSampleRequest{
+		TimeRange: migrationRange(), RuleId: "abc", F5Verdict: "challenged",
+	})
+	if err == nil {
+		t.Error("an F5 verdict F5 never reports was accepted")
+	}
+
+	for _, verdict := range []string{"blocked", "monitored", "allowed", ""} {
+		if _, err := svc.GetMigrationSamples(context.Background(),
+			&pb.WafMigrationSampleRequest{
+				TimeRange: migrationRange(), RuleId: "abc", F5Verdict: verdict,
+			}); err != nil {
+			t.Errorf("verdict %q was rejected: %v", verdict, err)
+		}
+	}
+}
+
+func TestSamplesCarryBothVendorsAndEveryViolation(t *testing.T) {
+	reader := &stubMigrationReader{samples: []chdata.WAFMigrationSample{{
+		CorrelationID:     "3066ba52-59c3-4e23-ba98-b194b3978126",
+		F5EventID:         "f5-event",
+		CloudflareEventID: "cf-event",
+		EventTime:         migrationNow,
+		RequestHost:       "www.jobs.bg",
+		RequestPath:       "/306d8a667e8d58.webp",
+		F5Verdict:         "blocked",
+		F5Violations: []string{
+			"Illegal request length", "Illegal URL length", "Illegal file type",
+		},
+		CloudflareVerdict: "allowed",
+		AttackScore:       93,
+	}}}
+
+	panel, err := migrationService(reader, nil).GetMigrationSamples(
+		context.Background(), &pb.WafMigrationSampleRequest{
+			TimeRange: migrationRange(), Violation: "Illegal file type",
+			RequestHost: "www.jobs.bg", RequestMethod: "GET", F5Verdict: "blocked",
+		})
+	if err != nil {
+		t.Fatalf("GetMigrationSamples: %v", err)
+	}
+
+	// Every part of the row that was clicked has to reach storage, or the samples belong
+	// to a different group than the counts did.
+	want := chdata.WAFMigrationSelector{
+		Violation: "Illegal file type", RequestHost: "www.jobs.bg",
+		RequestMethod: "GET", F5Verdict: "blocked",
+	}
+	if reader.gotSelector != want {
+		t.Errorf("selector = %+v, want %+v", reader.gotSelector, want)
+	}
+
+	s := panel.GetSamples()[0]
+	if s.GetF5EventId() != "f5-event" || s.GetCloudflareEventId() != "cf-event" {
+		t.Error("both vendor event ids must survive, so either can be opened")
+	}
+	// A request that tripped three violations is a different case from one that tripped
+	// the grouped one alone.
+	if len(s.GetF5Violations()) != 3 {
+		t.Errorf("violations = %v, want all three", s.GetF5Violations())
+	}
+	if s.GetAttackScore() != 93 {
+		t.Errorf("attack score = %d, want 93", s.GetAttackScore())
+	}
+}
+
+// A zero address rendered as "::" reads as a real one.
+func TestSamplesOmitAnAbsentClientAddress(t *testing.T) {
+	reader := &stubMigrationReader{samples: []chdata.WAFMigrationSample{{F5EventID: "e"}}}
+
+	panel, err := migrationService(reader, nil).GetMigrationSamples(
+		context.Background(), &pb.WafMigrationSampleRequest{
+			TimeRange: migrationRange(), RuleId: "abc",
+		})
+	if err != nil {
+		t.Fatalf("GetMigrationSamples: %v", err)
+	}
+	if panel.GetSamples()[0].GetClientIp() != "" {
+		t.Errorf("client ip = %q, want empty", panel.GetSamples()[0].GetClientIp())
+	}
+}

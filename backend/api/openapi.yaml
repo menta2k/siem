@@ -1223,6 +1223,173 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ExportSearchResponse'
+    /api/v1/waf-migration/false-positives:
+        get:
+            tags:
+                - WafMigration
+            description: Stage 3. Cloudflare rules running in log mode on traffic F5 lets through.
+            operationId: WafMigration_GetFalsePositives
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: limit
+                  in: query
+                  description: Caps the rows returned. Clamped server-side.
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: requestHost
+                  in: query
+                  description: |-
+                    Optional. Narrows to one site, which is how a migration is actually run: host by
+                     host, not all at once. Applied server-side and before the limit.
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/WafRuleAgreementPanel'
+    /api/v1/waf-migration/ready:
+        get:
+            tags:
+                - WafMigration
+            description: Stage 2. Cloudflare rules running in log mode that F5 independently blocks.
+            operationId: WafMigration_GetReadyToEnforce
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: limit
+                  in: query
+                  description: Caps the rows returned. Clamped server-side.
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: requestHost
+                  in: query
+                  description: |-
+                    Optional. Narrows to one site, which is how a migration is actually run: host by
+                     host, not all at once. Applied server-side and before the limit.
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/WafRuleAgreementPanel'
+    /api/v1/waf-migration/samples:
+        get:
+            tags:
+                - WafMigration
+            description: |-
+                The requests behind any row on any of the three stages, with BOTH verdicts on each.
+                 The counts say a group is worth acting on; only the requests say what to write.
+            operationId: WafMigration_GetMigrationSamples
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: limit
+                  in: query
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: violation
+                  in: query
+                  description: 'Stage 1: the F5 violation the group is keyed on.'
+                  schema:
+                    type: string
+                - name: ruleId
+                  in: query
+                  description: 'Stages 2 and 3: the Cloudflare rule the group is keyed on.'
+                  schema:
+                    type: string
+                - name: requestHost
+                  in: query
+                  schema:
+                    type: string
+                - name: requestMethod
+                  in: query
+                  schema:
+                    type: string
+                - name: f5Verdict
+                  in: query
+                  description: |-
+                    Optional. Narrows to what F5 did: blocked | monitored | allowed. This is what makes
+                     one sample list serve all three stages.
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/WafMigrationSamplePanel'
+    /api/v1/waf-migration/uncovered:
+        get:
+            tags:
+                - WafMigration
+            description: Stage 1. Traffic F5 blocked that no Cloudflare rule matched at all.
+            operationId: WafMigration_GetUncovered
+            parameters:
+                - name: timeRange.from
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: timeRange.to
+                  in: query
+                  schema:
+                    type: string
+                    format: date-time
+                - name: limit
+                  in: query
+                  description: Caps the rows returned. Clamped server-side.
+                  schema:
+                    type: integer
+                    format: uint32
+                - name: requestHost
+                  in: query
+                  description: |-
+                    Optional. Narrows to one site, which is how a migration is actually run: host by
+                     host, not all at once. Applied server-side and before the limit.
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/WafUncoveredPanel'
     /api/v1/waf-tuning/gaps:
         get:
             tags:
@@ -3302,6 +3469,66 @@ components:
 
                  The range is 1-100, not the 1-99 Cloudflare documents — it emits 100 for a
                  definitively clean request, and that is the most common value in real traffic.
+        WafMigrationSample:
+            type: object
+            properties:
+                correlationId:
+                    type: string
+                    description: The correlated record, so a client can open the full cross-vendor timeline.
+                f5EventId:
+                    type: string
+                    description: The F5 event, whose raw payload carries the violation and the request that caused it.
+                cloudflareEventId:
+                    type: string
+                    description: The Cloudflare event, for its scores and rule attribution.
+                eventTime:
+                    type: string
+                    format: date-time
+                clientIp:
+                    type: string
+                country:
+                    type: string
+                clientAsn:
+                    type: integer
+                    format: uint32
+                requestHost:
+                    type: string
+                requestPath:
+                    type: string
+                requestQuery:
+                    type: string
+                requestMethod:
+                    type: string
+                userAgent:
+                    type: string
+                f5Verdict:
+                    type: string
+                f5Violations:
+                    type: array
+                    items:
+                        type: string
+                    description: |-
+                        Every violation F5 recorded on this request, not only the one being grouped on. A
+                         request that tripped four violations is a different case from one that tripped this
+                         one alone.
+                cloudflareVerdict:
+                    type: string
+                cloudflareRuleId:
+                    type: string
+                attackScore:
+                    type: integer
+                    description: |-
+                        On the INVERTED scale: 1 is certainly an attack, 100 certainly clean. 0 when the
+                         request carried no score.
+                    format: uint32
+            description: WafMigrationSample is one request as BOTH vendors saw it.
+        WafMigrationSamplePanel:
+            type: object
+            properties:
+                samples:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/WafMigrationSample'
         WafPathCount:
             type: object
             properties:
@@ -3314,6 +3541,72 @@ components:
                 meanScore:
                     type: number
                     format: double
+        WafRuleAgreement:
+            type: object
+            properties:
+                ruleId:
+                    type: string
+                ruleDescription:
+                    type: string
+                    description: |-
+                        What the rule is CALLED, resolved on read from the tenant's own rule table. Empty
+                         when it cannot be named — no API token configured, or the rule has been deleted.
+                action:
+                    type: string
+                    description: |-
+                        The vendor's own verb for what Cloudflare currently does: log | simulate. A rule
+                         already blocking is not a migration candidate and does not appear here.
+                correlated:
+                    type: string
+                    description: |-
+                        How many of this rule's requests joined an F5 record at all. THE DENOMINATOR: two
+                         confirmations out of two is a very different finding from two out of two hundred.
+                f5Blocked:
+                    type: string
+                f5Flagged:
+                    type: string
+                    description: 'Flagged but not enforced: F5 saw it and let it through anyway.'
+                f5Allowed:
+                    type: string
+                hosts:
+                    type: string
+                requestHost:
+                    type: string
+                    description: |-
+                        The site this rule fires on, when it only fires on one. Empty when several, because
+                         naming one of them would be wrong.
+                reading:
+                    type: string
+                    description: |-
+                        How the split reads, as one of: ready | disputed | false_positive | insufficient.
+                         Computed server-side from the counts so the value a filter matches and the value
+                         shown beside it cannot drift apart.
+
+                           ready         F5 blocks nearly everything this rule logs — safe to enforce
+                           disputed      both vendors have a real share, so it needs reading before acting
+                           false_positive F5 lets through nearly everything this rule logs
+                           insufficient  too few correlated requests to say anything yet
+                firstSeen:
+                    type: string
+                    format: date-time
+                lastSeen:
+                    type: string
+                    format: date-time
+            description: |-
+                WafRuleAgreement is one Cloudflare rule measured against F5 on the same requests.
+
+                 THE THREE F5 COUNTS ARE NEVER MERGED. F5 has a transparent mode of its own, and a
+                 request it flagged without blocking is weaker evidence than one it stopped and
+                 stronger than one it ignored. Folding "flagged" into either neighbour would make a
+                 rule look ready to enforce, or look like a false positive, on evidence that says
+                 neither.
+        WafRuleAgreementPanel:
+            type: object
+            properties:
+                rules:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/WafRuleAgreement'
         WafRulePathsPanel:
             type: object
             properties:
@@ -3424,6 +3717,50 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/WafRuleSample'
+        WafUncoveredGroup:
+            type: object
+            properties:
+                violation:
+                    type: string
+                    description: |-
+                        F5's own violation name — "Attack signature detected", "Illegal meta character in
+                         URL". This is what the new Cloudflare rule has to reproduce.
+                requestHost:
+                    type: string
+                requestMethod:
+                    type: string
+                requests:
+                    type: string
+                paths:
+                    type: string
+                    description: |-
+                        Breadth, which separates a targeted probe from a scan: 40 requests across 2 paths
+                         is one broken client, across 30 paths it is someone walking the site.
+                clients:
+                    type: string
+                cloudflareAllowlisted:
+                    type: string
+                    description: |-
+                        Requests in this group where a Cloudflare rule DID match but its action allowed
+                         them through — a skip or an allow. Reported separately because it needs the
+                         opposite fix: an existing exemption is overriding the edge, so adding a detection
+                         rule behind it would change nothing.
+                firstSeen:
+                    type: string
+                    format: date-time
+                lastSeen:
+                    type: string
+                    format: date-time
+            description: |-
+                WafUncoveredGroup is one F5 violation on one host and method that Cloudflare did not
+                 act on: the unit a single Cloudflare rule would be written for.
+        WafUncoveredPanel:
+            type: object
+            properties:
+                groups:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/WafUncoveredGroup'
 tags:
     - name: Admin
     - name: Alerts
@@ -3436,4 +3773,5 @@ tags:
     - name: Dashboards
     - name: Feeds
     - name: Search
+    - name: WafMigration
     - name: WafTuning

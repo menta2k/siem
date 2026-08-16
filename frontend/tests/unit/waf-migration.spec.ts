@@ -1,0 +1,163 @@
+import { describe, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { createVuetify } from 'vuetify'
+import * as components from 'vuetify/components'
+import * as directives from 'vuetify/directives'
+import { createPinia, setActivePinia } from 'pinia'
+
+import RuleAgreementTable from '@/components/RuleAgreementTable.vue'
+import {
+  MIGRATION_RANGES,
+  DEFAULT_MIGRATION_HOURS,
+  useMigrationRange,
+} from '@/composables/useMigrationRange'
+
+// The samples component fires its own request on mount; the table under test is what
+// matters here, so it is stubbed out.
+vi.mock('@/components/MigrationSamples.vue', () => ({
+  default: { name: 'MigrationSamples', template: '<div class="samples-stub" />' },
+}))
+
+const vuetify = createVuetify({ components, directives })
+
+const range = { from: '2026-08-09T00:00:00Z', to: '2026-08-16T00:00:00Z' }
+
+function rule(overrides: Record<string, unknown> = {}) {
+  return {
+    ruleId: '23548ee2b36547a1be09bb2c0550c529',
+    ruleDescription: 'Block WordPress probes',
+    action: 'monitored',
+    correlated: '147',
+    f5Blocked: '140',
+    f5Flagged: '4',
+    f5Allowed: '3',
+    hosts: '1',
+    requestHost: 'jobs.bg',
+    reading: 'ready',
+    lastSeen: '2026-08-16T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function render(
+  rules: ReturnType<typeof rule>[],
+  sampleVerdict: 'blocked' | 'allowed' = 'blocked',
+) {
+  setActivePinia(createPinia())
+  return mount(RuleAgreementTable, {
+    props: { rules, range, sampleVerdict },
+    global: { plugins: [vuetify] },
+  })
+}
+
+describe('RuleAgreementTable', () => {
+  // THE POINT OF THE WHOLE STAGE. F5 has a transparent mode of its own, so a request it
+  // flagged without blocking is weaker evidence than one it stopped and stronger than one
+  // it ignored. Merging any two of these counts would make a rule read as ready to
+  // enforce, or as a false positive, on evidence that says neither.
+  it('shows the three F5 counts separately', () => {
+    const view = render([rule()])
+    const text = view.text()
+
+    expect(text).toContain('140')
+    expect(text).toContain('4')
+    expect(text).toContain('3')
+    // The denominator: two confirmations out of two is not two out of two hundred.
+    expect(text).toContain('147')
+  })
+
+  // A 32-character hex id is unreadable in a decision this consequential, but it is also
+  // what gets pasted into the Cloudflare dashboard — so both are shown.
+  it('names the rule and keeps its id', () => {
+    const view = render([rule()])
+
+    expect(view.text()).toContain('Block WordPress probes')
+    expect(view.text()).toContain('23548ee2b36547a1be09bb2c0550c529')
+  })
+
+  it('falls back to the id alone when the rule cannot be named', () => {
+    const view = render([rule({ ruleDescription: '' })])
+
+    expect(view.text()).toContain('23548ee2b36547a1be09bb2c0550c529')
+  })
+
+  // The reading is computed server-side so the stage a rule appears under and the label
+  // beside it cannot drift. The component only translates it.
+  it('translates every reading the server can send', () => {
+    for (const [reading, label] of [
+      ['ready', 'ready to enforce'],
+      ['disputed', 'needs a look'],
+      ['false_positive', 'likely false positive'],
+      ['insufficient', 'not enough evidence'],
+    ]) {
+      expect(render([rule({ reading })]).text()).toContain(label)
+    }
+  })
+
+  // An unknown reading must not render an empty chip: a blank verdict on this table reads
+  // as "no opinion" when it actually means the client is out of date with the server.
+  it('degrades to insufficient for a reading it does not know', () => {
+    expect(render([rule({ reading: 'something_new' })]).text()).toContain('not enough evidence')
+  })
+
+  // Naming one of several hosts would be wrong, so the server sends an empty host and a
+  // count instead.
+  it('says how many hosts when a rule fires on more than one', () => {
+    expect(render([rule({ requestHost: '', hosts: '4' })]).text()).toContain('4 hosts')
+  })
+
+  it('opens the requests behind a rule when the row is clicked', async () => {
+    const view = render([rule()])
+    expect(view.find('.samples-stub').exists()).toBe(false)
+
+    await view.find('tbody tr').trigger('click')
+    expect(view.find('.samples-stub').exists()).toBe(true)
+
+    await view.find('tbody tr').trigger('click')
+    expect(view.find('.samples-stub').exists()).toBe(false)
+  })
+
+  // A rule with no correlated requests would divide by zero and render NaN-wide bars.
+  it('survives a rule with nothing correlated', () => {
+    const view = render([rule({ correlated: '0', f5Blocked: '0', f5Flagged: '0', f5Allowed: '0' })])
+
+    expect(view.html()).not.toContain('NaN')
+  })
+})
+
+describe('useMigrationRange', () => {
+  // A migration decision is made on accumulated agreement. This deployment sees ~50 F5
+  // blocks a day, so an hour of evidence is a handful of requests and cannot support
+  // turning a rule on.
+  it('defaults to a week, not an hour', () => {
+    const { rangeHours } = useMigrationRange()
+
+    expect(rangeHours.value).toBe(DEFAULT_MIGRATION_HOURS)
+    expect(DEFAULT_MIGRATION_HOURS).toBe(168)
+    expect(Math.min(...MIGRATION_RANGES.map((r) => r.value))).toBe(24)
+  })
+
+  // The host reaches the SERVER. Rows come back ordered by volume, so filtering the
+  // response would leave a quiet host crowded out of the limit before the client saw it.
+  it('sends the host to the server, trimmed, and omits it when blank', () => {
+    const { host, queryParams } = useMigrationRange()
+
+    expect(queryParams()).not.toHaveProperty('requestHost')
+
+    host.value = '  api.jobs.bg  '
+    expect(queryParams().requestHost).toBe('api.jobs.bg')
+
+    host.value = '   '
+    expect(queryParams()).not.toHaveProperty('requestHost')
+  })
+
+  it('spans exactly the selected number of hours', () => {
+    const { rangeHours, currentRange } = useMigrationRange()
+    rangeHours.value = 72
+
+    const { from, to } = currentRange()
+    const hours = (Date.parse(to) - Date.parse(from)) / 3_600_000
+
+    expect(hours).toBeCloseTo(72, 5)
+  })
+})

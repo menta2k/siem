@@ -13,6 +13,8 @@ interface NavItem {
   icon: string
   to: string
   visible: boolean
+  /** Sub-items, for a section that is several worklists rather than one page. */
+  children?: NavItem[]
 }
 
 // Items are hidden when the role cannot use them. This is navigation hygiene, not
@@ -32,6 +34,35 @@ const navItems = computed<NavItem[]>(() => [
     icon: 'mdi-shield-search',
     to: '/waf-tuning',
     visible: auth.can.manageRules || auth.can.triageAlerts,
+  },
+  {
+    // Three sub-items rather than one page: the stages of moving enforcement from F5 to
+    // Cloudflare are three different worklists, done in order, with a different action
+    // at the end of each. Collapsing them into one screen would hide that order.
+    title: 'WAF migration',
+    icon: 'mdi-swap-horizontal-bold',
+    to: '/waf-migration/uncovered',
+    visible: auth.can.manageRules || auth.can.triageAlerts,
+    children: [
+      {
+        title: 'Uncovered by CF',
+        icon: 'mdi-shield-off-outline',
+        to: '/waf-migration/uncovered',
+        visible: true,
+      },
+      {
+        title: 'Ready to enforce',
+        icon: 'mdi-shield-check-outline',
+        to: '/waf-migration/ready',
+        visible: true,
+      },
+      {
+        title: 'Likely false positives',
+        icon: 'mdi-shield-alert-outline',
+        to: '/waf-migration/false-positives',
+        visible: true,
+      },
+    ],
   },
   { title: 'Feeds', icon: 'mdi-import', to: '/feeds', visible: auth.can.search },
   { title: 'Audit', icon: 'mdi-clipboard-text-clock', to: '/audit', visible: auth.can.readAudit },
@@ -59,13 +90,24 @@ async function signOut(): Promise<void> {
     <v-divider />
 
     <v-list nav density="compact">
-      <v-list-item
-        v-for="item in visibleItems"
-        :key="item.to"
-        :to="item.to"
-        :prepend-icon="item.icon"
-        :title="item.title"
-      />
+      <template v-for="item in visibleItems" :key="item.to">
+        <!-- A section opens to show its stages. Kept open by default when one of them is
+             the current page, so the reader can see where in the sequence they are. -->
+        <v-list-group v-if="item.children" :value="item.title">
+          <template #activator="{ props: groupProps }">
+            <v-list-item v-bind="groupProps" :prepend-icon="item.icon" :title="item.title" />
+          </template>
+          <v-list-item
+            v-for="child in item.children"
+            :key="child.to"
+            :to="child.to"
+            :prepend-icon="child.icon"
+            :title="child.title"
+          />
+        </v-list-group>
+
+        <v-list-item v-else :to="item.to" :prepend-icon="item.icon" :title="item.title" />
+      </template>
     </v-list>
 
     <template #append>

@@ -72,6 +72,28 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'WAF tuning', roles: ['admin', 'analyst'] },
       },
       {
+        // Moving enforcement from F5 to Cloudflare, in the three stages the move
+        // actually has. Separate routes rather than tabs on one page: each stage is a
+        // different worklist with a different action at the end of it, and a link to
+        // "the rules ready to enforce" has to survive being pasted into a ticket.
+        path: 'waf-migration/uncovered',
+        name: 'waf-migration-uncovered',
+        component: () => import('@/pages/WafMigrationUncovered.vue'),
+        meta: { title: 'Uncovered by Cloudflare', roles: ['admin', 'analyst'] },
+      },
+      {
+        path: 'waf-migration/ready',
+        name: 'waf-migration-ready',
+        component: () => import('@/pages/WafMigrationReady.vue'),
+        meta: { title: 'Ready to enforce', roles: ['admin', 'analyst'] },
+      },
+      {
+        path: 'waf-migration/false-positives',
+        name: 'waf-migration-false-positives',
+        component: () => import('@/pages/WafMigrationFalsePositives.vue'),
+        meta: { title: 'Likely false positives', roles: ['admin', 'analyst'] },
+      },
+      {
         path: 'alert-rules',
         name: 'alert-rules',
         component: () => import('@/pages/AlertRules.vue'),

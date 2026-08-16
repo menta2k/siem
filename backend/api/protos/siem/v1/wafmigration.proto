@@ -1,0 +1,192 @@
+syntax = "proto3";
+
+// Moving enforcement from one WAF to another, one piece of evidence at a time.
+//
+// The deployment blocks at F5 and inspects at Cloudflare. Moving that enforcement to the
+// edge is not one decision but three, and each is a question about the SAME request seen
+// by both vendors:
+//
+//   1. F5 blocked it and Cloudflare has no rule that matched  -> Cloudflare is blind here,
+//      and a rule has to be written. It goes in log mode.
+//   2. F5 blocked it and a Cloudflare rule logged it          -> the two agree, so that
+//      rule can be turned up to block.
+//   3. F5 allowed it and a Cloudflare rule logged it          -> they disagree, and the
+//      likeliest reading is that the Cloudflare rule is a false positive.
+//
+// Every answer rests on the correlated record, never on two independent counts: "F5
+// blocked 400 requests and Cloudflare logged 380" says nothing about whether they were
+// the SAME requests. Measured on this deployment, every F5 record that joins a Cloudflare
+// one does so on a shared CF-Ray — tier 1, high confidence — so the evidence here is an
+// exact join and not a heuristic.
+//
+// Like WafTuning, this surface reports and never generates configuration. It says which
+// rule is ready to enforce and why; writing it belongs to whoever owns the consequences.
+package siem.v1;
+
+option go_package = "github.com/menta2k/siem/api/gen/siem/v1;v1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "siem/v1/common.proto";
+
+service WafMigration {
+  // Stage 1. Traffic F5 blocked that no Cloudflare rule matched at all.
+  rpc GetUncovered(WafMigrationRequest) returns (WafUncoveredPanel) {
+    option (google.api.http) = {get: "/api/v1/waf-migration/uncovered"};
+  }
+
+  // Stage 2. Cloudflare rules running in log mode that F5 independently blocks.
+  rpc GetReadyToEnforce(WafMigrationRequest) returns (WafRuleAgreementPanel) {
+    option (google.api.http) = {get: "/api/v1/waf-migration/ready"};
+  }
+
+  // Stage 3. Cloudflare rules running in log mode on traffic F5 lets through.
+  rpc GetFalsePositives(WafMigrationRequest) returns (WafRuleAgreementPanel) {
+    option (google.api.http) = {get: "/api/v1/waf-migration/false-positives"};
+  }
+
+  // The requests behind any row on any of the three stages, with BOTH verdicts on each.
+  // The counts say a group is worth acting on; only the requests say what to write.
+  rpc GetMigrationSamples(WafMigrationSampleRequest) returns (WafMigrationSamplePanel) {
+    option (google.api.http) = {get: "/api/v1/waf-migration/samples"};
+  }
+}
+
+message WafMigrationRequest {
+  // Required. An unbounded scan is rejected, exactly as elsewhere.
+  TimeRange time_range = 1;
+  // Caps the rows returned. Clamped server-side.
+  uint32 limit = 2;
+  // Optional. Narrows to one site, which is how a migration is actually run: host by
+  // host, not all at once. Applied server-side and before the limit.
+  string request_host = 3;
+}
+
+// WafUncoveredGroup is one F5 violation on one host and method that Cloudflare did not
+// act on: the unit a single Cloudflare rule would be written for.
+message WafUncoveredGroup {
+  // F5's own violation name — "Attack signature detected", "Illegal meta character in
+  // URL". This is what the new Cloudflare rule has to reproduce.
+  string violation = 1;
+  string request_host = 2;
+  string request_method = 3;
+
+  uint64 requests = 4;
+  // Breadth, which separates a targeted probe from a scan: 40 requests across 2 paths
+  // is one broken client, across 30 paths it is someone walking the site.
+  uint64 paths = 5;
+  uint64 clients = 6;
+
+  // Requests in this group where a Cloudflare rule DID match but its action allowed
+  // them through — a skip or an allow. Reported separately because it needs the
+  // opposite fix: an existing exemption is overriding the edge, so adding a detection
+  // rule behind it would change nothing.
+  uint64 cloudflare_allowlisted = 7;
+
+  google.protobuf.Timestamp first_seen = 8;
+  google.protobuf.Timestamp last_seen = 9;
+}
+
+message WafUncoveredPanel {
+  repeated WafUncoveredGroup groups = 1;
+}
+
+// WafRuleAgreement is one Cloudflare rule measured against F5 on the same requests.
+//
+// THE THREE F5 COUNTS ARE NEVER MERGED. F5 has a transparent mode of its own, and a
+// request it flagged without blocking is weaker evidence than one it stopped and
+// stronger than one it ignored. Folding "flagged" into either neighbour would make a
+// rule look ready to enforce, or look like a false positive, on evidence that says
+// neither.
+message WafRuleAgreement {
+  string rule_id = 1;
+  // What the rule is CALLED, resolved on read from the tenant's own rule table. Empty
+  // when it cannot be named — no API token configured, or the rule has been deleted.
+  string rule_description = 2;
+  // The vendor's own verb for what Cloudflare currently does: log | simulate. A rule
+  // already blocking is not a migration candidate and does not appear here.
+  string action = 3;
+
+  // How many of this rule's requests joined an F5 record at all. THE DENOMINATOR: two
+  // confirmations out of two is a very different finding from two out of two hundred.
+  uint64 correlated = 4;
+  uint64 f5_blocked = 5;
+  // Flagged but not enforced: F5 saw it and let it through anyway.
+  uint64 f5_flagged = 6;
+  uint64 f5_allowed = 7;
+
+  uint64 hosts = 8;
+  // The site this rule fires on, when it only fires on one. Empty when several, because
+  // naming one of them would be wrong.
+  string request_host = 9;
+
+  // How the split reads, as one of: ready | disputed | false_positive | insufficient.
+  // Computed server-side from the counts so the value a filter matches and the value
+  // shown beside it cannot drift apart.
+  //
+  //   ready         F5 blocks nearly everything this rule logs — safe to enforce
+  //   disputed      both vendors have a real share, so it needs reading before acting
+  //   false_positive F5 lets through nearly everything this rule logs
+  //   insufficient  too few correlated requests to say anything yet
+  string reading = 10;
+
+  google.protobuf.Timestamp first_seen = 11;
+  google.protobuf.Timestamp last_seen = 12;
+}
+
+message WafRuleAgreementPanel {
+  repeated WafRuleAgreement rules = 1;
+}
+
+// WafMigrationSampleRequest asks for the requests behind one row.
+//
+// Either a rule id (stages 2 and 3) or a violation (stage 1) identifies the group; the
+// host and method narrow it to exactly the row that was clicked.
+message WafMigrationSampleRequest {
+  TimeRange time_range = 1;
+  uint32 limit = 2;
+  // Stage 1: the F5 violation the group is keyed on.
+  string violation = 3;
+  // Stages 2 and 3: the Cloudflare rule the group is keyed on.
+  string rule_id = 4;
+  string request_host = 5;
+  string request_method = 6;
+  // Optional. Narrows to what F5 did: blocked | monitored | allowed. This is what makes
+  // one sample list serve all three stages.
+  string f5_verdict = 7;
+}
+
+// WafMigrationSample is one request as BOTH vendors saw it.
+message WafMigrationSample {
+  // The correlated record, so a client can open the full cross-vendor timeline.
+  string correlation_id = 1;
+  // The F5 event, whose raw payload carries the violation and the request that caused it.
+  string f5_event_id = 2;
+  // The Cloudflare event, for its scores and rule attribution.
+  string cloudflare_event_id = 3;
+
+  google.protobuf.Timestamp event_time = 4;
+  string client_ip = 5;
+  string country = 6;
+  uint32 client_asn = 7;
+  string request_host = 8;
+  string request_path = 9;
+  string request_query = 10;
+  string request_method = 11;
+  string user_agent = 12;
+
+  string f5_verdict = 13;
+  // Every violation F5 recorded on this request, not only the one being grouped on. A
+  // request that tripped four violations is a different case from one that tripped this
+  // one alone.
+  repeated string f5_violations = 14;
+  string cloudflare_verdict = 15;
+  string cloudflare_rule_id = 16;
+  // On the INVERTED scale: 1 is certainly an attack, 100 certainly clean. 0 when the
+  // request carried no score.
+  uint32 attack_score = 17;
+}
+
+message WafMigrationSamplePanel {
+  repeated WafMigrationSample samples = 1;
+}
