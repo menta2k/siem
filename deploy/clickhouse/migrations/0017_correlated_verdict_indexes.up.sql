@@ -20,7 +20,7 @@
 -- distinct values (allowed, blocked, challenged, monitored, rate_limited, unknown, and
 -- the empty string for a vendor absent from the record), so a set holds the whole domain
 -- exactly and answers equality without false positives. Eight leaves headroom for a
--- verdict added later; a set that overflows its cap degrades to "always read", which is
+-- verdict added later, and a set that overflows its cap degrades to "always read" --
 -- the behaviour before this migration rather than a wrong answer.
 --
 -- GRANULARITY 4 matches every other index on this table: one index entry per four

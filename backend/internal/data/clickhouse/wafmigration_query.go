@@ -38,15 +38,27 @@ type WAFMigrationSelector struct {
 // describe the same request, including the CF-Ray bridging that lets an origin fetch
 // join F5 through its own ray and DataDome through its parent's. Re-deriving that join
 // in a reporting query would produce a second, quietly different answer.
+// f5_verdict and cf_verdict are REAL COLUMNS, materialized from the map by migration
+// 0018, and reading them is the difference between these panels loading and timing out.
+// Answering `verdicts['f5'] = ...` means decompressing the whole Map for every row in
+// range — 1.9s across seven days here against 0.5s for the LowCardinality column — and no
+// skip index is possible on the Map form: ClickHouse 24.8 silently declines to use one,
+// which is what 0017 found out the expensive way.
+//
+// The spine constrains NOTHING but the tenant and the window. Every caller must narrow
+// both verdicts itself, either to a value or to non-empty, and that is not tidiness: a
+// redundant `f5_verdict != ”` sitting beside `f5_verdict = 'blocked'` is not free, it
+// reads the column a second way and cost 2.1s against 1.3s. The vendor pair is expressed
+// through those same predicates rather than through has(vendors, 'f5'), which read the
+// array for another 1.2s to answer a question the verdict already answers: a vendor in a
+// correlated record always carries a verdict.
 const correlatedF5Pairs = `
 	SELECT correlation_id, event_ids, request_host, request_path, request_method,
 	       client_ip, first_event_time, last_event_time,
-	       verdicts['f5']                AS f5_verdict,
-	       verdicts['cloudflare']        AS cf_verdict,
+	       f5_verdict, cf_verdict,
 	       rule_ids['cloudflare']        AS cf_rule
 	FROM correlated_requests
-	WHERE tenant_id = ? AND window_start >= ? AND window_start < ?
-	  AND has(vendors, 'f5') AND has(vendors, 'cloudflare')`
+	WHERE tenant_id = ? AND window_start >= ? AND window_start < ?`
 
 // uncoveredQuery finds traffic F5 blocked that no Cloudflare rule matched.
 //
@@ -60,17 +72,12 @@ const correlatedF5Pairs = `
 // bound it is a full scan of the table; with the record's own window it would miss an
 // event written just outside it.
 //
-// has_disagreement is redundant with the two verdicts and is there for its INDEX. It is
-// the only pre-computed flag on this table that a skip index already covers, and adding
-// it took the seven-day scan from 6.5s to 1.3s — the difference between the panel loading
-// and the panel timing out at its own default range.
-//
-// It is safe because it is structural, not incidental: normalize.Classify sets
-// Disagreement on `sawAllowed && sawBlocked`, which is precisely this pair of verdicts.
-// A record matching the two predicates below therefore ALWAYS carries the flag, and the
-// filter cannot drop a row the panel should have shown. It is not safe on the other two
-// stages, where F5 blocked against Cloudflare monitored leaves the flag false — 404 of
-// 434 such records here — and where adding it would silently hide most of the worklist.
+// An earlier version also filtered on has_disagreement, to borrow the one skip index this
+// table already had. Migration 0018 made that unnecessary — the verdict columns carry
+// their own indexes now and the flag saves nothing measurable — so it is gone. Worth
+// knowing it was only ever safe HERE: normalize.Classify sets Disagreement on exactly
+// `sawAllowed && sawBlocked`, so it holds for this pair of verdicts and not for the other
+// two stages, where F5 blocked against Cloudflare monitored leaves it false.
 func uncoveredQuery(
 	tenantID uuid.UUID, q DashboardQuery, filter WAFMigrationFilter,
 ) (string, []any) {
@@ -94,7 +101,6 @@ func uncoveredQuery(
 				       request_method, client_ip, cf_rule,
 				       first_event_time, last_event_time
 				FROM (` + correlatedF5Pairs + `
-					  AND has_disagreement
 					  AND f5_verdict = ?
 					  AND cf_verdict = ?)
 			) AS c
@@ -155,13 +161,16 @@ func ruleAgreementQuery(
 			       cf_verdict AS cf_action
 			FROM (` + correlatedF5Pairs + `
 				  AND cf_verdict = ?
-				  AND cf_rule != ?)
+				  AND cf_rule != ?
+				  -- Left unconstrained by value, because the three F5 outcomes are what
+				  -- this stage COUNTS. Non-empty is what makes the row a pair at all.
+				  AND f5_verdict != ?)
 		)`
 	args := []any{
 		vendors.VerdictBlocked, vendors.VerdictMonitored, vendors.VerdictAllowed,
 		minCorrelatedForReading,
 		tenantID, q.Range.From, q.Range.To,
-		vendors.VerdictMonitored, "",
+		vendors.VerdictMonitored, "", "",
 	}
 
 	if filter.RequestHost != "" {
@@ -184,24 +193,137 @@ func ruleAgreementQuery(
 	return sql, append(args, q.limitOrDefault())
 }
 
-// samplePairs builds the narrowed pair set every sample join reads from.
+// migrationSamplesQuery returns the requests behind one row, F5 side first.
 //
-// Each narrowing runs inside the CTE, so all three joins below see the same rows. The F5
-// verdict is what lets one sample list serve all three stages.
+// TWO QUERIES, not one, and the reason is that ClickHouse INLINES a CTE rather than
+// materialising it. The first version of this named the pair set once and referenced it
+// from three CTEs, which read as one scan and ran as six: 10 to 18 seconds, so clicking a
+// row timed out. Everything below exists to scan correlated_requests exactly once.
+//
+// The Cloudflare event is fetched separately, by cloudflareScoresQuery. Joining it here
+// costs seven seconds on its own -- Cloudflare logs twenty-five times as many events as
+// F5, so the join reads them all -- while looking the same handful up by id afterwards
+// costs 0.4s.
+func migrationSamplesQuery(
+	tenantID uuid.UUID, sel WAFMigrationSelector, q DashboardQuery,
+) (string, []any) {
+	pairs, pairArgs := samplePairs(tenantID, sel, q)
+
+	sql := `
+		SELECT p.correlation_id AS correlation_id, e.event_id AS f5_event_id,
+		       p.event_ids AS event_ids,
+		       e.event_time AS event_time, e.client_ip AS client_ip,
+		       e.client_country AS country, e.client_asn AS client_asn,
+		       p.request_host AS request_host, e.request_path AS request_path,
+		       e.request_query AS request_query, p.request_method AS request_method,
+		       e.user_agent AS user_agent, p.f5_verdict AS f5_verdict,
+		       e.rule_ids AS f5_violations, p.cf_verdict AS cf_verdict,
+		       p.cf_rule AS cf_rule
+		FROM (` + pairs + `) AS p
+		INNER JOIN (
+			SELECT event_id, event_time, client_ip, client_country, client_asn,
+			       request_path, request_query, user_agent, rule_ids
+			FROM normalized_events
+			WHERE tenant_id = ? AND vendor = 'f5'
+			  AND event_time >= ? AND event_time < ?`
+	args := append(pairArgs, tenantID,
+		q.Range.From.Add(-eventJoinWindow), q.Range.To.Add(eventJoinWindow))
+
+	narrowSQL, narrowArgs := narrowF5Events(sel, pairs, pairArgs)
+	sql += narrowSQL + `
+		) AS e USING (event_id)`
+	args = append(args, narrowArgs...)
+
+	// After the join, because the violation lives on the F5 event rather than on the
+	// correlated record.
+	if sel.Violation != "" {
+		sql += ` WHERE has(f5_violations, ?)`
+		args = append(args, sel.Violation)
+	}
+
+	sql += `
+		ORDER BY event_time DESC
+		LIMIT ?`
+	return sql, append(args, q.limitOrDefault())
+}
+
+// narrowF5Events restricts the events side of the sample join.
+//
+// By what the ROW already tells us rather than by an `event_id IN (pair set)` prefilter.
+// Both find the same events; the prefilter costs a second full evaluation of the pair
+// scan, and dropping it took the query from 3.0s to 1.8s. Only when the caller has given
+// neither is the prefilter still needed, or the join would read every F5 event in range.
+func narrowF5Events(
+	sel WAFMigrationSelector, pairs string, pairArgs []any,
+) (string, []any) {
+	sql := ""
+	args := make([]any, 0, 2)
+
+	if sel.F5Verdict != "" {
+		sql += ` AND verdict = ?`
+		args = append(args, sel.F5Verdict)
+	}
+	if sel.RequestHost != "" {
+		sql += ` AND request_host = ?`
+		args = append(args, sel.RequestHost)
+	}
+	if sql == "" {
+		return ` AND event_id IN (SELECT arrayJoin(event_ids) FROM (` + pairs + `))`, pairArgs
+	}
+	return sql, args
+}
+
+// cloudflareScoresQuery reads the Cloudflare side for a page of samples, by id.
+//
+// Deliberately a SECOND round trip. Cloudflare logs a row per hop of a Worker-protected
+// request and twenty-five times as many events as F5 overall, so reaching it through the
+// join above meant reading all of them: seven seconds, against 0.4 for an exact lookup of
+// the forty ids a page of twenty samples actually names.
+func cloudflareScoresQuery(
+	tenantID uuid.UUID, eventIDs []string, q DashboardQuery,
+) (string, []any) {
+	return `
+		SELECT event_id, rule_id, waf_attack_score
+		FROM normalized_events
+		WHERE tenant_id = ? AND vendor = 'cloudflare'
+		  AND event_time >= ? AND event_time < ?
+		  AND event_id IN (?)`, []any{
+			tenantID,
+			q.Range.From.Add(-eventJoinWindow), q.Range.To.Add(eventJoinWindow),
+			eventIDs,
+		}
+}
+
+// samplePairs builds the narrowed pair set the sample query reads from.
+//
+// It carries event_ids through, which is how the Cloudflare lookup afterwards knows which
+// events to ask for without going back to the correlated table a second time.
 func samplePairs(
 	tenantID uuid.UUID, sel WAFMigrationSelector, q DashboardQuery,
 ) (string, []any) {
 	sql := `
-		WITH pairs AS (` + correlatedF5Pairs
+		SELECT correlation_id, event_ids, arrayJoin(event_ids) AS event_id,
+		       request_host, request_method, f5_verdict, cf_verdict, cf_rule
+		FROM (` + correlatedF5Pairs
 	args := []any{tenantID, q.Range.From, q.Range.To}
 
+	// Both sides are always constrained, because the spine no longer says "a record both
+	// vendors saw" — a verdict when the caller named one, non-empty when it did not. A
+	// missing constraint here would let a record through that only one vendor reported,
+	// which is not a comparison at all.
 	if sel.F5Verdict != "" {
 		sql += ` AND f5_verdict = ?`
 		args = append(args, sel.F5Verdict)
+	} else {
+		sql += ` AND f5_verdict != ?`
+		args = append(args, "")
 	}
 	if sel.CloudflareVerdict != "" {
 		sql += ` AND cf_verdict = ?`
 		args = append(args, sel.CloudflareVerdict)
+	} else {
+		sql += ` AND cf_verdict != ?`
+		args = append(args, "")
 	}
 	if sel.RuleID != "" {
 		sql += ` AND cf_rule = ?`
@@ -215,108 +337,5 @@ func samplePairs(
 		sql += ` AND request_method = ?`
 		args = append(args, sel.RequestMethod)
 	}
-	return sql, args
-}
-
-// sampleJoins resolves each record's two vendor events and puts them on one row.
-//
-// ids unrolls each record's event list so the vendor events can be reached by an
-// EQUI-join. Joining on has(event_ids, event_id) would be the obvious way to say it and
-// ClickHouse will not run it: a join condition has to be an equality.
-//
-// Each vendor lookup then re-states `event_id IN (SELECT ...)`. It looks redundant beside
-// the join that follows and it is the difference between 2.9 seconds and 10.9: without it
-// the join builds a hash table over EVERY event in the window — thirteen million rows on
-// this deployment — and only then discards the ones no record names. With it, event_id is
-// the last column of the primary key, so the scan skips granules instead.
-const sampleJoins = `),
-		ids AS (SELECT correlation_id, arrayJoin(event_ids) AS event_id FROM pairs),
-		f5 AS (
-			SELECT i.correlation_id AS correlation_id, n.event_id AS event_id,
-			       n.event_time AS event_time, n.client_ip AS client_ip,
-			       n.client_country AS country, n.client_asn AS client_asn,
-			       n.request_path AS request_path, n.request_query AS request_query,
-			       n.user_agent AS user_agent, n.rule_ids AS violations
-			FROM ids AS i
-			INNER JOIN (
-				SELECT event_id, event_time, client_ip, client_country, client_asn,
-				       request_path, request_query, user_agent, rule_ids
-				FROM normalized_events
-				WHERE tenant_id = ? AND vendor = 'f5'
-				  AND event_time >= ? AND event_time < ?
-				  AND event_id IN (SELECT event_id FROM ids)
-			) AS n USING (event_id)
-		),
-		cf_events AS (
-			SELECT i.correlation_id AS correlation_id, n.event_id AS event_id,
-			       n.waf_attack_score AS score, n.rule_id AS rule_id
-			FROM ids AS i
-			INNER JOIN (
-				SELECT event_id, waf_attack_score, rule_id
-				FROM normalized_events
-				WHERE tenant_id = ? AND vendor = 'cloudflare'
-				  AND event_time >= ? AND event_time < ?
-				  AND event_id IN (SELECT event_id FROM ids)
-			) AS n USING (event_id)
-		),
-		-- ONE Cloudflare event per record, or the row count is a lie. Cloudflare logs a
-		-- row per hop of a Worker-protected request -- the client-facing request, the
-		-- Worker's subrequest, the origin fetch -- and all three land in the same
-		-- correlated record. Joining them all turned 130 requests into 260 rows that
-		-- read as 260 requests. The one kept is the hop carrying a security decision,
-		-- then one carrying a score, with the id as a deterministic tiebreak so the same
-		-- request does not change appearance between refreshes.
-		--
-		-- The alias is cf_event_id and NOT event_id: aliasing an aggregate back to the
-		-- column it aggregates makes ClickHouse resolve the inner reference to the alias
-		-- and reject the query outright. waftuning.go and cfrules.go carry the same
-		-- warning; this is the third place it has bitten.
-		cf AS (
-			SELECT correlation_id,
-			       argMax(event_id, (rule_id != '', score > 0, event_id)) AS cf_event_id,
-			       argMax(score, (rule_id != '', score > 0, event_id))    AS attack_score
-			FROM cf_events GROUP BY correlation_id
-		)
-		SELECT p.correlation_id AS correlation_id,
-		       f5.event_id AS f5_event_id,
-		       cf.cf_event_id AS cloudflare_event_id,
-		       f5.event_time AS event_time, f5.client_ip AS client_ip,
-		       f5.country AS country, f5.client_asn AS client_asn,
-		       p.request_host AS request_host, f5.request_path AS request_path,
-		       f5.request_query AS request_query, p.request_method AS request_method,
-		       f5.user_agent AS user_agent, p.f5_verdict AS f5_verdict,
-		       f5.violations AS f5_violations, p.cf_verdict AS cf_verdict,
-		       p.cf_rule AS cf_rule, cf.attack_score AS attack_score
-		FROM pairs AS p
-		INNER JOIN f5 USING (correlation_id)
-		-- LEFT, not INNER: a record whose Cloudflare event has aged out of retention still
-		-- has an F5 side worth reading, and dropping the row would silently shorten the
-		-- evidence rather than show it with a blank score.
-		LEFT JOIN cf USING (correlation_id)`
-
-// migrationSamplesQuery returns the requests behind one row, with both verdicts.
-//
-// The F5 event supplies the violations and is what a client opens to read the raw
-// payload; the Cloudflare event supplies the score. Both ids are carried so the client
-// can link to either without a second round trip.
-func migrationSamplesQuery(
-	tenantID uuid.UUID, sel WAFMigrationSelector, q DashboardQuery,
-) (string, []any) {
-	sql, args := samplePairs(tenantID, sel, q)
-	sql += sampleJoins
-	args = append(args,
-		tenantID, q.Range.From.Add(-eventJoinWindow), q.Range.To.Add(eventJoinWindow),
-		tenantID, q.Range.From.Add(-eventJoinWindow), q.Range.To.Add(eventJoinWindow))
-
-	// After the joins, because the violation lives on the F5 event rather than on the
-	// correlated record.
-	if sel.Violation != "" {
-		sql += ` WHERE has(f5_violations, ?)`
-		args = append(args, sel.Violation)
-	}
-
-	sql += `
-		ORDER BY event_time DESC
-		LIMIT ?`
-	return sql, append(args, q.limitOrDefault())
+	return sql + `)`, args
 }

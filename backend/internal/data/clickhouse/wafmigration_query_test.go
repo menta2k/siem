@@ -141,15 +141,61 @@ func TestAgreementConsidersOnlyLoggingRules(t *testing.T) {
 	}
 }
 
-// has_disagreement is redundant with the two verdicts and is there for its INDEX: it took
-// the seven-day scan from 6.5s to 1.3s, the difference between the panel loading and
-// timing out at its own default range. It is safe only because normalize.Classify sets
-// the flag on exactly `sawAllowed && sawBlocked`.
-func TestUncoveredUsesTheDisagreementIndex(t *testing.T) {
+// The spine reads the MATERIALIZED verdict columns, not the map. Answering
+// verdicts['f5'] = ... decompresses the whole map for every row in range, and ClickHouse
+// will not put a skip index on that form — which is how the panel came to time out at its
+// own default range.
+func TestSpineReadsTheVerdictColumns(t *testing.T) {
+	for name, sql := range map[string]string{
+		"uncovered": first(uncoveredQuery(uuid.New(), testQuery(), WAFMigrationFilter{})),
+		"agreement": first(ruleAgreementQuery(uuid.New(), testQuery(), WAFMigrationFilter{}, nil)),
+		"samples":   first(migrationSamplesQuery(uuid.New(), WAFMigrationSelector{}, testQuery())),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if strings.Contains(sql, "verdicts['") {
+				t.Error("the map is read instead of the materialized column")
+			}
+			// The array read answered a question the verdict already answers, for 1.2s.
+			if strings.Contains(sql, "has(vendors") {
+				t.Error("the vendors array is still read")
+			}
+		})
+	}
+}
+
+// A redundant guard beside an equality is not free: it reads the column a second way and
+// cost 2.1s against 1.3s across seven days.
+func TestVerdictIsConstrainedExactlyOnce(t *testing.T) {
 	sql := first(uncoveredQuery(uuid.New(), testQuery(), WAFMigrationFilter{}))
 
-	if !strings.Contains(sql, "AND has_disagreement") {
-		t.Error("the disagreement flag is not used, so the scan reads the verdicts map in full")
+	if strings.Contains(sql, "f5_verdict != ") {
+		t.Error("a non-empty guard sits beside the equality that already implies it")
+	}
+	// And the flag that stood in for the index before 0018 is gone with it.
+	if strings.Contains(sql, "has_disagreement") {
+		t.Error("has_disagreement is still filtered on, which the verdict index made redundant")
+	}
+}
+
+// Every row a panel counts is a request BOTH vendors reported. The spine no longer says
+// so, so each query has to — including the samples query when the caller named no verdict.
+func TestEveryQueryConstrainsBothVendors(t *testing.T) {
+	samples := func(sel WAFMigrationSelector) string {
+		return first(migrationSamplesQuery(uuid.New(), sel, testQuery()))
+	}
+	for name, sql := range map[string]string{
+		"uncovered":       first(uncoveredQuery(uuid.New(), testQuery(), WAFMigrationFilter{})),
+		"agreement":       first(ruleAgreementQuery(uuid.New(), testQuery(), WAFMigrationFilter{}, nil)),
+		"samples/unnamed": samples(WAFMigrationSelector{}),
+		"samples/named": samples(WAFMigrationSelector{
+			F5Verdict: "blocked", CloudflareVerdict: "allowed",
+		}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !strings.Contains(sql, "f5_verdict") || !strings.Contains(sql, "cf_verdict") {
+				t.Error("a record only one vendor reported would pass this query")
+			}
+		})
 	}
 }
 
@@ -217,22 +263,108 @@ func TestEventLookupsAreTimeBounded(t *testing.T) {
 	}
 }
 
-// A join condition in ClickHouse has to be an equality. has(event_ids, event_id) is the
-// obvious way to express this join and the server rejects it, so the ids are unrolled
-// into a CTE and joined on the correlation id instead.
-func TestSamplesJoinsOnEquality(t *testing.T) {
-	sql := first(migrationSamplesQuery(uuid.New(), WAFMigrationSelector{}, testQuery()))
+// THE BUG THIS PINS. ClickHouse INLINES a CTE rather than materialising it, so the first
+// version of this query — which named the pair set once and referenced it from three CTEs
+// — read as one scan and ran as six: 10 to 18 seconds, and clicking a row timed out.
+func TestSamplesScanTheCorrelatedTableOnce(t *testing.T) {
+	sql := first(migrationSamplesQuery(uuid.New(), WAFMigrationSelector{
+		F5Verdict: "blocked", RequestHost: "www.jobs.bg",
+	}, testQuery()))
 
-	if strings.Contains(sql, "JOIN") && strings.Contains(sql, "ON has(") {
-		t.Error("a join is conditioned on has(), which ClickHouse will not run")
+	if n := strings.Count(sql, "FROM correlated_requests"); n != 1 {
+		t.Errorf("correlated_requests is read %d times; every extra reference is another full scan", n)
 	}
-	if !strings.Contains(sql, "USING (correlation_id)") {
-		t.Error("the vendor events are not joined on the correlation id")
+	if strings.Contains(sql, "WITH ") {
+		t.Error("a CTE is back, and ClickHouse re-runs it per reference")
 	}
-	// The Cloudflare side is LEFT: an F5 record whose Cloudflare event aged out still has
-	// evidence worth reading.
-	if !strings.Contains(sql, "LEFT JOIN cf") {
-		t.Error("the Cloudflare join is not a LEFT join, so retention would shorten the evidence")
+}
+
+// The events side is narrowed by what the ROW already says rather than by an
+// `event_id IN (pair set)` prefilter, which costs a second evaluation of the pair scan.
+// Dropping it took the query from 3.0s to 1.8s.
+func TestSamplesNarrowEventsByTheRowItself(t *testing.T) {
+	sql, args := migrationSamplesQuery(uuid.New(), WAFMigrationSelector{
+		F5Verdict: "blocked", RequestHost: "www.jobs.bg",
+	}, testQuery())
+
+	if strings.Contains(sql, "event_id IN (SELECT") {
+		t.Error("the id prefilter is still there, which re-runs the pair scan")
+	}
+	if !containsArg(args, "www.jobs.bg") {
+		t.Error("the host is not used to narrow the events side")
+	}
+}
+
+// With neither a verdict nor a host the join would read every F5 event in range, so the
+// prefilter has to come back.
+func TestSamplesFallBackToTheIDPrefilter(t *testing.T) {
+	sql := first(migrationSamplesQuery(uuid.New(), WAFMigrationSelector{
+		RuleID: "abc",
+	}, testQuery()))
+
+	if !strings.Contains(sql, "event_id IN (SELECT arrayJoin(event_ids)") {
+		t.Error("nothing narrows the events side, which makes the join a full scan")
+	}
+}
+
+// Cloudflare is fetched by id in a SECOND query. Joining it into the first cost seven
+// seconds on its own: Cloudflare logs twenty-five times as many events as F5, so the join
+// reads all of them to find forty.
+func TestCloudflareScoresAreFetchedByID(t *testing.T) {
+	sql, args := cloudflareScoresQuery(
+		uuid.New(), []string{"a", "b"}, testQuery())
+
+	if !strings.Contains(sql, "vendor = 'cloudflare'") || !strings.Contains(sql, "event_id IN (?)") {
+		t.Fatal("the Cloudflare lookup is not an exact id lookup")
+	}
+	if !strings.Contains(sql, "tenant_id = ?") {
+		t.Error("the Cloudflare lookup is not tenant-scoped")
+	}
+	if !containsArg(args, []string{"a", "b"}) {
+		t.Error("the ids are not bound")
+	}
+}
+
+// Cloudflare logs a row per HOP of a Worker-protected request — the client-facing
+// request, the Worker's subrequest, the origin fetch — and all of them belong to the same
+// correlated record. Showing an arbitrary one would make the same request look different
+// between refreshes.
+func TestPickCloudflareEventPrefersTheDecidingHop(t *testing.T) {
+	found := map[string]cloudflareEvent{
+		"hop-a": {eventID: "hop-a", score: 93},
+		"hop-b": {eventID: "hop-b", ruleID: "rule-1", score: 0},
+		"hop-c": {eventID: "hop-c"},
+	}
+
+	got, ok := pickCloudflareEvent([]string{"hop-a", "hop-b", "hop-c"}, found)
+	if !ok || got.eventID != "hop-b" {
+		t.Errorf("picked %q, want the hop carrying a rule", got.eventID)
+	}
+
+	// Then a hop that at least carries a score.
+	delete(found, "hop-b")
+	got, _ = pickCloudflareEvent([]string{"hop-a", "hop-c"}, found)
+	if got.eventID != "hop-a" {
+		t.Errorf("picked %q, want the scored hop", got.eventID)
+	}
+
+	// Deterministic when nothing distinguishes them, so the row does not change on a
+	// refresh.
+	tie := map[string]cloudflareEvent{"x": {eventID: "x"}, "y": {eventID: "y"}}
+	a, _ := pickCloudflareEvent([]string{"x", "y"}, tie)
+	b, _ := pickCloudflareEvent([]string{"y", "x"}, tie)
+	if a.eventID != b.eventID {
+		t.Error("the pick depends on the order the ids arrive in")
+	}
+}
+
+// A Cloudflare event can age out while the correlated record and the F5 event survive.
+// That sample is still the evidence the page was opened for, so it keeps its place with
+// an empty score rather than being dropped.
+func TestPickCloudflareEventToleratesAMiss(t *testing.T) {
+	if _, ok := pickCloudflareEvent(
+		[]string{"gone"}, map[string]cloudflareEvent{}); ok {
+		t.Error("a hit was reported for an event that is not there")
 	}
 }
 
@@ -259,37 +391,6 @@ func TestSamplesSelectorNarrowsEveryField(t *testing.T) {
 	}
 	if strings.Index(sql, "has(f5_violations") < strings.Index(sql, "INNER JOIN f5") {
 		t.Error("the violation is filtered before the join that produces it")
-	}
-}
-
-// THE BUG THIS PINS. Cloudflare logs a row per HOP of a Worker-protected request — the
-// client-facing request, the Worker's subrequest, the origin fetch — and all of them land
-// in the same correlated record. Joining every one of them turned 130 requests into 260
-// rows that read as 260 requests, which on a page whose entire job is counting agreement
-// is not a cosmetic fault.
-func TestSamplesKeepOneCloudflareEventPerRecord(t *testing.T) {
-	sql := first(migrationSamplesQuery(uuid.New(), WAFMigrationSelector{}, testQuery()))
-
-	if !strings.Contains(sql, "FROM cf_events GROUP BY correlation_id") {
-		t.Error("the Cloudflare events are not collapsed to one per correlated record")
-	}
-	// The alias must NOT be event_id: aliasing an aggregate back to the column it
-	// aggregates makes ClickHouse resolve the inner reference to the alias and reject the
-	// query. It has now bitten in three files.
-	if strings.Contains(sql, "argMax(event_id, (rule_id != '', score > 0, event_id)) AS event_id") {
-		t.Error("an aggregate is aliased back to the column it aggregates, which ClickHouse rejects")
-	}
-}
-
-// Without the IN, the join builds a hash table over every event in the window — thirteen
-// million rows on this deployment — and discards them afterwards. Measured: 10.9s against
-// a 10s limit, versus 2.9s with it.
-func TestSamplesPrefiltersEventsByID(t *testing.T) {
-	sql := first(migrationSamplesQuery(uuid.New(), WAFMigrationSelector{}, testQuery()))
-
-	if strings.Count(sql, "event_id IN (SELECT event_id FROM ids)") != 2 {
-		t.Error("a vendor lookup is not prefiltered to the ids the records name, " +
-			"which makes it a full scan")
 	}
 }
 

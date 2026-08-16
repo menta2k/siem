@@ -6,6 +6,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/menta2k/siem/internal/query"
 	"github.com/menta2k/siem/internal/tenancy"
 )
@@ -241,6 +243,11 @@ func (r *WAFMigrationRepo) RuleAgreement(
 }
 
 // Samples returns the requests behind one row, with both verdicts on each.
+//
+// Two round trips. The F5 side comes back with the correlated record's whole event list
+// on each row; the Cloudflare side is then fetched for exactly those ids. Reaching it
+// through the same join instead cost seven seconds, because Cloudflare logs twenty-five
+// times as many events as F5 and the join reads all of them to find forty.
 func (r *WAFMigrationRepo) Samples(
 	ctx context.Context, sel WAFMigrationSelector, q DashboardQuery,
 ) ([]WAFMigrationSample, error) {
@@ -257,18 +264,117 @@ func (r *WAFMigrationRepo) Samples(
 	defer func() { _ = rows.Close() }()
 
 	out := make([]WAFMigrationSample, 0, q.limitOrDefault())
+	// The candidate ids per sample, kept beside it so the Cloudflare pass can attribute
+	// what it finds back to the right request.
+	candidates := make([][]string, 0, q.limitOrDefault())
 	for rows.Next() {
 		var s WAFMigrationSample
 		var ip net.IP
-		if err := rows.Scan(&s.CorrelationID, &s.F5EventID, &s.CloudflareEventID,
+		var eventIDs []string
+		if err := rows.Scan(&s.CorrelationID, &s.F5EventID, &eventIDs,
 			&s.EventTime, &ip, &s.Country, &s.ClientASN,
 			&s.RequestHost, &s.RequestPath, &s.RequestQuery, &s.RequestMethod,
 			&s.UserAgent, &s.F5Verdict, &s.F5Violations,
-			&s.CloudflareVerdict, &s.CloudflareRuleID, &s.AttackScore); err != nil {
+			&s.CloudflareVerdict, &s.CloudflareRuleID); err != nil {
 			return nil, fmt.Errorf("scan waf migration sample: %w", err)
 		}
 		s.ClientIP = ip
 		out = append(out, s)
+		candidates = append(candidates, eventIDs)
 	}
-	return out, query.TranslateError(rows.Err())
+	if err := rows.Err(); err != nil {
+		return nil, query.TranslateError(err)
+	}
+
+	if err := r.attachCloudflare(ctx, tenantID, out, candidates, q); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// cloudflareEvent is one Cloudflare event's contribution to a sample row.
+type cloudflareEvent struct {
+	eventID string
+	ruleID  string
+	score   uint8
+}
+
+// attachCloudflare fills in the Cloudflare event and score on a page of samples.
+//
+// A miss is not an error. The Cloudflare event can have aged out of retention while the
+// correlated record and the F5 event survive, and a sample with an empty score is still
+// the evidence the page was opened for — dropping the row would silently shorten it.
+func (r *WAFMigrationRepo) attachCloudflare(
+	ctx context.Context, tenantID uuid.UUID,
+	samples []WAFMigrationSample, candidates [][]string, q DashboardQuery,
+) error {
+	ids := make([]string, 0, len(samples)*2)
+	for _, list := range candidates {
+		ids = append(ids, list...)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	sql, args := cloudflareScoresQuery(tenantID, ids, q)
+	rows, err := r.client.Query(ctx, sql, args...)
+	if err != nil {
+		return query.TranslateError(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	found := make(map[string]cloudflareEvent, len(ids))
+	for rows.Next() {
+		var e cloudflareEvent
+		if err := rows.Scan(&e.eventID, &e.ruleID, &e.score); err != nil {
+			return fmt.Errorf("scan cloudflare sample event: %w", err)
+		}
+		found[e.eventID] = e
+	}
+	if err := rows.Err(); err != nil {
+		return query.TranslateError(err)
+	}
+
+	for i := range samples {
+		if best, ok := pickCloudflareEvent(candidates[i], found); ok {
+			samples[i].CloudflareEventID = best.eventID
+			samples[i].AttackScore = best.score
+		}
+	}
+	return nil
+}
+
+// pickCloudflareEvent chooses ONE event per request.
+//
+// Cloudflare logs a row per hop of a Worker-protected request — the client-facing
+// request, the Worker's subrequest, the origin fetch — and all of them belong to the same
+// correlated record. The hop that carries a security decision is the one worth showing,
+// then one that carries a score, with the id as a deterministic tiebreak so the same
+// request does not change appearance between refreshes.
+func pickCloudflareEvent(
+	ids []string, found map[string]cloudflareEvent,
+) (cloudflareEvent, bool) {
+	var best cloudflareEvent
+	var ok bool
+	for _, id := range ids {
+		candidate, present := found[id]
+		if !present {
+			continue
+		}
+		if !ok || betterCloudflareEvent(candidate, best) {
+			best, ok = candidate, true
+		}
+	}
+	return best, ok
+}
+
+// betterCloudflareEvent ranks two hops of the same request.
+func betterCloudflareEvent(a, b cloudflareEvent) bool {
+	if (a.ruleID != "") != (b.ruleID != "") {
+		return a.ruleID != ""
+	}
+	if (a.score > 0) != (b.score > 0) {
+		return a.score > 0
+	}
+	return a.eventID > b.eventID
 }
