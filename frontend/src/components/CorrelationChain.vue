@@ -16,10 +16,9 @@
 import { computed, ref, watch } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
-import { formatPayload } from '@/lib/json-format'
 import AsmFindings from '@/components/AsmFindings.vue'
 import { usePreferencesStore } from '@/stores/preferences'
-import type { FormattedPayload } from '@/lib/json-format'
+import PayloadViewer from '@/components/PayloadViewer.vue'
 
 type EventDetail = components['schemas']['EventDetail']
 type Vendor = NonNullable<components['schemas']['EventSummary']['vendor']>
@@ -162,14 +161,6 @@ function toggle(eventId: string): void {
 function extraEntries(link: Link): [string, string][] {
   return Object.entries(link.detail?.rawExtra ?? {})
 }
-
-/**
- * The link's payload indented for reading, the same way the event detail panel shows it.
- * Anything that does not parse as JSON comes back exactly as received.
- */
-function payloadOf(link: Link): FormattedPayload {
-  return formatPayload(link.detail?.rawPayload)
-}
 </script>
 
 <template>
@@ -278,14 +269,14 @@ function payloadOf(link: Link): FormattedPayload {
                 </tbody>
               </v-table>
 
-              <div class="text-caption text-medium-emphasis mb-1">
-                {{
-                  payloadOf(link).pretty
-                    ? 'Raw payload, formatted'
-                    : 'Raw payload, exactly as received'
-                }}
-              </div>
-              <pre class="raw-payload">{{ payloadOf(link).text }}</pre>
+              <!-- The same viewer as the event detail panel, so a payload reads the
+                   same way wherever the analyst meets it. Dense: several of these share
+                   this page and the evidence must not out-scroll the timeline. -->
+              <PayloadViewer
+                dense
+                :raw="link.detail?.rawPayload"
+                :content-type="link.detail?.rawContentType"
+              />
             </div>
           </div>
         </v-timeline-item>
@@ -297,17 +288,3 @@ function payloadOf(link: Link): FormattedPayload {
     </v-card-text>
   </v-card>
 </template>
-
-<style scoped>
-.raw-payload {
-  font-family: monospace;
-  font-size: 0.75rem;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 18rem;
-  overflow: auto;
-  padding: 0.5rem;
-  border-radius: 4px;
-  background: rgb(var(--v-theme-surface-light, var(--v-theme-surface)));
-}
-</style>
