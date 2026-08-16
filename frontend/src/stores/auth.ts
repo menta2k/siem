@@ -200,7 +200,20 @@ export const useAuthStore = defineStore('auth', () => {
    * that cookie is the ONLY surviving credential. Returning early when the ref is empty
    * is what used to make a refresh look like a signed-out session.
    */
+  let refreshing: Promise<boolean> | null = null
+
   async function refresh(): Promise<boolean> {
+    // Shared rather than started twice. Refresh tokens ROTATE: a second concurrent
+    // exchange presents a token the first has already burned and comes back 401, which
+    // would end the session it was called to save. That matters now that every 401 on a
+    // page full of parallel requests routes here.
+    refreshing ??= exchange().finally(() => {
+      refreshing = null
+    })
+    return refreshing
+  }
+
+  async function exchange(): Promise<boolean> {
     try {
       const { data } = await api.POST('/api/v1/auth/refresh', {
         // Sent when known; the cookie is what carries it after a reload. The server
@@ -228,11 +241,10 @@ export const useAuthStore = defineStore('auth', () => {
    * did. The refresh token survives in an httpOnly cookie, so one silent exchange puts
    * the session back.
    *
-   * The promise is cached because the router guard and the app shell can both trigger it
-   * on the same load, and two concurrent exchanges would have the second present a token
-   * the first had already revoked by rotation.
+   * The router guard and the app shell can both trigger this on the same load; refresh()
+   * shares one in-flight exchange between them, which is what stops the second from
+   * presenting a token the first has already revoked by rotation.
    */
-  let restoring: Promise<boolean> | null = null
   async function restore(): Promise<boolean> {
     if (isAuthenticated.value) return true
     // An explicit sign-out is not a session to be restored. Without this latch, a
@@ -240,16 +252,17 @@ export const useAuthStore = defineStore('auth', () => {
     // logout() — leaves a live cookie that this call would cash in, silently putting the
     // user back into the account they just left. Signing in again clears it.
     if (isSignedOut()) return false
-    restoring ??= refresh().finally(() => {
-      restoring = null
-    })
-    return restoring
+    return refresh()
   }
 
   // Wired here rather than in client.ts to keep the module graph acyclic.
   configureAuth(
     () => accessToken.value,
     () => reset(),
+    // A 401 mid-session is an expired access token far more often than a finished
+    // session, so the client renews silently before giving up on the user. Refusing
+    // after a deliberate sign-out keeps logout() final.
+    () => (isSignedOut() ? Promise.resolve(false) : refresh()),
   )
 
   return {

@@ -78,9 +78,23 @@ let tokenProvider: TokenProvider = () => null
 type UnauthorizedHandler = () => void
 let onUnauthorized: UnauthorizedHandler = () => {}
 
-export function configureAuth(provider: TokenProvider, handler: UnauthorizedHandler): void {
+/**
+ * Exchanges the refresh cookie for a new access token. Set by the auth store.
+ *
+ * Must be deduplicated by the store: refresh tokens rotate, so two concurrent exchanges
+ * would have the second present a token the first already burned.
+ */
+type SessionRefresher = () => Promise<boolean>
+let refreshSession: SessionRefresher = async () => false
+
+export function configureAuth(
+  provider: TokenProvider,
+  handler: UnauthorizedHandler,
+  refresher?: SessionRefresher,
+): void {
   tokenProvider = provider
   onUnauthorized = handler
+  if (refresher) refreshSession = refresher
 }
 
 /**
@@ -126,13 +140,23 @@ function traceId(): string {
   ].join('-')
 }
 
+/**
+ * Requests still awaiting a response, keyed by openapi-fetch's per-call id.
+ *
+ * These are clones taken before the request is dispatched, so a 401 can be replayed
+ * after a silent token refresh. The clone has to happen up front: once fetch is reading
+ * the body its stream is locked, and a POST could no longer be replayed afterwards.
+ */
+const replayable = new Map<string, Request>()
+
 /** Attaches the bearer token and a trace id to every request. */
 const authMiddleware: Middleware = {
-  onRequest({ request }) {
+  onRequest({ request, id }) {
     const token = tokenProvider()
     if (token) request.headers.set('Authorization', `Bearer ${token}`)
     // Correlates this request with its server-side log line.
     request.headers.set('X-Trace-Id', traceId())
+    replayable.set(id, request.clone())
     return request
   },
 }
@@ -140,22 +164,90 @@ const authMiddleware: Middleware = {
 // Exported for tests only; not part of the client's public surface.
 export const __traceId = traceId
 
-/** Converts a non-2xx response into a typed error rather than a silent undefined. */
+/** Reads the backend's error envelope, falling back to a safe generic one. */
+async function envelopeOf(response: Response): Promise<ApiError> {
+  try {
+    const body = (await response.clone().json()) as Partial<ApiError>
+    if (body && typeof body.code === 'string') return body as ApiError
+  } catch {
+    // A non-JSON body (a proxy error page, say) keeps the generic envelope below.
+    // Never surface raw HTML to the user.
+  }
+  return { code: ErrorCode.Internal, message: 'The request failed' }
+}
+
+/**
+ * True when this failure is an expired access token that a refresh could fix.
+ *
+ * The auth routes are excluded deliberately. /auth/refresh answering 401 means the
+ * refresh credential itself is finished, and retrying it would recurse; /auth/logout
+ * answering 401 must not quietly mint a new session for someone on their way out.
+ */
+function isExpiredAccessToken(response: Response, envelope: ApiError, schemaPath: string): boolean {
+  return (
+    response.status === 401 &&
+    envelope.code === ErrorCode.Unauthenticated &&
+    !schemaPath.startsWith('/api/v1/auth/')
+  )
+}
+
+/** Replays a request once with whatever token the refresh produced. */
+async function replayWithFreshToken(request: Request): Promise<Response | null> {
+  if (!(await refreshSession())) return null
+
+  const token = tokenProvider()
+  if (!token) return null
+
+  const headers = new Headers(request.headers)
+  headers.set('Authorization', `Bearer ${token}`)
+  // A replay is a new attempt on the wire and gets its own id, so the server-side logs
+  // show two distinct requests rather than one that mysteriously answered twice.
+  headers.set('X-Trace-Id', traceId())
+  try {
+    // Deliberately raw fetch: the headers above are already what the middleware would
+    // have added, and going back through the client would re-enter this same handler.
+    return await fetch(new Request(request, { headers }))
+  } catch {
+    // A network failure on the replay is reported as the original 401 by the caller.
+    return null
+  }
+}
+
+/**
+ * Converts a non-2xx response into a typed error rather than a silent undefined, and
+ * transparently renews an expired access token first.
+ *
+ * THE BUG THIS FIXES. Access tokens last 15 minutes; the refresh cookie lasts a week.
+ * Nothing but the page-load restore() ever spent that cookie, so leaving a tab idle past
+ * the access token's lifetime meant the next call — a search, a dashboard poll, anything
+ * — came back "the access token is not valid" and the 401 handler below tore the session
+ * down. Pressing F5 fixed it because that is the one path that did exchange the cookie.
+ * Doing the exchange here makes the console survive its own token lifetime.
+ */
 const errorMiddleware: Middleware = {
-  async onResponse({ response }) {
+  async onResponse({ response, id, schemaPath }) {
+    const original = replayable.get(id)
+    replayable.delete(id)
     if (response.ok) return response
 
-    let envelope: ApiError = { code: ErrorCode.Internal, message: 'The request failed' }
-    try {
-      const body = (await response.clone().json()) as Partial<ApiError>
-      if (body && typeof body.code === 'string') envelope = body as ApiError
-    } catch {
-      // A non-JSON body (a proxy error page, say) keeps the generic envelope above.
-      // Never surface raw HTML to the user.
+    let current = response
+    let envelope = await envelopeOf(current)
+
+    if (original && isExpiredAccessToken(current, envelope, schemaPath)) {
+      const replayed = await replayWithFreshToken(original)
+      if (replayed) {
+        if (replayed.ok) return replayed
+        current = replayed
+        envelope = await envelopeOf(current)
+      }
     }
 
-    if (response.status === 401) onUnauthorized()
-    throw new ApiRequestError(response.status, envelope)
+    // Only now — after a refresh has been tried and failed — is the session really over.
+    if (current.status === 401) onUnauthorized()
+    throw new ApiRequestError(current.status, envelope)
+  },
+  onError({ id }) {
+    replayable.delete(id)
   },
 }
 

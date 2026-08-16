@@ -66,6 +66,20 @@ describe('session restore', () => {
     expect(post).toHaveBeenCalledTimes(1)
   })
 
+  // Every 401 on a page full of parallel requests now asks for a renewal, so the
+  // deduplication has to hold for refresh() itself and not just for the page-load path.
+  // Rotation makes a second concurrent exchange present an already-burned token, which
+  // would end the session the renewal was called to save.
+  it('exchanges only once when refreshed concurrently', async () => {
+    post.mockResolvedValue({ data: { accessToken: 'fresh', user: profile } })
+
+    const auth = useAuthStore()
+    const results = await Promise.all([auth.refresh(), auth.refresh(), auth.refresh()])
+
+    expect(results).toEqual([true, true, true])
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+
   it('does not exchange when already signed in', async () => {
     post.mockResolvedValue({ data: { accessToken: 'fresh', user: profile } })
 
