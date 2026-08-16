@@ -25,6 +25,14 @@ const props = defineProps<{
   requestMethod?: string
   /** blocked | monitored | allowed — what F5 did with the requests being shown. */
   f5Verdict?: string
+  /**
+   * What Cloudflare did — allowed on stage 1, monitored on stages 2 and 3.
+   *
+   * Sent because a row's counts are computed for ONE pair of verdicts. Without it this
+   * list showed requests Cloudflare had acted on beneath a group that had not counted
+   * them, which is evidence contradicting the number above it.
+   */
+  cloudflareVerdict?: string
 }>()
 
 const prefs = usePreferencesStore()
@@ -48,6 +56,7 @@ async function load(): Promise<void> {
           requestHost: props.requestHost ?? '',
           requestMethod: props.requestMethod ?? '',
           f5Verdict: props.f5Verdict ?? '',
+          cloudflareVerdict: props.cloudflareVerdict ?? '',
         },
       },
     })
@@ -61,9 +70,17 @@ async function load(): Promise<void> {
 
 // Immediate: the component is mounted by the row expanding, so there is no state in
 // which it should sit empty waiting for something else to trigger it.
-watch(() => [props.violation, props.ruleId, props.requestHost, props.f5Verdict], load, {
-  immediate: true,
-})
+watch(
+  () => [
+    props.violation,
+    props.ruleId,
+    props.requestHost,
+    props.f5Verdict,
+    props.cloudflareVerdict,
+  ],
+  load,
+  { immediate: true },
+)
 
 /** Verdict colours, matching the rest of the console so a block reads the same anywhere. */
 function verdictColour(verdict?: string): string {

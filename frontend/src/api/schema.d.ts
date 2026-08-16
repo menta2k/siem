@@ -3591,6 +3591,13 @@ export interface operations {
                  *      one sample list serve all three stages.
                  */
                 f5Verdict?: string;
+                /**
+                 * @description Optional. Narrows to what Cloudflare did: allowed (stage 1) | monitored (stages 2
+                 *      and 3). REQUIRED IN PRACTICE, because a row's counts are computed for one pair of
+                 *      verdicts: without it a stage-1 group would list requests Cloudflare acted on, which
+                 *      are not among the requests it counted.
+                 */
+                cloudflareVerdict?: string;
             };
             header?: never;
             path?: never;

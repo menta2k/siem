@@ -154,6 +154,11 @@ message WafMigrationSampleRequest {
   // Optional. Narrows to what F5 did: blocked | monitored | allowed. This is what makes
   // one sample list serve all three stages.
   string f5_verdict = 7;
+  // Optional. Narrows to what Cloudflare did: allowed (stage 1) | monitored (stages 2
+  // and 3). REQUIRED IN PRACTICE, because a row's counts are computed for one pair of
+  // verdicts: without it a stage-1 group would list requests Cloudflare acted on, which
+  // are not among the requests it counted.
+  string cloudflare_verdict = 8;
 }
 
 // WafMigrationSample is one request as BOTH vendors saw it.

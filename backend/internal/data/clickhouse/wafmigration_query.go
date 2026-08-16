@@ -21,6 +21,13 @@ type WAFMigrationSelector struct {
 	RequestMethod string
 	// F5Verdict narrows to what F5 did: blocked, monitored or allowed.
 	F5Verdict string
+	// CloudflareVerdict narrows to what Cloudflare did: allowed on stage 1, monitored on
+	// stages 2 and 3.
+	//
+	// Not optional in practice. A row's counts are computed for ONE pair of verdicts, so
+	// leaving this off listed requests Cloudflare had acted on underneath a group that
+	// had not counted them — evidence that contradicted the number above it.
+	CloudflareVerdict string
 }
 
 // correlatedF5Pairs is the shared spine of every query here: one row per request that
@@ -52,6 +59,18 @@ const correlatedF5Pairs = `
 // The events side is bounded by the same range widened by eventJoinWindow. Without a
 // bound it is a full scan of the table; with the record's own window it would miss an
 // event written just outside it.
+//
+// has_disagreement is redundant with the two verdicts and is there for its INDEX. It is
+// the only pre-computed flag on this table that a skip index already covers, and adding
+// it took the seven-day scan from 6.5s to 1.3s — the difference between the panel loading
+// and the panel timing out at its own default range.
+//
+// It is safe because it is structural, not incidental: normalize.Classify sets
+// Disagreement on `sawAllowed && sawBlocked`, which is precisely this pair of verdicts.
+// A record matching the two predicates below therefore ALWAYS carries the flag, and the
+// filter cannot drop a row the panel should have shown. It is not safe on the other two
+// stages, where F5 blocked against Cloudflare monitored leaves the flag false — 404 of
+// 434 such records here — and where adding it would silently hide most of the worklist.
 func uncoveredQuery(
 	tenantID uuid.UUID, q DashboardQuery, filter WAFMigrationFilter,
 ) (string, []any) {
@@ -75,6 +94,7 @@ func uncoveredQuery(
 				       request_method, client_ip, cf_rule,
 				       first_event_time, last_event_time
 				FROM (` + correlatedF5Pairs + `
+					  AND has_disagreement
 					  AND f5_verdict = ?
 					  AND cf_verdict = ?)
 			) AS c
@@ -178,6 +198,10 @@ func samplePairs(
 	if sel.F5Verdict != "" {
 		sql += ` AND f5_verdict = ?`
 		args = append(args, sel.F5Verdict)
+	}
+	if sel.CloudflareVerdict != "" {
+		sql += ` AND cf_verdict = ?`
+		args = append(args, sel.CloudflareVerdict)
 	}
 	if sel.RuleID != "" {
 		sql += ` AND cf_rule = ?`

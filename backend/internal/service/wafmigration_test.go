@@ -238,6 +238,15 @@ func TestSamplesRejectAnUnknownVerdict(t *testing.T) {
 		t.Error("an F5 verdict F5 never reports was accepted")
 	}
 
+	// The Cloudflare side is validated the same way, for the same reason: an
+	// unrecognised value returns nothing, which reads as "no such traffic".
+	if _, err := svc.GetMigrationSamples(context.Background(),
+		&pb.WafMigrationSampleRequest{
+			TimeRange: migrationRange(), RuleId: "abc", CloudflareVerdict: "nonsense",
+		}); err == nil {
+		t.Error("an unknown Cloudflare verdict was accepted")
+	}
+
 	for _, verdict := range []string{"blocked", "monitored", "allowed", ""} {
 		if _, err := svc.GetMigrationSamples(context.Background(),
 			&pb.WafMigrationSampleRequest{
@@ -268,6 +277,7 @@ func TestSamplesCarryBothVendorsAndEveryViolation(t *testing.T) {
 		context.Background(), &pb.WafMigrationSampleRequest{
 			TimeRange: migrationRange(), Violation: "Illegal file type",
 			RequestHost: "www.jobs.bg", RequestMethod: "GET", F5Verdict: "blocked",
+			CloudflareVerdict: "allowed",
 		})
 	if err != nil {
 		t.Fatalf("GetMigrationSamples: %v", err)
@@ -277,7 +287,7 @@ func TestSamplesCarryBothVendorsAndEveryViolation(t *testing.T) {
 	// to a different group than the counts did.
 	want := chdata.WAFMigrationSelector{
 		Violation: "Illegal file type", RequestHost: "www.jobs.bg",
-		RequestMethod: "GET", F5Verdict: "blocked",
+		RequestMethod: "GET", F5Verdict: "blocked", CloudflareVerdict: "allowed",
 	}
 	if reader.gotSelector != want {
 		t.Errorf("selector = %+v, want %+v", reader.gotSelector, want)

@@ -134,10 +134,13 @@ function share(rule: RuleAgreement, count?: string | number): number {
             <div class="text-caption text-medium-emphasis px-3 pt-2">
               {{ reading(rule)?.hint }}
             </div>
+            <!-- Cloudflare is monitoring on both of these stages by definition: a rule
+                 already blocking is not a migration candidate and never reaches here. -->
             <MigrationSamples
               :range="props.range"
               :rule-id="rule.ruleId"
               :f5-verdict="props.sampleVerdict"
+              cloudflare-verdict="monitored"
             />
           </td>
         </tr>

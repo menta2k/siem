@@ -141,6 +141,45 @@ func TestAgreementConsidersOnlyLoggingRules(t *testing.T) {
 	}
 }
 
+// has_disagreement is redundant with the two verdicts and is there for its INDEX: it took
+// the seven-day scan from 6.5s to 1.3s, the difference between the panel loading and
+// timing out at its own default range. It is safe only because normalize.Classify sets
+// the flag on exactly `sawAllowed && sawBlocked`.
+func TestUncoveredUsesTheDisagreementIndex(t *testing.T) {
+	sql := first(uncoveredQuery(uuid.New(), testQuery(), WAFMigrationFilter{}))
+
+	if !strings.Contains(sql, "AND has_disagreement") {
+		t.Error("the disagreement flag is not used, so the scan reads the verdicts map in full")
+	}
+}
+
+// The OTHER two stages must NOT carry it. F5 blocked against Cloudflare monitored leaves
+// the flag false — 404 of 434 such records on this deployment — so the same predicate
+// that speeds up stage 1 would silently hide most of stage 2's worklist.
+func TestAgreementDoesNotUseTheDisagreementFlag(t *testing.T) {
+	sql := first(ruleAgreementQuery(uuid.New(), testQuery(), WAFMigrationFilter{}, nil))
+
+	if strings.Contains(sql, "has_disagreement") {
+		t.Error("the agreement stages filter on has_disagreement, which drops most of their rows")
+	}
+}
+
+// A row's counts are computed for ONE pair of verdicts. Without the Cloudflare side the
+// drill-down listed requests Cloudflare had acted on beneath a group that had not counted
+// them — evidence contradicting the number above it.
+func TestSamplesNarrowToBothVerdicts(t *testing.T) {
+	sql, args := migrationSamplesQuery(uuid.New(), WAFMigrationSelector{
+		F5Verdict: "blocked", CloudflareVerdict: "allowed",
+	}, testQuery())
+
+	if !strings.Contains(sql, "AND f5_verdict = ?") || !strings.Contains(sql, "AND cf_verdict = ?") {
+		t.Fatal("the samples are not narrowed to both vendors' verdicts")
+	}
+	if !containsArg(args, "blocked") || !containsArg(args, "allowed") {
+		t.Error("both verdicts must be bound, or the samples belong to a different group than the counts")
+	}
+}
+
 // Stage 1 is defined by the ABSENCE of a Cloudflare decision on traffic F5 blocked.
 func TestUncoveredPairsBlockedWithAllowed(t *testing.T) {
 	sql, args := uncoveredQuery(uuid.New(), testQuery(), WAFMigrationFilter{})

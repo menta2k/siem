@@ -487,9 +487,14 @@ type WafMigrationSampleRequest struct {
 	RequestMethod string `protobuf:"bytes,6,opt,name=request_method,json=requestMethod,proto3" json:"request_method,omitempty"`
 	// Optional. Narrows to what F5 did: blocked | monitored | allowed. This is what makes
 	// one sample list serve all three stages.
-	F5Verdict     string `protobuf:"bytes,7,opt,name=f5_verdict,json=f5Verdict,proto3" json:"f5_verdict,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	F5Verdict string `protobuf:"bytes,7,opt,name=f5_verdict,json=f5Verdict,proto3" json:"f5_verdict,omitempty"`
+	// Optional. Narrows to what Cloudflare did: allowed (stage 1) | monitored (stages 2
+	// and 3). REQUIRED IN PRACTICE, because a row's counts are computed for one pair of
+	// verdicts: without it a stage-1 group would list requests Cloudflare acted on, which
+	// are not among the requests it counted.
+	CloudflareVerdict string `protobuf:"bytes,8,opt,name=cloudflare_verdict,json=cloudflareVerdict,proto3" json:"cloudflare_verdict,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *WafMigrationSampleRequest) Reset() {
@@ -567,6 +572,13 @@ func (x *WafMigrationSampleRequest) GetRequestMethod() string {
 func (x *WafMigrationSampleRequest) GetF5Verdict() string {
 	if x != nil {
 		return x.F5Verdict
+	}
+	return ""
+}
+
+func (x *WafMigrationSampleRequest) GetCloudflareVerdict() string {
+	if x != nil {
+		return x.CloudflareVerdict
 	}
 	return ""
 }
@@ -840,7 +852,7 @@ const file_siem_v1_wafmigration_proto_rawDesc = "" +
 	"first_seen\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tfirstSeen\x127\n" +
 	"\tlast_seen\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\"H\n" +
 	"\x15WafRuleAgreementPanel\x12/\n" +
-	"\x05rules\x18\x01 \x03(\v2\x19.siem.v1.WafRuleAgreementR\x05rules\"\x84\x02\n" +
+	"\x05rules\x18\x01 \x03(\v2\x19.siem.v1.WafRuleAgreementR\x05rules\"\xb3\x02\n" +
 	"\x19WafMigrationSampleRequest\x121\n" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12\x14\n" +
@@ -850,7 +862,8 @@ const file_siem_v1_wafmigration_proto_rawDesc = "" +
 	"\frequest_host\x18\x05 \x01(\tR\vrequestHost\x12%\n" +
 	"\x0erequest_method\x18\x06 \x01(\tR\rrequestMethod\x12\x1d\n" +
 	"\n" +
-	"f5_verdict\x18\a \x01(\tR\tf5Verdict\"\x91\x05\n" +
+	"f5_verdict\x18\a \x01(\tR\tf5Verdict\x12-\n" +
+	"\x12cloudflare_verdict\x18\b \x01(\tR\x11cloudflareVerdict\"\x91\x05\n" +
 	"\x12WafMigrationSample\x12%\n" +
 	"\x0ecorrelation_id\x18\x01 \x01(\tR\rcorrelationId\x12\x1e\n" +
 	"\vf5_event_id\x18\x02 \x01(\tR\tf5EventId\x12.\n" +

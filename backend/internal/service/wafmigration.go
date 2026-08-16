@@ -172,6 +172,10 @@ func (s *WAFMigrationService) GetMigrationSamples(
 		return nil, mw.ValidationFailed(
 			"the F5 verdict must be one of: blocked, monitored, allowed")
 	}
+	if v := req.GetCloudflareVerdict(); v != "" && !migrationVerdicts[v] {
+		return nil, mw.ValidationFailed(
+			"the Cloudflare verdict must be one of: blocked, monitored, allowed")
+	}
 
 	q, err := s.migrationQuery(req.GetTimeRange(), req.GetLimit())
 	if err != nil {
@@ -182,11 +186,12 @@ func (s *WAFMigrationService) GetMigrationSamples(
 	defer cancel()
 
 	samples, err := s.waf.Samples(ctx, chdata.WAFMigrationSelector{
-		Violation:     req.GetViolation(),
-		RuleID:        req.GetRuleId(),
-		RequestHost:   req.GetRequestHost(),
-		RequestMethod: req.GetRequestMethod(),
-		F5Verdict:     req.GetF5Verdict(),
+		Violation:         req.GetViolation(),
+		RuleID:            req.GetRuleId(),
+		RequestHost:       req.GetRequestHost(),
+		RequestMethod:     req.GetRequestMethod(),
+		F5Verdict:         req.GetF5Verdict(),
+		CloudflareVerdict: req.GetCloudflareVerdict(),
 	}, q)
 	if err != nil {
 		return nil, query.TranslateError(err)

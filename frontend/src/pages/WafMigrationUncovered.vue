@@ -169,6 +169,7 @@ function allowlistShare(g: UncoveredGroup): number {
                       :request-host="g.requestHost"
                       :request-method="g.requestMethod"
                       f5-verdict="blocked"
+                      cloudflare-verdict="allowed"
                     />
                   </td>
                 </tr>
