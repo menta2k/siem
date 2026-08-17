@@ -16,11 +16,17 @@ export interface MigrationRange {
 /**
  * Ranges are wider here than on the tuning page, deliberately.
  *
- * A migration decision is made on accumulated agreement, not on the last hour: this
+ * A migration DECISION is made on accumulated agreement, not on the last hour: this
  * deployment sees roughly fifty F5 blocks a day, so an hour of evidence is a handful of
- * requests and cannot support turning a rule on. The default is a week for that reason.
+ * requests and cannot support turning a rule on. The default is a week for that reason,
+ * and it stays a week.
+ *
+ * The hour is here for the other thing these pages are used for: checking whether a change
+ * has taken effect. After a rule is added in log mode, or switched to block, the question
+ * is "is it matching now" — and a week-wide window answers that with mostly history.
  */
 export const MIGRATION_RANGES = [
+  { title: 'Last hour', value: 1 },
   { title: 'Last 24 hours', value: 24 },
   { title: 'Last 3 days', value: 72 },
   { title: 'Last 7 days', value: 168 },

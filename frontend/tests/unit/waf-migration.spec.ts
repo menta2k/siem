@@ -128,13 +128,19 @@ describe('RuleAgreementTable', () => {
 describe('useMigrationRange', () => {
   // A migration decision is made on accumulated agreement. This deployment sees ~50 F5
   // blocks a day, so an hour of evidence is a handful of requests and cannot support
-  // turning a rule on.
-  it('defaults to a week, not an hour', () => {
+  // turning a rule on — which is why the DEFAULT is a week even though an hour is
+  // offered. The hour is for checking whether a change has taken effect yet.
+  it('defaults to a week, whatever else the menu offers', () => {
     const { rangeHours } = useMigrationRange()
 
     expect(rangeHours.value).toBe(DEFAULT_MIGRATION_HOURS)
     expect(DEFAULT_MIGRATION_HOURS).toBe(168)
-    expect(Math.min(...MIGRATION_RANGES.map((r) => r.value))).toBe(24)
+    expect(MIGRATION_RANGES.some((r) => r.value === DEFAULT_MIGRATION_HOURS)).toBe(true)
+  })
+
+  // Every stage reads the same menu, so an option added here reaches all three pages.
+  it('offers an hour through to a month, shortest first', () => {
+    expect(MIGRATION_RANGES.map((r) => r.value)).toEqual([1, 24, 72, 168, 720])
   })
 
   // The host reaches the SERVER. Rows come back ordered by volume, so filtering the
