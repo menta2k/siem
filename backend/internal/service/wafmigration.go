@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -20,11 +21,21 @@ type WAFMigrationReader interface {
 	) ([]chdata.WAFUncoveredGroup, error)
 	RuleAgreement(
 		ctx context.Context, q chdata.DashboardQuery, filter chdata.WAFMigrationFilter,
-		readings []string,
+		readings, monitoredRuleIDs []string,
 	) ([]chdata.WAFRuleAgreement, error)
 	Samples(
 		ctx context.Context, sel chdata.WAFMigrationSelector, q chdata.DashboardQuery,
 	) ([]chdata.WAFMigrationSample, error)
+}
+
+// MonitoredRuleSource lists the Cloudflare rules configured not to enforce.
+//
+// A separate surface from RuleNamer because it answers a different question: not "what is
+// this rule called" but "which rules are still waiting to be trusted". The rule's own
+// configuration is the only place that answer lives — the action recorded against a
+// request is whichever rule decided it, which for a log-mode rule is somebody else.
+type MonitoredRuleSource interface {
+	MonitoredRules(ctx context.Context) (map[string]string, error)
 }
 
 // WAFMigrationService implements the WafMigration proto service.
@@ -39,14 +50,19 @@ type WAFMigrationService struct {
 	// rules names a rule id, through the same resolver the rest of the console uses.
 	// Optional: a deployment with no Cloudflare token gets bare ids.
 	rules RuleNamer
-	now   func() time.Time
+	// monitored decides which rules are migration candidates at all.
+	monitored MonitoredRuleSource
+	now       func() time.Time
 }
 
 // NewWAFMigrationService constructs the service.
 func NewWAFMigrationService(
 	waf WAFMigrationReader, limits query.Limits, rules RuleNamer,
+	monitored MonitoredRuleSource,
 ) *WAFMigrationService {
-	return &WAFMigrationService{waf: waf, limits: limits, rules: rules, now: time.Now}
+	return &WAFMigrationService{
+		waf: waf, limits: limits, rules: rules, monitored: monitored, now: time.Now,
+	}
 }
 
 // migrationQuery validates the range and limit the way every panel does.
@@ -132,9 +148,29 @@ func (s *WAFMigrationService) agreement(
 	ctx, cancel := s.limits.WithTimeout(ctx)
 	defer cancel()
 
+	// The candidates, and each one's configured action, before anything is counted. A
+	// deployment with no Cloudflare token cannot know which rules are in log mode, and
+	// answering with every rule that ever matched would fill the worklist with work
+	// already finished.
+	actions, err := s.monitoredActions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(actions) == 0 {
+		return &pb.WafRuleAgreementPanel{}, nil
+	}
+
+	candidates := make([]string, 0, len(actions))
+	for ruleID := range actions {
+		candidates = append(candidates, ruleID)
+	}
+	// Sorted so the same request produces the same query, which keeps a slow one
+	// reproducible and lets ClickHouse reuse its cache.
+	sort.Strings(candidates)
+
 	rules, err := s.waf.RuleAgreement(ctx, q, chdata.WAFMigrationFilter{
 		RequestHost: req.GetRequestHost(),
-	}, readings)
+	}, readings, candidates)
 	if err != nil {
 		return nil, query.TranslateError(err)
 	}
@@ -143,7 +179,7 @@ func (s *WAFMigrationService) agreement(
 	for _, r := range rules {
 		out.Rules = append(out.Rules, &pb.WafRuleAgreement{
 			RuleId:      r.RuleID,
-			Action:      r.Action,
+			Action:      actions[r.RuleID],
 			Correlated:  r.Correlated,
 			F5Blocked:   r.F5Blocked,
 			F5Flagged:   r.F5Flagged,
@@ -157,6 +193,20 @@ func (s *WAFMigrationService) agreement(
 	}
 	describeAgreementRules(ctx, s.rules, out.Rules)
 	return out, nil
+}
+
+// monitoredActions reads the candidate rules, tolerating a deployment that has none.
+func (s *WAFMigrationService) monitoredActions(
+	ctx context.Context,
+) (map[string]string, error) {
+	if s.monitored == nil {
+		return nil, nil
+	}
+	actions, err := s.monitored.MonitoredRules(ctx)
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
+	return actions, nil
 }
 
 // GetMigrationSamples returns the requests behind one row, with both verdicts on each.

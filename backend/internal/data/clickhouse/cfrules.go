@@ -156,3 +156,52 @@ func (r *CloudflareRuleRepo) CountFor(ctx context.Context, tenantID uuid.UUID) (
 	}
 	return count, rows.Err()
 }
+
+// MonitoredActions are the Cloudflare actions that DO NOT enforce.
+//
+// `log` records the match and lets the request through; `simulate` is the same thing under
+// a managed ruleset's name. A rule in either state is the subject of a migration: it has
+// been written, it is matching traffic, and nothing has been trusted to it yet.
+var MonitoredActions = []string{"log", "simulate"}
+
+// MonitoredRules returns the rules configured not to enforce, as rule id to action.
+//
+// The RULE's configured action, not what happened on some request, and that distinction is
+// the whole point. A log-mode rule does not terminate evaluation, so the action recorded
+// against a request is frequently a later `skip` — asking the event what the rule does
+// gives the wrong answer for exactly the rules being migrated.
+//
+// Reads today's configuration, so a rule switched to block stops appearing as a candidate.
+// That is the desired behaviour: it is no longer waiting to be migrated.
+func (r *CloudflareRuleRepo) MonitoredRules(ctx context.Context) (map[string]string, error) {
+	tenantID, err := tenancy.MustID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// FINAL for the same reason as DescriptionsFor: a rule whose action was just changed
+	// would otherwise be readable in both states until the parts merge.
+	//
+	// The aggregate is aliased away from the column name it aggregates, which ClickHouse
+	// requires — see the note above.
+	rows, err := r.client.Query(ctx, `
+		SELECT rule_id, any(action) AS verb
+		FROM cloudflare_rules FINAL
+		WHERE tenant_id = ? AND action IN (?)
+		GROUP BY rule_id`,
+		tenantID, MonitoredActions)
+	if err != nil {
+		return nil, fmt.Errorf("read monitored cloudflare rules: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	found := map[string]string{}
+	for rows.Next() {
+		var ruleID, action string
+		if err := rows.Scan(&ruleID, &action); err != nil {
+			return nil, fmt.Errorf("scan monitored cloudflare rule: %w", err)
+		}
+		found[ruleID] = action
+	}
+	return found, rows.Err()
+}

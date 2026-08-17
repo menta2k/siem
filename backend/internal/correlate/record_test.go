@@ -244,3 +244,77 @@ func TestMemberProjectionRoundTrips(t *testing.T) {
 		t.Error("verdict detail was lost in the projection")
 	}
 }
+
+// THE BUG THIS PINS. The record kept only the rule that DECIDED each vendor's outcome. A
+// Cloudflare rule in log mode never decides anything — logging does not terminate
+// evaluation, so a later `skip` won and the log-mode match was dropped here, before any
+// query could see it. 13,619 events in seven days, all belonging to the rules the WAF
+// migration exists to measure.
+func TestRecordKeepsEveryRuleEachVendorMatched(t *testing.T) {
+	g := group.Group{
+		Key: keys.Key{Tier: keys.TierExact, Signals: []keys.Signal{keys.SignalVendorRequestID}},
+		Members: []group.Event{
+			recEvent("e1", vendors.Cloudflare, vendors.VerdictAllowed, recBase,
+				func(row *chdata.NormalizedEvent) {
+					// What Cloudflare logs: the log-mode rule matched first, the skip
+					// decided the request.
+					row.RuleID = "skip-rule"
+					row.RuleIDs = []string{"log-rule", "skip-rule"}
+				}),
+			recEvent("e2", vendors.F5, vendors.VerdictBlocked, recBase.Add(time.Second),
+				func(row *chdata.NormalizedEvent) {
+					row.RuleID = "/Common/policy"
+					row.RuleIDs = []string{"Attack signature detected", "Illegal cross-origin request"}
+				}),
+		},
+		CandidateCount: 1,
+		Confidence:     confidence.High,
+	}
+
+	record := buildRecord(recTenant, g, 0)
+
+	// The deciding rule is still there — every panel that answers "why was this blocked"
+	// reads it.
+	if record.RuleIDs[vendors.Cloudflare] != "skip-rule" {
+		t.Errorf("deciding rule = %q, want skip-rule", record.RuleIDs[vendors.Cloudflare])
+	}
+	// And now the rule that only logged, which is the one being migrated.
+	cf := record.MatchedRuleIDs[vendors.Cloudflare]
+	if len(cf) != 2 || cf[0] != "log-rule" || cf[1] != "skip-rule" {
+		t.Errorf("cloudflare matches = %v, want both rules in the order reported", cf)
+	}
+	// F5's list is its violation set, which serves the uncovered stage the same way.
+	if f5 := record.MatchedRuleIDs[vendors.F5]; len(f5) != 2 {
+		t.Errorf("f5 matches = %v, want both violations", f5)
+	}
+}
+
+// A record can hold more than one event from the same vendor — a redelivery, or the
+// several hops Cloudflare logs for one Worker-protected request. Each brings its own
+// matches, and the same rule appearing twice is still one rule: counting it twice would
+// double that request in a per-rule total.
+func TestRecordMergesRuleListsAcrossEventsWithoutDuplicating(t *testing.T) {
+	g := group.Group{
+		Key: keys.Key{Tier: keys.TierExact, Signals: []keys.Signal{keys.SignalVendorRequestID}},
+		Members: []group.Event{
+			recEvent("e1", vendors.Cloudflare, vendors.VerdictAllowed, recBase,
+				func(row *chdata.NormalizedEvent) { row.RuleIDs = []string{"rule-a", "rule-b"} }),
+			recEvent("e2", vendors.Cloudflare, vendors.VerdictAllowed, recBase.Add(time.Second),
+				func(row *chdata.NormalizedEvent) { row.RuleIDs = []string{"rule-b", "rule-c", ""} }),
+		},
+		CandidateCount: 1,
+		Confidence:     confidence.High,
+	}
+
+	got := buildRecord(recTenant, g, 0).MatchedRuleIDs[vendors.Cloudflare]
+
+	want := []string{"rule-a", "rule-b", "rule-c"}
+	if len(got) != len(want) {
+		t.Fatalf("matches = %v, want %v — an empty id or a repeat was kept", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("matches = %v, want %v in the order first reported", got, want)
+		}
+	}
+}

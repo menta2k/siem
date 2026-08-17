@@ -39,7 +39,13 @@ type CorrelatedRequest struct {
 
 	Verdicts map[string]string
 	RuleIDs  map[string]string
-	Scores   map[string]float32
+	// MatchedRuleIDs is EVERY rule each vendor matched, where RuleIDs above is the one
+	// that decided the outcome. They differ whenever more than one rule matches — a
+	// Cloudflare rule in log mode does not terminate evaluation, so a later `skip`
+	// becomes the decision and the log-mode match would otherwise be lost. That match is
+	// the entire subject of the WAF migration stages.
+	MatchedRuleIDs map[string][]string
+	Scores         map[string]float32
 
 	CombinedOutcome  string
 	HasDisagreement  bool
@@ -70,7 +76,7 @@ func NewCorrelatedRepo(client *Client) *CorrelatedRepo {
 const correlatedColumns = `tenant_id, correlation_id, window_start, first_event_time,
 	last_event_time, vendors, vendor_count, event_ids, client_ip, client_ip_shared,
 	client_asn, client_country, request_host, request_path, request_method, verdicts,
-	rule_ids, scores, combined_outcome, has_disagreement, disagreement_kind,
+	rule_ids, matched_rule_ids, scores, combined_outcome, has_disagreement, disagreement_kind,
 	join_signals, join_tier, confidence, candidate_count, version, amended`
 
 // ByIDs loads the stored records for a set of correlation ids.
@@ -150,7 +156,7 @@ func (r *CorrelatedRepo) Insert(ctx context.Context, records []CorrelatedRequest
 			ipOrZero(record.ClientIP), record.ClientIPShared, record.ClientASN,
 			record.ClientCountry, record.RequestHost, record.RequestPath, record.RequestMethod,
 			orEmptyMap(record.Verdicts), orEmptyMap(record.RuleIDs),
-			orEmptyScores(record.Scores),
+			orEmptyRuleLists(record.MatchedRuleIDs), orEmptyScores(record.Scores),
 			record.CombinedOutcome, record.HasDisagreement, record.DisagreementKind,
 			orEmptySlice(record.JoinSignals), record.JoinTier, record.Confidence,
 			record.CandidateCount, record.Version, record.Amended,
@@ -338,6 +344,20 @@ func scanCorrelated(row rowScanner) (CorrelatedRequest, error) {
 }
 
 // orEmptyScores mirrors orEmptyMap for float values: ClickHouse rejects a nil Map.
+// orEmptyRuleLists keeps a nil map out of the driver, and drops the empty lists a vendor
+// that matched nothing would otherwise contribute — a key mapping to [] says "this vendor
+// matched no rules", which the absence of the key already says more cheaply.
+func orEmptyRuleLists(m map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(m))
+	for vendor, rules := range m {
+		if len(rules) == 0 {
+			continue
+		}
+		out[vendor] = rules
+	}
+	return out
+}
+
 func orEmptyScores(m map[string]float32) map[string]float32 {
 	if m == nil {
 		return map[string]float32{}

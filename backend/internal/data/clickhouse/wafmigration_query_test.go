@@ -1,6 +1,7 @@
 package clickhouse
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,9 @@ import (
 // The queries here are validated for SHAPE, not for results: what they must never do is
 // leak a tenant, drop a filter, or emit SQL ClickHouse rejects. The joins themselves were
 // run against production data before this landed.
+
+// testCandidates stands in for the rules the rule table reports as non-enforcing.
+var testCandidates = []string{"cf-rule-1", "cf-rule-2"}
 
 func testQuery() DashboardQuery {
 	from := time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC)
@@ -39,7 +43,8 @@ func TestMigrationQueriesScopeEveryTable(t *testing.T) {
 		args []any
 	}{uncoveredSQL, uncoveredArgs}
 
-	agreementSQL, agreementArgs := ruleAgreementQuery(tenant, q, WAFMigrationFilter{}, nil)
+	agreementSQL, agreementArgs := ruleAgreementQuery(
+		tenant, q, WAFMigrationFilter{}, nil, testCandidates)
 	cases["agreement"] = struct {
 		sql  string
 		args []any
@@ -99,9 +104,13 @@ func TestMigrationFilterRunsInSQL(t *testing.T) {
 			"which empties exactly the rows it was meant to find")
 	}
 
-	sql, args = ruleAgreementQuery(tenant, q, WAFMigrationFilter{RequestHost: "jobs.bg"}, nil)
-	if !strings.Contains(sql, "WHERE request_host = ?") || !containsArg(args, "jobs.bg") {
+	sql, args = ruleAgreementQuery(
+		tenant, q, WAFMigrationFilter{RequestHost: "jobs.bg"}, nil, testCandidates)
+	if !strings.Contains(sql, "request_host = ?") || !containsArg(args, "jobs.bg") {
 		t.Error("agreement: the host filter is not applied server-side")
+	}
+	if strings.Index(sql, "request_host = ?") > strings.Index(sql, "LIMIT") {
+		t.Error("agreement: the filter runs after the limit")
 	}
 }
 
@@ -110,7 +119,7 @@ func TestMigrationFilterRunsInSQL(t *testing.T) {
 // against one with six thousand.
 func TestAgreementReadingFiltersBeforeLimit(t *testing.T) {
 	sql, args := ruleAgreementQuery(
-		uuid.New(), testQuery(), WAFMigrationFilter{}, []string{ReadingReady})
+		uuid.New(), testQuery(), WAFMigrationFilter{}, []string{ReadingReady}, testCandidates)
 
 	if !strings.Contains(sql, "HAVING reading IN (?)") {
 		t.Fatal("the reading filter is not in the HAVING")
@@ -123,106 +132,79 @@ func TestAgreementReadingFiltersBeforeLimit(t *testing.T) {
 	}
 }
 
-// Only rules Cloudflare is NOT enforcing are migration candidates. Including a blocking
-// rule would put finished work back on the worklist.
-func TestAgreementConsidersOnlyLoggingRules(t *testing.T) {
-	sql, args := ruleAgreementQuery(uuid.New(), testQuery(), WAFMigrationFilter{}, nil)
+// THE BUG THIS PINS. The stage used to group by the rule that DECIDED the request, and a
+// Cloudflare rule in log mode never decides anything — logging does not terminate
+// evaluation, so a later `skip` won and the log-mode match vanished. 13,619 events in seven
+// days, every one of them belonging to a rule this stage exists to measure.
+func TestAgreementCountsEveryMatchedRule(t *testing.T) {
+	sql := first(ruleAgreementQuery(
+		uuid.New(), testQuery(), WAFMigrationFilter{}, nil, testCandidates))
 
-	if !strings.Contains(sql, "cf_verdict = ?") {
-		t.Fatal("the Cloudflare verdict is not constrained")
+	if !strings.Contains(sql, "arrayJoin(arrayFilter(x -> x IN (?), cf_matched_rules))") {
+		t.Error("the stage does not unroll every matched rule, " +
+			"so a log-mode match superseded by a skip stays invisible")
 	}
-	if !containsArg(args, "monitored") {
-		t.Error("monitored is not bound: the panel would include rules already blocking")
-	}
-	// A rule id is required, or the row would be "everything Cloudflare logged without a
-	// rule", which is not something that can be enforced.
-	if !strings.Contains(sql, "cf_rule != ?") {
-		t.Error("rows without a Cloudflare rule are not excluded")
+	// Grouping by the deciding rule is the bug, so it must not come back.
+	if strings.Contains(sql, "GROUP BY cf_rule") {
+		t.Error("the stage still groups by the rule that decided the request")
 	}
 }
 
-// The spine reads the MATERIALIZED verdict columns, not the map. Answering
-// verdicts['f5'] = ... decompresses the whole map for every row in range, and ClickHouse
-// will not put a skip index on that form — which is how the panel came to time out at its
-// own default range.
-func TestSpineReadsTheVerdictColumns(t *testing.T) {
-	for name, sql := range map[string]string{
-		"uncovered": first(uncoveredQuery(uuid.New(), testQuery(), WAFMigrationFilter{})),
-		"agreement": first(ruleAgreementQuery(uuid.New(), testQuery(), WAFMigrationFilter{}, nil)),
-		"samples":   first(migrationSamplesQuery(uuid.New(), WAFMigrationSelector{}, testQuery())),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if strings.Contains(sql, "verdicts['") {
-				t.Error("the map is read instead of the materialized column")
-			}
-			// The array read answered a question the verdict already answers, for 1.2s.
-			if strings.Contains(sql, "has(vendors") {
-				t.Error("the vendors array is still read")
-			}
-		})
+// Only rules Cloudflare is NOT enforcing are migration candidates, and which rules those
+// are comes from the rule TABLE. Asking the request instead gives the wrong answer for
+// exactly these rules: the action recorded against a request is whichever rule won it.
+func TestAgreementTakesItsCandidatesFromTheCaller(t *testing.T) {
+	sql, args := ruleAgreementQuery(
+		uuid.New(), testQuery(), WAFMigrationFilter{}, nil, testCandidates)
+
+	if !containsArg(args, testCandidates) {
+		t.Fatal("the candidate rules are not bound")
+	}
+	// A slice binds as a bare comma-separated list, which `IN (?)` wants and a function
+	// expecting an array does not — passing one to hasAny() arrives as extra arguments and
+	// ClickHouse rejects the query.
+	// hasAny() takes a real array literal, built from one placeholder per id. Binding the
+	// slice itself renders a bare comma-separated list, which arrives as extra arguments.
+	if !strings.Contains(sql, "hasAny(cf_matched_rules, [?, ?])") {
+		t.Error("the indexed prefilter is missing or does not bind an array literal")
+	}
+	// Applied to the ARRAY, before the unroll. As an outer WHERE on the unrolled alias
+	// ClickHouse pushes it into the subquery, loses the map column and fails outright.
+	if !strings.Contains(sql, "arrayFilter(x -> x IN (?)") {
+		t.Error("the candidates do not filter the array before it is unrolled")
+	}
+	if strings.Contains(sql, "WHERE rule IN") {
+		t.Error("the candidate filter is an outer predicate on an arrayJoin alias, " +
+			"which ClickHouse pushes down and then cannot execute")
+	}
+	// The verdict of the REQUEST must not decide candidacy any more.
+	if strings.Contains(sql, "cf_verdict = ?") {
+		t.Error("candidacy is still taken from what happened on the request")
 	}
 }
 
-// A redundant guard beside an equality is not free: it reads the column a second way and
-// cost 2.1s against 1.3s across seven days.
-func TestVerdictIsConstrainedExactlyOnce(t *testing.T) {
-	sql := first(uncoveredQuery(uuid.New(), testQuery(), WAFMigrationFilter{}))
+// Both vendors must have reported, or the row is not a comparison. The F5 verdict stays
+// unconstrained by value because its three outcomes are what the stage counts.
+func TestAgreementRequiresBothVendors(t *testing.T) {
+	sql := first(ruleAgreementQuery(
+		uuid.New(), testQuery(), WAFMigrationFilter{}, nil, testCandidates))
 
-	if strings.Contains(sql, "f5_verdict != ") {
-		t.Error("a non-empty guard sits beside the equality that already implies it")
-	}
-	// And the flag that stood in for the index before 0018 is gone with it.
-	if strings.Contains(sql, "has_disagreement") {
-		t.Error("has_disagreement is still filtered on, which the verdict index made redundant")
+	if !strings.Contains(sql, "f5_verdict != ?") || !strings.Contains(sql, "cf_verdict != ?") {
+		t.Error("a record only one vendor reported would pass this query")
 	}
 }
 
-// Every row a panel counts is a request BOTH vendors reported. The spine no longer says
-// so, so each query has to — including the samples query when the caller named no verdict.
-func TestEveryQueryConstrainsBothVendors(t *testing.T) {
-	samples := func(sel WAFMigrationSelector) string {
-		return first(migrationSamplesQuery(uuid.New(), sel, testQuery()))
+// No candidates means no stage. Counting every rule instead would fill a migration
+// worklist with rules that are already enforcing.
+func TestAgreementWithoutCandidatesIsNotAQuery(t *testing.T) {
+	repo := &WAFMigrationRepo{}
+	rules, err := repo.RuleAgreement(
+		context.Background(), testQuery(), WAFMigrationFilter{}, nil, nil)
+	if err != nil {
+		t.Fatalf("RuleAgreement() with no candidates: %v", err)
 	}
-	for name, sql := range map[string]string{
-		"uncovered":       first(uncoveredQuery(uuid.New(), testQuery(), WAFMigrationFilter{})),
-		"agreement":       first(ruleAgreementQuery(uuid.New(), testQuery(), WAFMigrationFilter{}, nil)),
-		"samples/unnamed": samples(WAFMigrationSelector{}),
-		"samples/named": samples(WAFMigrationSelector{
-			F5Verdict: "blocked", CloudflareVerdict: "allowed",
-		}),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if !strings.Contains(sql, "f5_verdict") || !strings.Contains(sql, "cf_verdict") {
-				t.Error("a record only one vendor reported would pass this query")
-			}
-		})
-	}
-}
-
-// The OTHER two stages must NOT carry it. F5 blocked against Cloudflare monitored leaves
-// the flag false — 404 of 434 such records on this deployment — so the same predicate
-// that speeds up stage 1 would silently hide most of stage 2's worklist.
-func TestAgreementDoesNotUseTheDisagreementFlag(t *testing.T) {
-	sql := first(ruleAgreementQuery(uuid.New(), testQuery(), WAFMigrationFilter{}, nil))
-
-	if strings.Contains(sql, "has_disagreement") {
-		t.Error("the agreement stages filter on has_disagreement, which drops most of their rows")
-	}
-}
-
-// A row's counts are computed for ONE pair of verdicts. Without the Cloudflare side the
-// drill-down listed requests Cloudflare had acted on beneath a group that had not counted
-// them — evidence contradicting the number above it.
-func TestSamplesNarrowToBothVerdicts(t *testing.T) {
-	sql, args := migrationSamplesQuery(uuid.New(), WAFMigrationSelector{
-		F5Verdict: "blocked", CloudflareVerdict: "allowed",
-	}, testQuery())
-
-	if !strings.Contains(sql, "AND f5_verdict = ?") || !strings.Contains(sql, "AND cf_verdict = ?") {
-		t.Fatal("the samples are not narrowed to both vendors' verdicts")
-	}
-	if !containsArg(args, "blocked") || !containsArg(args, "allowed") {
-		t.Error("both verdicts must be bound, or the samples belong to a different group than the counts")
+	if len(rules) != 0 {
+		t.Errorf("rules = %d, want none", len(rules))
 	}
 }
 

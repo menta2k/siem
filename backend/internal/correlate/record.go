@@ -11,6 +11,7 @@ package correlate
 
 import (
 	"net"
+	"slices"
 	"sort"
 	"time"
 
@@ -90,6 +91,7 @@ func buildRecord(
 		Vendors:        g.Vendors(),
 		Verdicts:       map[string]string{},
 		RuleIDs:        map[string]string{},
+		MatchedRuleIDs: map[string][]string{},
 		Scores:         map[string]float32{},
 		JoinSignals:    signalStrings(g.Key.Signals),
 		JoinTier:       uint8(g.Key.Tier),
@@ -109,6 +111,13 @@ func buildRecord(
 		if m.Row.RuleID != "" {
 			record.RuleIDs[m.Row.Vendor] = m.Row.RuleID
 		}
+		// EVERY rule the vendor matched, beside the one that decided. A Cloudflare rule in
+		// log mode does not terminate evaluation, so the decision above is often a later
+		// `skip` and the log-mode match — the thing a migration is measuring — would be
+		// dropped here. Appended rather than assigned: a record can hold more than one
+		// event from the same vendor, and each brings its own matches.
+		record.MatchedRuleIDs[m.Row.Vendor] = appendUnique(
+			record.MatchedRuleIDs[m.Row.Vendor], m.Row.RuleIDs)
 		if m.Row.Score != nil {
 			record.Scores[m.Row.Vendor] = *m.Row.Score
 		}
@@ -208,4 +217,18 @@ func clampToByte(n int) uint8 {
 	default:
 		return uint8(n)
 	}
+}
+
+// appendUnique adds the rules not already listed, preserving the order they arrived in.
+//
+// Deduplicated because the same rule matching two events of one request is one rule, and a
+// stage that counts requests per rule would otherwise count that request twice.
+func appendUnique(existing, incoming []string) []string {
+	for _, rule := range incoming {
+		if rule == "" || slices.Contains(existing, rule) {
+			continue
+		}
+		existing = append(existing, rule)
+	}
+	return existing
 }

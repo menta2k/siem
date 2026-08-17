@@ -190,8 +190,11 @@ func buildServices(
 		// Reads the correlated records rather than the rollups: every question the
 		// migration asks is about what the OTHER vendor did with the same request, which
 		// only the correlated record can answer.
+		// The rule table decides which Cloudflare rules are migration candidates, so the
+		// same repo the namer reads is passed in for that too.
 		WafMigration: service.NewWAFMigrationService(
-			clickhouse.NewWAFMigrationRepo(ch), limits, ruleNames),
+			clickhouse.NewWAFMigrationRepo(ch), limits, ruleNames,
+			clickhouse.NewCloudflareRuleRepo(ch)),
 		Alerts: buildAlertsService(rdb, alertingRepo, auditLog),
 	}
 }

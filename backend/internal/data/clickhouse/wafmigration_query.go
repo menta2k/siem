@@ -1,6 +1,8 @@
 package clickhouse
 
 import (
+	"strings"
+
 	"github.com/google/uuid"
 
 	"github.com/menta2k/siem/internal/vendors"
@@ -133,17 +135,20 @@ func uncoveredQuery(
 	return sql, append(args, q.limitOrDefault())
 }
 
-// ruleAgreementQuery measures each logging Cloudflare rule against F5.
+// agreementSelect is the per-rule tally, one row per rule that matched.
 //
-// Only rules Cloudflare is NOT enforcing appear: a rule already blocking is not a
-// migration candidate, and including it would put finished work back on the worklist.
-// `monitored` is the common model's word for Cloudflare's log and simulate actions.
-func ruleAgreementQuery(
-	tenantID uuid.UUID, q DashboardQuery, filter WAFMigrationFilter, readings []string,
-) (string, []any) {
-	sql := `
-		SELECT cf_rule                                  AS rule_id,
-		       any(cf_action)                           AS action,
+// FLAT, and deliberately not built on correlatedF5Pairs like its neighbours. The unroll has
+// to happen in the same SELECT that reads the table: ClickHouse 24.8 pushes an outer
+// arrayJoin down into the subquery it came from, then cannot find the map column there once
+// the projection has been pruned, and fails with "not found column in block" — an error
+// that names neither the column that is missing nor the reason. Two levels work; three do
+// not, so this one repeats the four spine predicates rather than sharing them.
+//
+// The three F5 counts stay apart: F5 has a transparent mode of its own, and a request it
+// flagged without blocking is weaker evidence than one it stopped and stronger than one it
+// ignored. A single agreement percentage would bury exactly that.
+const agreementSelect = `
+		SELECT rule                                     AS rule_id,
 		       count()                                  AS correlated,
 		       countIf(f5_verdict = ?)                  AS f5_blocked_total,
 		       countIf(f5_verdict = ?)                  AS f5_flagged_total,
@@ -154,31 +159,81 @@ func ruleAgreementQuery(
 		       min(first_event_time)                    AS first_seen,
 		       max(last_event_time)                     AS last_seen
 		FROM (
-			SELECT correlation_id, request_host, f5_verdict, cf_rule,
-			       first_event_time, last_event_time,
-			       -- Carried alongside the rule so the panel can name what Cloudflare is
-			       -- doing today rather than leaving the reader to assume it.
-			       cf_verdict AS cf_action
-			FROM (` + correlatedF5Pairs + `
-				  AND cf_verdict = ?
-				  AND cf_rule != ?
-				  -- Left unconstrained by value, because the three F5 outcomes are what
-				  -- this stage COUNTS. Non-empty is what makes the row a pair at all.
-				  AND f5_verdict != ?)
-		)`
+			SELECT request_host, f5_verdict, first_event_time, last_event_time,
+			       -- The candidate filter is applied to the ARRAY, before it is unrolled.
+			       -- Not as a WHERE on the unrolled alias: ClickHouse 24.8 pushes such a
+			       -- predicate down into the subquery, loses the map column there, and
+			       -- fails with "not found column in block" — an error naming neither the
+			       -- column nor the cause. Filtering first is also cheaper: a record whose
+			       -- rules are all uninteresting produces no rows at all.
+			       arrayJoin(arrayFilter(x -> x IN (?), cf_matched_rules)) AS rule
+			FROM correlated_requests
+			WHERE tenant_id = ? AND window_start >= ? AND window_start < ?
+			  -- Both vendors must have reported, or the row is not a comparison. The F5
+			  -- verdict is left unconstrained by VALUE because its three outcomes are
+			  -- what this stage counts.
+			  AND f5_verdict != ? AND cf_verdict != ?`
+
+// agreementCandidateFilter narrows to records naming at least one candidate rule.
+//
+// SEPARATE from the arrayFilter above, and not redundant with it. This one is what the
+// bloom index on cf_matched_rules can answer, so granules holding none of the candidates
+// are skipped without being read: 10.1s to well under a second over seven days. The
+// arrayFilter still has to run, because a record can name a candidate and three others.
+//
+// The array literal is built from one placeholder per id rather than by binding a slice.
+// The driver renders a slice as a bare comma-separated list, which is right for an IN and
+// arrives inside a function as extra arguments — hasAny() then fails on its argument count.
+func agreementCandidateFilter(ruleIDs []string) (string, []any) {
+	placeholders := make([]string, len(ruleIDs))
+	args := make([]any, 0, len(ruleIDs))
+	for i, ruleID := range ruleIDs {
+		placeholders[i] = "?"
+		args = append(args, ruleID)
+	}
+	return ` AND hasAny(cf_matched_rules, [` + strings.Join(placeholders, ", ") + `])`, args
+}
+
+// ruleAgreementQuery measures each non-enforcing Cloudflare rule against F5.
+//
+// THE BUG THIS FIXES. This used to group by rule_ids['cloudflare'] — the rule that DECIDED
+// the request — and a Cloudflare rule in log mode never decides anything, because logging
+// does not terminate evaluation. When a `skip` rule matched further down, the decision
+// became the skip and the log-mode match disappeared: 13,619 events in seven days, all of
+// them belonging to the rules this stage exists to measure. A rule could match a hundred
+// thousand requests and still read "not enough evidence".
+//
+// So it groups by matched_rule_ids instead, which migration 0019 records: every rule each
+// vendor matched, not only the winner. The set is unrolled with arrayJoin, so one request
+// contributes one row per rule that matched it.
+//
+// WHICH rules count as candidates comes from the rule TABLE, not from the request. A
+// rule's action is a property of the rule; the action recorded against a request is
+// whatever won that request, which for a log-mode rule is somebody else. The caller
+// resolves the candidates and passes them in.
+func ruleAgreementQuery(
+	tenantID uuid.UUID, q DashboardQuery, filter WAFMigrationFilter,
+	readings, monitoredRuleIDs []string,
+) (string, []any) {
+	sql := agreementSelect
 	args := []any{
 		vendors.VerdictBlocked, vendors.VerdictMonitored, vendors.VerdictAllowed,
 		minCorrelatedForReading,
+		monitoredRuleIDs,
 		tenantID, q.Range.From, q.Range.To,
-		vendors.VerdictMonitored, "", "",
+		"", "",
 	}
 
+	prefilter, prefilterArgs := agreementCandidateFilter(monitoredRuleIDs)
+	sql += prefilter
+	args = append(args, prefilterArgs...)
+
 	if filter.RequestHost != "" {
-		sql += ` WHERE request_host = ?`
+		sql += ` AND request_host = ?`
 		args = append(args, filter.RequestHost)
 	}
 
-	sql += ` GROUP BY cf_rule`
+	sql += `) GROUP BY rule`
 
 	// In the HAVING, because the reading is an aggregate over the group — and BEFORE the
 	// limit, which is the whole reason the stage is a server-side filter. A rule with ten

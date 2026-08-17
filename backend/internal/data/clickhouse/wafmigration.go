@@ -54,6 +54,10 @@ type WAFUncoveredGroup struct {
 // rule read as ready to enforce, or as a false positive, on evidence that says neither.
 type WAFRuleAgreement struct {
 	RuleID string
+	// Action is the rule's CONFIGURED action — log or simulate — filled in by the caller
+	// from the rule table. It is deliberately not read from the requests: the action
+	// recorded against a request is whichever rule decided it, which for a rule in log
+	// mode is somebody else.
 	Action string
 
 	// Correlated is the denominator: how many of the rule's requests joined an F5
@@ -214,14 +218,21 @@ func (r *WAFMigrationRepo) Uncovered(
 // ends, and the reading decides which stage a rule belongs to. Splitting them into two
 // queries would let the two stages disagree about the same rule.
 func (r *WAFMigrationRepo) RuleAgreement(
-	ctx context.Context, q DashboardQuery, filter WAFMigrationFilter, readings []string,
+	ctx context.Context, q DashboardQuery, filter WAFMigrationFilter,
+	readings, monitoredRuleIDs []string,
 ) ([]WAFRuleAgreement, error) {
+	// No candidates, no stage. Returning every rule instead would fill a migration
+	// worklist with rules that are already enforcing, which is finished work.
+	if len(monitoredRuleIDs) == 0 {
+		return nil, nil
+	}
+
 	tenantID, err := tenancy.MustID(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	sql, args := ruleAgreementQuery(tenantID, q, filter, readings)
+	sql, args := ruleAgreementQuery(tenantID, q, filter, readings, monitoredRuleIDs)
 	rows, err := r.client.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, query.TranslateError(err)
@@ -231,7 +242,7 @@ func (r *WAFMigrationRepo) RuleAgreement(
 	out := make([]WAFRuleAgreement, 0, q.limitOrDefault())
 	for rows.Next() {
 		var a WAFRuleAgreement
-		if err := rows.Scan(&a.RuleID, &a.Action, &a.Correlated,
+		if err := rows.Scan(&a.RuleID, &a.Correlated,
 			&a.F5Blocked, &a.F5Flagged, &a.F5Allowed,
 			&a.Hosts, &a.RequestHost, &a.Reading,
 			&a.FirstSeen, &a.LastSeen); err != nil {

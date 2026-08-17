@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -18,10 +19,11 @@ type stubMigrationReader struct {
 	rules     []chdata.WAFRuleAgreement
 	samples   []chdata.WAFMigrationSample
 
-	gotFilter   chdata.WAFMigrationFilter
-	gotReadings []string
-	gotSelector chdata.WAFMigrationSelector
-	gotLimit    int
+	gotFilter     chdata.WAFMigrationFilter
+	gotReadings   []string
+	gotCandidates []string
+	gotSelector   chdata.WAFMigrationSelector
+	gotLimit      int
 }
 
 func (s *stubMigrationReader) Uncovered(
@@ -33,10 +35,29 @@ func (s *stubMigrationReader) Uncovered(
 
 func (s *stubMigrationReader) RuleAgreement(
 	_ context.Context, q chdata.DashboardQuery, filter chdata.WAFMigrationFilter,
-	readings []string,
+	readings, monitoredRuleIDs []string,
 ) ([]chdata.WAFRuleAgreement, error) {
 	s.gotFilter, s.gotReadings, s.gotLimit = filter, readings, q.Limit
+	s.gotCandidates = monitoredRuleIDs
 	return s.rules, nil
+}
+
+// stubMonitored stands in for the rule table's view of which rules do not enforce.
+type stubMonitored struct {
+	actions map[string]string
+	err     error
+}
+
+func (s stubMonitored) MonitoredRules(context.Context) (map[string]string, error) {
+	return s.actions, s.err
+}
+
+// defaultMonitored covers the rules the fixtures below use.
+func defaultMonitored() stubMonitored {
+	return stubMonitored{actions: map[string]string{
+		"23548ee2b36547a1be09bb2c0550c529": "log",
+		"abc":                              "simulate",
+	}}
 }
 
 func (s *stubMigrationReader) Samples(
@@ -56,7 +77,13 @@ func (s stubRuleNamer) Describe(_ context.Context, _ []string) map[string]string
 var migrationNow = time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 
 func migrationService(reader WAFMigrationReader, namer RuleNamer) *WAFMigrationService {
-	s := NewWAFMigrationService(reader, query.DefaultLimits(), namer)
+	return migrationServiceWith(reader, namer, defaultMonitored())
+}
+
+func migrationServiceWith(
+	reader WAFMigrationReader, namer RuleNamer, monitored MonitoredRuleSource,
+) *WAFMigrationService {
+	s := NewWAFMigrationService(reader, query.DefaultLimits(), namer, monitored)
 	s.now = func() time.Time { return migrationNow }
 	return s
 }
@@ -320,5 +347,82 @@ func TestSamplesOmitAnAbsentClientAddress(t *testing.T) {
 	}
 	if panel.GetSamples()[0].GetClientIp() != "" {
 		t.Errorf("client ip = %q, want empty", panel.GetSamples()[0].GetClientIp())
+	}
+}
+
+// THE BUG THIS PINS. Which rules are migration candidates comes from the rule TABLE, not
+// from what happened on a request. A rule in log mode does not decide anything — a later
+// skip does — so reading candidacy off the request hid every rule the stage measures.
+func TestAgreementTakesCandidatesFromTheRuleTable(t *testing.T) {
+	reader := &stubMigrationReader{}
+	svc := migrationServiceWith(reader, nil, stubMonitored{actions: map[string]string{
+		"rule-b": "log",
+		"rule-a": "simulate",
+	}})
+
+	if _, err := svc.GetReadyToEnforce(context.Background(),
+		&pb.WafMigrationRequest{TimeRange: migrationRange()}); err != nil {
+		t.Fatalf("GetReadyToEnforce: %v", err)
+	}
+
+	// Sorted, so the same request produces the same query — a slow one stays reproducible
+	// and ClickHouse can reuse its cache.
+	want := []string{"rule-a", "rule-b"}
+	if len(reader.gotCandidates) != 2 ||
+		reader.gotCandidates[0] != want[0] || reader.gotCandidates[1] != want[1] {
+		t.Errorf("candidates = %v, want %v in order", reader.gotCandidates, want)
+	}
+}
+
+// The panel reports the rule's CONFIGURED action. Reporting what happened on the requests
+// would say `skip` for a rule that only ever logged.
+func TestAgreementReportsTheConfiguredAction(t *testing.T) {
+	reader := &stubMigrationReader{rules: []chdata.WAFRuleAgreement{{
+		RuleID: "abc", Correlated: 40, F5Blocked: 38, Reading: chdata.ReadingReady,
+	}}}
+
+	panel, err := migrationService(reader, nil).GetReadyToEnforce(
+		context.Background(), &pb.WafMigrationRequest{TimeRange: migrationRange()})
+	if err != nil {
+		t.Fatalf("GetReadyToEnforce: %v", err)
+	}
+	if got := panel.GetRules()[0].GetAction(); got != "simulate" {
+		t.Errorf("action = %q, want the rule's own configured action", got)
+	}
+}
+
+// A deployment with no Cloudflare token cannot know which rules are in log mode. An empty
+// stage is the honest answer; listing every rule that ever matched would fill the worklist
+// with work already finished.
+func TestAgreementWithoutAnyMonitoredRulesIsEmpty(t *testing.T) {
+	reader := &stubMigrationReader{rules: []chdata.WAFRuleAgreement{{RuleID: "abc"}}}
+
+	for name, monitored := range map[string]MonitoredRuleSource{
+		"no source configured": nil,
+		"none in log mode":     stubMonitored{actions: map[string]string{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc := migrationServiceWith(reader, nil, monitored)
+			panel, err := svc.GetFalsePositives(context.Background(),
+				&pb.WafMigrationRequest{TimeRange: migrationRange()})
+			if err != nil {
+				t.Fatalf("GetFalsePositives: %v", err)
+			}
+			if len(panel.GetRules()) != 0 {
+				t.Errorf("rules = %d, want none", len(panel.GetRules()))
+			}
+		})
+	}
+}
+
+// A rule table that cannot be read is an error, not an empty stage: silently showing
+// nothing would read as "no rules are waiting to be migrated".
+func TestAgreementSurfacesARuleTableFailure(t *testing.T) {
+	svc := migrationServiceWith(&stubMigrationReader{}, nil,
+		stubMonitored{err: errors.New("clickhouse unavailable")})
+
+	if _, err := svc.GetReadyToEnforce(context.Background(),
+		&pb.WafMigrationRequest{TimeRange: migrationRange()}); err == nil {
+		t.Error("a failure reading the rule table was reported as an empty stage")
 	}
 }
