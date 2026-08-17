@@ -125,6 +125,11 @@ const (
 	ReadingInsufficient = "insufficient"
 )
 
+// ActionObservedMonitored labels a rule whose non-enforcement was seen on requests rather
+// than read from its configuration — a managed rule a ruleset override runs as log, where
+// the rule's own stored action still says block.
+const ActionObservedMonitored = "log (observed)"
+
 // minCorrelatedForReading is the floor below which a rule is reported as insufficient.
 //
 // Ten is low enough that a genuinely rare detection still becomes actionable within a
@@ -249,6 +254,37 @@ func (r *WAFMigrationRepo) RuleAgreement(
 			return nil, fmt.Errorf("scan waf rule agreement: %w", err)
 		}
 		out = append(out, a)
+	}
+	return out, query.TranslateError(rows.Err())
+}
+
+// ObservedMonitoredRules returns the rules seen acting as non-enforcing in the window.
+//
+// Complements the rule table, which knows a managed rule's DEFAULT action and not the
+// override that actually runs. Together they cover both kinds of candidate: a custom rule
+// the customer set to log, and a managed rule a ruleset override runs as log.
+func (r *WAFMigrationRepo) ObservedMonitoredRules(
+	ctx context.Context, q DashboardQuery,
+) ([]string, error) {
+	tenantID, err := tenancy.MustID(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	sql, args := observedMonitoredQuery(tenantID, q)
+	rows, err := r.client.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]string, 0, 16)
+	for rows.Next() {
+		var ruleID string
+		if err := rows.Scan(&ruleID); err != nil {
+			return nil, fmt.Errorf("scan observed monitored rule: %w", err)
+		}
+		out = append(out, ruleID)
 	}
 	return out, query.TranslateError(rows.Err())
 }

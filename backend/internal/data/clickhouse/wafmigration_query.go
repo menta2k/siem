@@ -174,6 +174,36 @@ const agreementSelect = `
 			  -- what this stage counts.
 			  AND f5_verdict != ? AND cf_verdict != ?`
 
+// observedMonitoredQuery finds the rules that ACTED as non-enforcing on real requests.
+//
+// The rule table is not the whole answer. For a MANAGED rule its stored action is the
+// rule's own default, while the action that runs comes from the ruleset override in the
+// deployment — OWASP 949110 reads as `block` in the table and fires as `log` here, six
+// times in twenty minutes with F5 on the same requests. Filtering candidates by the table
+// alone would hide exactly those, which is the blind spot this whole change is about,
+// merely moved.
+//
+// So the caller unions this with the table. Cheap: `monitored` is rare and the set index
+// added by 0018 skips almost everything.
+func observedMonitoredQuery(tenantID uuid.UUID, q DashboardQuery) (string, []any) {
+	return `
+		SELECT DISTINCT rule_ids['cloudflare'] AS rule_id
+		FROM correlated_requests
+		WHERE tenant_id = ? AND window_start >= ? AND window_start < ?
+		  AND cf_verdict = ? AND rule_ids['cloudflare'] != ?
+		LIMIT ?`, []any{
+			tenantID, q.Range.From, q.Range.To,
+			vendors.VerdictMonitored, "", maxObservedMonitoredRules,
+		}
+}
+
+// maxObservedMonitoredRules bounds the observed set.
+//
+// It becomes an IN list and then an array literal, so it cannot be unbounded. A tenant with
+// more than this many distinct non-enforcing rules in one window is not running a
+// migration, and the cap is logged rather than silently applied — see the caller.
+const maxObservedMonitoredRules = 200
+
 // agreementCandidateFilter narrows to records naming at least one candidate rule.
 //
 // SEPARATE from the arrayFilter above, and not redundant with it. This one is what the

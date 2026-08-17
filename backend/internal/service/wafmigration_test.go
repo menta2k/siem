@@ -15,9 +15,11 @@ import (
 
 // stubMigrationReader records what the service asked for and returns what it is told to.
 type stubMigrationReader struct {
-	uncovered []chdata.WAFUncoveredGroup
-	rules     []chdata.WAFRuleAgreement
-	samples   []chdata.WAFMigrationSample
+	uncovered   []chdata.WAFUncoveredGroup
+	rules       []chdata.WAFRuleAgreement
+	samples     []chdata.WAFMigrationSample
+	observed    []string
+	observedErr error
 
 	gotFilter     chdata.WAFMigrationFilter
 	gotReadings   []string
@@ -58,6 +60,12 @@ func defaultMonitored() stubMonitored {
 		"23548ee2b36547a1be09bb2c0550c529": "log",
 		"abc":                              "simulate",
 	}}
+}
+
+func (s *stubMigrationReader) ObservedMonitoredRules(
+	_ context.Context, _ chdata.DashboardQuery,
+) ([]string, error) {
+	return s.observed, s.observedErr
 }
 
 func (s *stubMigrationReader) Samples(
@@ -424,5 +432,53 @@ func TestAgreementSurfacesARuleTableFailure(t *testing.T) {
 	if _, err := svc.GetReadyToEnforce(context.Background(),
 		&pb.WafMigrationRequest{TimeRange: migrationRange()}); err == nil {
 		t.Error("a failure reading the rule table was reported as an empty stage")
+	}
+}
+
+// THE OTHER HALF OF CANDIDACY. A managed rule's stored action is its own default, while the
+// action that runs comes from a ruleset override — OWASP 949110 reads as `block` in the rule
+// table and fires as `log` in production, six times in twenty minutes with F5 on the same
+// requests. Reading candidacy from the table alone would hide exactly those, which is this
+// change's own blind spot merely moved.
+func TestAgreementUnionsConfiguredAndObservedCandidates(t *testing.T) {
+	reader := &stubMigrationReader{
+		observed: []string{"managed-override", "", "configured-rule"},
+		rules: []chdata.WAFRuleAgreement{
+			{RuleID: "managed-override", Correlated: 20, F5Blocked: 19},
+		},
+	}
+	svc := migrationServiceWith(reader, nil, stubMonitored{actions: map[string]string{
+		"configured-rule": "log",
+	}})
+
+	panel, err := svc.GetReadyToEnforce(context.Background(),
+		&pb.WafMigrationRequest{TimeRange: migrationRange()})
+	if err != nil {
+		t.Fatalf("GetReadyToEnforce: %v", err)
+	}
+
+	// Both sources, deduplicated, empty ids dropped, sorted for a reproducible query.
+	want := []string{"configured-rule", "managed-override"}
+	if len(reader.gotCandidates) != 2 ||
+		reader.gotCandidates[0] != want[0] || reader.gotCandidates[1] != want[1] {
+		t.Errorf("candidates = %v, want %v", reader.gotCandidates, want)
+	}
+
+	// A rule known only from the requests has no configured action to report. Blank would
+	// read as "no action", so it says how it was found instead.
+	if got := panel.GetRules()[0].GetAction(); got != chdata.ActionObservedMonitored {
+		t.Errorf("action = %q, want it labelled as observed", got)
+	}
+}
+
+// Reading the requests for observed candidates can fail on its own, and that is an error
+// rather than an empty stage: silently showing nothing reads as "nothing to migrate".
+func TestAgreementSurfacesAnObservedLookupFailure(t *testing.T) {
+	reader := &stubMigrationReader{observedErr: errors.New("clickhouse unavailable")}
+	svc := migrationServiceWith(reader, nil, defaultMonitored())
+
+	if _, err := svc.GetReadyToEnforce(context.Background(),
+		&pb.WafMigrationRequest{TimeRange: migrationRange()}); err == nil {
+		t.Error("a failure reading observed candidates was reported as an empty stage")
 	}
 }

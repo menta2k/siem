@@ -26,6 +26,9 @@ type WAFMigrationReader interface {
 	Samples(
 		ctx context.Context, sel chdata.WAFMigrationSelector, q chdata.DashboardQuery,
 	) ([]chdata.WAFMigrationSample, error)
+	ObservedMonitoredRules(
+		ctx context.Context, q chdata.DashboardQuery,
+	) ([]string, error)
 }
 
 // MonitoredRuleSource lists the Cloudflare rules configured not to enforce.
@@ -148,25 +151,13 @@ func (s *WAFMigrationService) agreement(
 	ctx, cancel := s.limits.WithTimeout(ctx)
 	defer cancel()
 
-	// The candidates, and each one's configured action, before anything is counted. A
-	// deployment with no Cloudflare token cannot know which rules are in log mode, and
-	// answering with every rule that ever matched would fill the worklist with work
-	// already finished.
-	actions, err := s.monitoredActions(ctx)
+	actions, candidates, err := s.candidates(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	if len(actions) == 0 {
+	if len(candidates) == 0 {
 		return &pb.WafRuleAgreementPanel{}, nil
 	}
-
-	candidates := make([]string, 0, len(actions))
-	for ruleID := range actions {
-		candidates = append(candidates, ruleID)
-	}
-	// Sorted so the same request produces the same query, which keeps a slow one
-	// reproducible and lets ClickHouse reuse its cache.
-	sort.Strings(candidates)
 
 	rules, err := s.waf.RuleAgreement(ctx, q, chdata.WAFMigrationFilter{
 		RequestHost: req.GetRequestHost(),
@@ -177,9 +168,16 @@ func (s *WAFMigrationService) agreement(
 
 	out := &pb.WafRuleAgreementPanel{Rules: make([]*pb.WafRuleAgreement, 0, len(rules))}
 	for _, r := range rules {
+		// A rule known only from the requests has no configured action to report — its
+		// log-ness came from a ruleset override — so it is labelled by what was observed
+		// rather than left blank, which would read as "no action".
+		action := actions[r.RuleID]
+		if action == "" {
+			action = chdata.ActionObservedMonitored
+		}
 		out.Rules = append(out.Rules, &pb.WafRuleAgreement{
 			RuleId:      r.RuleID,
-			Action:      actions[r.RuleID],
+			Action:      action,
 			Correlated:  r.Correlated,
 			F5Blocked:   r.F5Blocked,
 			F5Flagged:   r.F5Flagged,
@@ -193,6 +191,55 @@ func (s *WAFMigrationService) agreement(
 	}
 	describeAgreementRules(ctx, s.rules, out.Rules)
 	return out, nil
+}
+
+// candidates resolves which rules are migration candidates, and each one's action.
+//
+// TWO sources, and both are needed. The rule table knows what a rule is configured to do,
+// which is right for a custom rule the customer set to log. It is wrong for a managed rule,
+// whose stored action is the rule's own default while the action that runs comes from a
+// ruleset override: OWASP 949110 reads as `block` there and fires as `log` in production.
+// The second source is the requests themselves, which show what actually ran.
+//
+// With neither there is nothing to measure, and answering with every rule that ever matched
+// would fill the worklist with work already finished.
+func (s *WAFMigrationService) candidates(
+	ctx context.Context, q chdata.DashboardQuery,
+) (map[string]string, []string, error) {
+	actions, err := s.monitoredActions(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	observed, err := s.waf.ObservedMonitoredRules(ctx, q)
+	if err != nil {
+		return nil, nil, query.TranslateError(err)
+	}
+
+	return actions, unionCandidates(actions, observed), nil
+}
+
+// unionCandidates merges the configured and the observed candidates.
+//
+// Sorted, so the same request produces the same query: a slow one stays reproducible and
+// ClickHouse can reuse its cache.
+func unionCandidates(configured map[string]string, observed []string) []string {
+	seen := make(map[string]struct{}, len(configured)+len(observed))
+	for ruleID := range configured {
+		seen[ruleID] = struct{}{}
+	}
+	for _, ruleID := range observed {
+		if ruleID != "" {
+			seen[ruleID] = struct{}{}
+		}
+	}
+
+	out := make([]string, 0, len(seen))
+	for ruleID := range seen {
+		out = append(out, ruleID)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // monitoredActions reads the candidate rules, tolerating a deployment that has none.
