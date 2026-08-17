@@ -86,7 +86,11 @@ type WAFMigrationSample struct {
 	F5EventID         string
 	CloudflareEventID string
 
-	EventTime     time.Time
+	EventTime time.Time
+	// ReceivedAt and SourceVendor narrow the raw-payload lookup to a seek. Without them
+	// that lookup scans, which the search detail view learned the hard way.
+	ReceivedAt    time.Time
+	SourceVendor  string
 	ClientIP      net.IP
 	Country       string
 	ClientASN     uint32
@@ -347,7 +351,7 @@ func (r *WAFMigrationRepo) samplesByViolation(
 		var ip net.IP
 		var eventIDs []string
 		if err := rows.Scan(&s.CorrelationID, &s.F5EventID, &eventIDs,
-			&s.EventTime, &ip, &s.Country, &s.ClientASN,
+			&s.EventTime, &s.ReceivedAt, &s.SourceVendor, &ip, &s.Country, &s.ClientASN,
 			&s.RequestHost, &s.RequestPath, &s.RequestQuery, &s.RequestMethod,
 			&s.UserAgent, &s.F5Verdict, &s.F5Violations,
 			&s.CloudflareVerdict, &s.CloudflareRuleID); err != nil {
@@ -406,6 +410,8 @@ func (r *WAFMigrationRepo) samplesByRecord(
 			CorrelationID:     rec.correlationID,
 			F5EventID:         event.eventID,
 			EventTime:         event.eventTime,
+			ReceivedAt:        event.receivedAt,
+			SourceVendor:      event.sourceVendor,
 			ClientIP:          event.clientIP,
 			Country:           event.country,
 			ClientASN:         event.clientASN,
@@ -451,6 +457,8 @@ func (r *WAFMigrationRepo) sampleRecords(
 type f5Event struct {
 	eventID      string
 	eventTime    time.Time
+	receivedAt   time.Time
+	sourceVendor string
 	clientIP     net.IP
 	country      string
 	clientASN    uint32
@@ -475,7 +483,8 @@ func (r *WAFMigrationRepo) f5Events(
 	for rows.Next() {
 		var e f5Event
 		var ip net.IP
-		if err := rows.Scan(&e.eventID, &e.eventTime, &ip, &e.country, &e.clientASN,
+		if err := rows.Scan(&e.eventID, &e.eventTime, &e.receivedAt, &e.sourceVendor,
+			&ip, &e.country, &e.clientASN,
 			&e.requestPath, &e.requestQuery, &e.userAgent, &e.violations); err != nil {
 			return nil, fmt.Errorf("scan f5 sample event: %w", err)
 		}

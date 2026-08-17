@@ -81,6 +81,17 @@ describe('RuleAgreementTable', () => {
     expect(view.text()).toContain('23548ee2b36547a1be09bb2c0550c529')
   })
 
+  // THE ONE A RULE'S AUTHOR NOTICES. A rule deployed that morning had matched four
+  // requests, all four blocked by F5 — working — and appeared on no page at all, because
+  // four is below the floor for a reading. The label has to say that plainly, because
+  // "nowhere" and "matches nothing" are indistinguishable from the outside.
+  it('labels a rule that is matching but not yet judgeable', () => {
+    const view = render([rule({ reading: 'insufficient', correlated: '4', f5Blocked: '4' })])
+
+    expect(view.text()).toContain('not enough evidence')
+    expect(view.text()).toContain('4')
+  })
+
   // The reading is computed server-side so the stage a rule appears under and the label
   // beside it cannot drift. The component only translates it.
   it('translates every reading the server can send', () => {

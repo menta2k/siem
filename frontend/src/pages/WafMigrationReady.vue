@@ -48,7 +48,16 @@ async function load(): Promise<void> {
 onMounted(load)
 
 const ready = computed(() => rules.value.filter((r) => r.reading === 'ready'))
-const disputed = computed(() => rules.value.filter((r) => r.reading !== 'ready'))
+const disputed = computed(() => rules.value.filter((r) => r.reading === 'disputed'))
+/**
+ * Rules that are matching but have not matched enough yet to be judged.
+ *
+ * Shown because of what happened without them: a rule deployed that morning had matched
+ * four requests, all four blocked by F5 — working exactly as intended — and appeared on no
+ * page at all, because four is below the floor for a reading. "My new rule is nowhere" and
+ * "my new rule matches nothing" look identical from here, and only one of them is a problem.
+ */
+const accumulating = computed(() => rules.value.filter((r) => r.reading === 'insufficient'))
 </script>
 
 <template>
@@ -95,13 +104,24 @@ const disputed = computed(() => rules.value.filter((r) => r.reading !== 'ready')
           <!-- Kept apart rather than sorted in. A rule that is 60% confirmed is not a
                weaker version of one that is 99% confirmed; it is a different decision,
                and mixing them invites enforcing down the list. -->
-          <div v-if="disputed.length">
+          <div v-if="disputed.length" class="mb-4">
             <div class="text-subtitle-2 mb-1">Not yet — the vendors disagree on part of this</div>
             <div class="text-caption text-medium-emphasis mb-1">
               Read the requests before enforcing. Where F5 let something through that the rule
               logged, enforcing would start blocking it.
             </div>
             <RuleAgreementTable :rules="disputed" :range="range" sample-verdict="allowed" />
+          </div>
+
+          <!-- Last, and deliberately not silent. These are working rules that have not yet
+               been seen often enough to act on. -->
+          <div v-if="accumulating.length">
+            <div class="text-subtitle-2 mb-1">Still accumulating evidence</div>
+            <div class="text-caption text-medium-emphasis mb-1">
+              Matching, but on too few requests to judge yet. Widen the range, or come back once the
+              traffic has built up — this is what a newly deployed rule looks like.
+            </div>
+            <RuleAgreementTable :rules="accumulating" :range="range" sample-verdict="blocked" />
           </div>
         </template>
       </v-card-text>

@@ -55,6 +55,12 @@ type WAFMigrationService struct {
 	rules RuleNamer
 	// monitored decides which rules are migration candidates at all.
 	monitored MonitoredRuleSource
+	// evaluator, payloads and adapters are what let a candidate rule be TESTED before it
+	// is deployed. All three are optional together: without them the migration pages work
+	// exactly as before and the test is refused with a reason.
+	evaluator ExpressionEvaluator
+	payloads  RawPayloadReader
+	adapters  *vendors.Registry
 	now       func() time.Time
 }
 
@@ -66,6 +72,19 @@ func NewWAFMigrationService(
 	return &WAFMigrationService{
 		waf: waf, limits: limits, rules: rules, monitored: monitored, now: time.Now,
 	}
+}
+
+// WithEvaluator enables testing a candidate expression against captured requests.
+//
+// Separate from the constructor because it is optional and arrives as a group: an evaluator
+// to run the expression, the payloads holding each request as the vendor logged it, and the
+// adapters that parse them. Without all three the feature cannot work, and with none of
+// them everything else still does.
+func (s *WAFMigrationService) WithEvaluator(
+	evaluator ExpressionEvaluator, payloads RawPayloadReader, adapters *vendors.Registry,
+) *WAFMigrationService {
+	s.evaluator, s.payloads, s.adapters = evaluator, payloads, adapters
+	return s
 }
 
 // migrationQuery validates the range and limit the way every panel does.

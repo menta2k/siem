@@ -300,7 +300,8 @@ func migrationSamplesQuery(
 	sql := `
 		SELECT p.correlation_id AS correlation_id, e.event_id AS f5_event_id,
 		       p.event_ids AS event_ids,
-		       e.event_time AS event_time, e.client_ip AS client_ip,
+		       e.event_time AS event_time, e.received_at AS received_at,
+		       e.source_vendor AS source_vendor, e.client_ip AS client_ip,
 		       e.client_country AS country, e.client_asn AS client_asn,
 		       p.request_host AS request_host, e.request_path AS request_path,
 		       e.request_query AS request_query, p.request_method AS request_method,
@@ -309,7 +310,8 @@ func migrationSamplesQuery(
 		       p.cf_rule AS cf_rule
 		FROM (` + samplePairs(records) + `) AS p
 		INNER JOIN (
-			SELECT event_id, event_time, client_ip, client_country, client_asn,
+			SELECT event_id, event_time, received_at, source_vendor,
+			       client_ip, client_country, client_asn,
 			       request_path, request_query, user_agent, rule_ids
 			FROM normalized_events
 			WHERE tenant_id = ? AND vendor = 'f5'
@@ -387,7 +389,8 @@ func f5EventsQuery(
 	tenantID uuid.UUID, eventIDs []string, q DashboardQuery,
 ) (string, []any) {
 	return `
-		SELECT event_id, event_time, client_ip, client_country, client_asn,
+		SELECT event_id, event_time, received_at, source_vendor,
+		       client_ip, client_country, client_asn,
 		       request_path, request_query, user_agent, rule_ids
 		FROM normalized_events
 		WHERE tenant_id = ? AND vendor = 'f5'
