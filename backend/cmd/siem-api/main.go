@@ -34,6 +34,7 @@ import (
 	"github.com/menta2k/siem/internal/vendors/datadome"
 	"github.com/menta2k/siem/internal/vendors/f5"
 	"github.com/menta2k/siem/internal/vendors/nginx"
+	"github.com/menta2k/siem/internal/wirefilter"
 )
 
 const serviceName = "siem-api"
@@ -194,7 +195,11 @@ func buildServices(
 		// same repo the namer reads is passed in for that too.
 		WafMigration: service.NewWAFMigrationService(
 			clickhouse.NewWAFMigrationRepo(ch), limits, ruleNames,
-			clickhouse.NewCloudflareRuleRepo(ch)),
+			clickhouse.NewCloudflareRuleRepo(ch)).
+			// Optional, and empty by default: a deployment without the evaluator keeps
+			// every migration page and refuses only the expression test, with a reason.
+			WithEvaluator(wirefilter.NewClient(cfg.CloudflareRules.EvaluatorURL),
+				events, adapters),
 		Alerts: buildAlertsService(rdb, alertingRepo, auditLog),
 	}
 }

@@ -127,6 +127,13 @@ type CloudflareRules struct {
 	// APIBase overrides Cloudflare's API, for a test or an enterprise gateway.
 	APIBase  string
 	Interval time.Duration
+	// EvaluatorURL is where the local expression evaluator listens, if one is deployed.
+	//
+	// OPTIONAL, and empty by default. The evaluator answers "would this rule catch these
+	// requests" before the rule is deployed; a deployment without it keeps every migration
+	// page working and simply cannot offer that. Absent is therefore a configuration, not
+	// a fault, and the API says so rather than failing the request.
+	EvaluatorURL string
 }
 
 // Log holds observability settings.
@@ -323,8 +330,9 @@ func loadCloudflareRules(collect func(error)) CloudflareRules {
 	collect(err)
 
 	return CloudflareRules{
-		APIBase:  optional("CLOUDFLARE_API_BASE", ""),
-		Interval: interval,
+		APIBase:      optional("CLOUDFLARE_API_BASE", ""),
+		Interval:     interval,
+		EvaluatorURL: optional("WIREFILTER_EVAL_URL", ""),
 	}
 }
 

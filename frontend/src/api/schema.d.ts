@@ -697,6 +697,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/waf-migration/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Whether a candidate Cloudflare rule would catch the requests in a stage-1 group,
+         *      answered by Cloudflare's own expression engine against the requests as captured.
+         *
+         *      Stage 1 asks the operator to write a rule for traffic Cloudflare cannot see. Until this
+         *      existed the only way to find out whether the rule works was to deploy it in log mode
+         *      and wait, and a mistake cost a day: one rule differed from a working one by a single
+         *      backslash and matched nothing while looking correct.
+         */
+        post: operations["WafMigration_EvaluateExpression"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/waf-migration/false-positives": {
         parameters: {
             query?: never;
@@ -2100,6 +2125,63 @@ export interface components {
             action?: string;
             /** @description firewallManaged | firewallCustom | ip | bic. It decides HOW a rule is tuned. */
             source?: string;
+        };
+        /** @description WafExpressionOutcome is one request's verdict. */
+        WafExpressionOutcome: {
+            /** @description The F5 event, so a client can open the request that produced this verdict. */
+            eventId?: string;
+            requestPath?: string;
+            requestQuery?: string;
+            matched?: boolean;
+            /**
+             * @description Set when a NO cannot be trusted: the expression reads the request body and only a
+             *      prefix of it was captured. A match never carries one — a match found in the prefix is
+             *      a match at the edge.
+             */
+            caveat?: string;
+        };
+        /** @description WafExpressionRequest asks whether an expression would catch a group's requests. */
+        WafExpressionRequest: {
+            timeRange?: components["schemas"]["TimeRange"];
+            /**
+             * Format: uint32
+             * @description How many of the group's requests to test against. Clamped server-side.
+             */
+            limit?: number;
+            /** @description The group, keyed exactly as the samples endpoint keys it. */
+            violation?: string;
+            ruleId?: string;
+            requestHost?: string;
+            requestMethod?: string;
+            f5Verdict?: string;
+            cloudflareVerdict?: string;
+            /** @description The candidate rule, in Cloudflare's expression language. */
+            expression?: string;
+        };
+        WafExpressionResult: {
+            /**
+             * @description False when the expression could not be parsed, or names a field that cannot be
+             *      reconstructed from a stored request. There are then no outcomes: a broken expression
+             *      has no verdict rather than a negative one.
+             */
+            valid?: boolean;
+            error?: string;
+            /**
+             * @description Named individually, because "unknown field" tells an operator nothing about WHY: the
+             *      field exists at Cloudflare and simply is not in a stored request.
+             */
+            unavailableFields?: string[];
+            /** Format: uint32 */
+            tested?: number;
+            /** Format: uint32 */
+            matched?: number;
+            /**
+             * Format: uint32
+             * @description How many misses are qualified by a truncated capture. Reported apart from the totals
+             *      so "12 of 20" is never read as more certain than it is.
+             */
+            uncertain?: number;
+            outcomes?: components["schemas"]["WafExpressionOutcome"][];
         };
         /** @description WafMigrationSample is one request as BOTH vendors saw it. */
         WafMigrationSample: {
@@ -3510,6 +3592,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportSearchResponse"];
+                };
+            };
+        };
+    };
+    WafMigration_EvaluateExpression: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WafExpressionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WafExpressionResult"];
                 };
             };
         };

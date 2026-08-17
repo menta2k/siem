@@ -50,6 +50,20 @@ service WafMigration {
   rpc GetMigrationSamples(WafMigrationSampleRequest) returns (WafMigrationSamplePanel) {
     option (google.api.http) = {get: "/api/v1/waf-migration/samples"};
   }
+
+  // Whether a candidate Cloudflare rule would catch the requests in a stage-1 group,
+  // answered by Cloudflare's own expression engine against the requests as captured.
+  //
+  // Stage 1 asks the operator to write a rule for traffic Cloudflare cannot see. Until this
+  // existed the only way to find out whether the rule works was to deploy it in log mode
+  // and wait, and a mistake cost a day: one rule differed from a working one by a single
+  // backslash and matched nothing while looking correct.
+  rpc EvaluateExpression(WafExpressionRequest) returns (WafExpressionResult) {
+    option (google.api.http) = {
+      post: "/api/v1/waf-migration/evaluate"
+      body: "*"
+    };
+  }
 }
 
 message WafMigrationRequest {
@@ -194,4 +208,54 @@ message WafMigrationSample {
 
 message WafMigrationSamplePanel {
   repeated WafMigrationSample samples = 1;
+}
+
+// WafExpressionRequest asks whether an expression would catch a group's requests.
+message WafExpressionRequest {
+  TimeRange time_range = 1;
+  // How many of the group's requests to test against. Clamped server-side.
+  uint32 limit = 2;
+
+  // The group, keyed exactly as the samples endpoint keys it.
+  string violation = 3;
+  string rule_id = 4;
+  string request_host = 5;
+  string request_method = 6;
+  string f5_verdict = 7;
+  string cloudflare_verdict = 8;
+
+  // The candidate rule, in Cloudflare's expression language.
+  string expression = 9;
+}
+
+// WafExpressionOutcome is one request's verdict.
+message WafExpressionOutcome {
+  // The F5 event, so a client can open the request that produced this verdict.
+  string event_id = 1;
+  string request_path = 2;
+  string request_query = 3;
+  bool matched = 4;
+  // Set when a NO cannot be trusted: the expression reads the request body and only a
+  // prefix of it was captured. A match never carries one — a match found in the prefix is
+  // a match at the edge.
+  string caveat = 5;
+}
+
+message WafExpressionResult {
+  // False when the expression could not be parsed, or names a field that cannot be
+  // reconstructed from a stored request. There are then no outcomes: a broken expression
+  // has no verdict rather than a negative one.
+  bool valid = 1;
+  string error = 2;
+  // Named individually, because "unknown field" tells an operator nothing about WHY: the
+  // field exists at Cloudflare and simply is not in a stored request.
+  repeated string unavailable_fields = 3;
+
+  uint32 tested = 4;
+  uint32 matched = 5;
+  // How many misses are qualified by a truncated capture. Reported apart from the totals
+  // so "12 of 20" is never read as more certain than it is.
+  uint32 uncertain = 6;
+
+  repeated WafExpressionOutcome outcomes = 7;
 }

@@ -1223,6 +1223,32 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ExportSearchResponse'
+    /api/v1/waf-migration/evaluate:
+        post:
+            tags:
+                - WafMigration
+            description: |-
+                Whether a candidate Cloudflare rule would catch the requests in a stage-1 group,
+                 answered by Cloudflare's own expression engine against the requests as captured.
+
+                 Stage 1 asks the operator to write a rule for traffic Cloudflare cannot see. Until this
+                 existed the only way to find out whether the rule works was to deploy it in log mode
+                 and wait, and a mistake cost a day: one rule differed from a working one by a single
+                 backslash and matched nothing while looking correct.
+            operationId: WafMigration_EvaluateExpression
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/WafExpressionRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/WafExpressionResult'
     /api/v1/waf-migration/false-positives:
         get:
             tags:
@@ -3478,6 +3504,85 @@ components:
 
                  The range is 1-100, not the 1-99 Cloudflare documents — it emits 100 for a
                  definitively clean request, and that is the most common value in real traffic.
+        WafExpressionOutcome:
+            type: object
+            properties:
+                eventId:
+                    type: string
+                    description: The F5 event, so a client can open the request that produced this verdict.
+                requestPath:
+                    type: string
+                requestQuery:
+                    type: string
+                matched:
+                    type: boolean
+                caveat:
+                    type: string
+                    description: |-
+                        Set when a NO cannot be trusted: the expression reads the request body and only a
+                         prefix of it was captured. A match never carries one — a match found in the prefix is
+                         a match at the edge.
+            description: WafExpressionOutcome is one request's verdict.
+        WafExpressionRequest:
+            type: object
+            properties:
+                timeRange:
+                    $ref: '#/components/schemas/TimeRange'
+                limit:
+                    type: integer
+                    description: How many of the group's requests to test against. Clamped server-side.
+                    format: uint32
+                violation:
+                    type: string
+                    description: The group, keyed exactly as the samples endpoint keys it.
+                ruleId:
+                    type: string
+                requestHost:
+                    type: string
+                requestMethod:
+                    type: string
+                f5Verdict:
+                    type: string
+                cloudflareVerdict:
+                    type: string
+                expression:
+                    type: string
+                    description: The candidate rule, in Cloudflare's expression language.
+            description: WafExpressionRequest asks whether an expression would catch a group's requests.
+        WafExpressionResult:
+            type: object
+            properties:
+                valid:
+                    type: boolean
+                    description: |-
+                        False when the expression could not be parsed, or names a field that cannot be
+                         reconstructed from a stored request. There are then no outcomes: a broken expression
+                         has no verdict rather than a negative one.
+                error:
+                    type: string
+                unavailableFields:
+                    type: array
+                    items:
+                        type: string
+                    description: |-
+                        Named individually, because "unknown field" tells an operator nothing about WHY: the
+                         field exists at Cloudflare and simply is not in a stored request.
+                tested:
+                    type: integer
+                    format: uint32
+                matched:
+                    type: integer
+                    format: uint32
+                uncertain:
+                    type: integer
+                    description: |-
+                        How many misses are qualified by a truncated capture. Reported apart from the totals
+                         so "12 of 20" is never read as more certain than it is.
+                    format: uint32
+                outcomes:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/WafExpressionOutcome'
         WafMigrationSample:
             type: object
             properties:

@@ -808,6 +808,298 @@ func (x *WafMigrationSamplePanel) GetSamples() []*WafMigrationSample {
 	return nil
 }
 
+// WafExpressionRequest asks whether an expression would catch a group's requests.
+type WafExpressionRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	TimeRange *TimeRange             `protobuf:"bytes,1,opt,name=time_range,json=timeRange,proto3" json:"time_range,omitempty"`
+	// How many of the group's requests to test against. Clamped server-side.
+	Limit uint32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	// The group, keyed exactly as the samples endpoint keys it.
+	Violation         string `protobuf:"bytes,3,opt,name=violation,proto3" json:"violation,omitempty"`
+	RuleId            string `protobuf:"bytes,4,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	RequestHost       string `protobuf:"bytes,5,opt,name=request_host,json=requestHost,proto3" json:"request_host,omitempty"`
+	RequestMethod     string `protobuf:"bytes,6,opt,name=request_method,json=requestMethod,proto3" json:"request_method,omitempty"`
+	F5Verdict         string `protobuf:"bytes,7,opt,name=f5_verdict,json=f5Verdict,proto3" json:"f5_verdict,omitempty"`
+	CloudflareVerdict string `protobuf:"bytes,8,opt,name=cloudflare_verdict,json=cloudflareVerdict,proto3" json:"cloudflare_verdict,omitempty"`
+	// The candidate rule, in Cloudflare's expression language.
+	Expression    string `protobuf:"bytes,9,opt,name=expression,proto3" json:"expression,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WafExpressionRequest) Reset() {
+	*x = WafExpressionRequest{}
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WafExpressionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WafExpressionRequest) ProtoMessage() {}
+
+func (x *WafExpressionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WafExpressionRequest.ProtoReflect.Descriptor instead.
+func (*WafExpressionRequest) Descriptor() ([]byte, []int) {
+	return file_siem_v1_wafmigration_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *WafExpressionRequest) GetTimeRange() *TimeRange {
+	if x != nil {
+		return x.TimeRange
+	}
+	return nil
+}
+
+func (x *WafExpressionRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *WafExpressionRequest) GetViolation() string {
+	if x != nil {
+		return x.Violation
+	}
+	return ""
+}
+
+func (x *WafExpressionRequest) GetRuleId() string {
+	if x != nil {
+		return x.RuleId
+	}
+	return ""
+}
+
+func (x *WafExpressionRequest) GetRequestHost() string {
+	if x != nil {
+		return x.RequestHost
+	}
+	return ""
+}
+
+func (x *WafExpressionRequest) GetRequestMethod() string {
+	if x != nil {
+		return x.RequestMethod
+	}
+	return ""
+}
+
+func (x *WafExpressionRequest) GetF5Verdict() string {
+	if x != nil {
+		return x.F5Verdict
+	}
+	return ""
+}
+
+func (x *WafExpressionRequest) GetCloudflareVerdict() string {
+	if x != nil {
+		return x.CloudflareVerdict
+	}
+	return ""
+}
+
+func (x *WafExpressionRequest) GetExpression() string {
+	if x != nil {
+		return x.Expression
+	}
+	return ""
+}
+
+// WafExpressionOutcome is one request's verdict.
+type WafExpressionOutcome struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The F5 event, so a client can open the request that produced this verdict.
+	EventId      string `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	RequestPath  string `protobuf:"bytes,2,opt,name=request_path,json=requestPath,proto3" json:"request_path,omitempty"`
+	RequestQuery string `protobuf:"bytes,3,opt,name=request_query,json=requestQuery,proto3" json:"request_query,omitempty"`
+	Matched      bool   `protobuf:"varint,4,opt,name=matched,proto3" json:"matched,omitempty"`
+	// Set when a NO cannot be trusted: the expression reads the request body and only a
+	// prefix of it was captured. A match never carries one — a match found in the prefix is
+	// a match at the edge.
+	Caveat        string `protobuf:"bytes,5,opt,name=caveat,proto3" json:"caveat,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WafExpressionOutcome) Reset() {
+	*x = WafExpressionOutcome{}
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WafExpressionOutcome) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WafExpressionOutcome) ProtoMessage() {}
+
+func (x *WafExpressionOutcome) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WafExpressionOutcome.ProtoReflect.Descriptor instead.
+func (*WafExpressionOutcome) Descriptor() ([]byte, []int) {
+	return file_siem_v1_wafmigration_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *WafExpressionOutcome) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *WafExpressionOutcome) GetRequestPath() string {
+	if x != nil {
+		return x.RequestPath
+	}
+	return ""
+}
+
+func (x *WafExpressionOutcome) GetRequestQuery() string {
+	if x != nil {
+		return x.RequestQuery
+	}
+	return ""
+}
+
+func (x *WafExpressionOutcome) GetMatched() bool {
+	if x != nil {
+		return x.Matched
+	}
+	return false
+}
+
+func (x *WafExpressionOutcome) GetCaveat() string {
+	if x != nil {
+		return x.Caveat
+	}
+	return ""
+}
+
+type WafExpressionResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// False when the expression could not be parsed, or names a field that cannot be
+	// reconstructed from a stored request. There are then no outcomes: a broken expression
+	// has no verdict rather than a negative one.
+	Valid bool   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
+	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// Named individually, because "unknown field" tells an operator nothing about WHY: the
+	// field exists at Cloudflare and simply is not in a stored request.
+	UnavailableFields []string `protobuf:"bytes,3,rep,name=unavailable_fields,json=unavailableFields,proto3" json:"unavailable_fields,omitempty"`
+	Tested            uint32   `protobuf:"varint,4,opt,name=tested,proto3" json:"tested,omitempty"`
+	Matched           uint32   `protobuf:"varint,5,opt,name=matched,proto3" json:"matched,omitempty"`
+	// How many misses are qualified by a truncated capture. Reported apart from the totals
+	// so "12 of 20" is never read as more certain than it is.
+	Uncertain     uint32                  `protobuf:"varint,6,opt,name=uncertain,proto3" json:"uncertain,omitempty"`
+	Outcomes      []*WafExpressionOutcome `protobuf:"bytes,7,rep,name=outcomes,proto3" json:"outcomes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WafExpressionResult) Reset() {
+	*x = WafExpressionResult{}
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WafExpressionResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WafExpressionResult) ProtoMessage() {}
+
+func (x *WafExpressionResult) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WafExpressionResult.ProtoReflect.Descriptor instead.
+func (*WafExpressionResult) Descriptor() ([]byte, []int) {
+	return file_siem_v1_wafmigration_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *WafExpressionResult) GetValid() bool {
+	if x != nil {
+		return x.Valid
+	}
+	return false
+}
+
+func (x *WafExpressionResult) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *WafExpressionResult) GetUnavailableFields() []string {
+	if x != nil {
+		return x.UnavailableFields
+	}
+	return nil
+}
+
+func (x *WafExpressionResult) GetTested() uint32 {
+	if x != nil {
+		return x.Tested
+	}
+	return 0
+}
+
+func (x *WafExpressionResult) GetMatched() uint32 {
+	if x != nil {
+		return x.Matched
+	}
+	return 0
+}
+
+func (x *WafExpressionResult) GetUncertain() uint32 {
+	if x != nil {
+		return x.Uncertain
+	}
+	return 0
+}
+
+func (x *WafExpressionResult) GetOutcomes() []*WafExpressionOutcome {
+	if x != nil {
+		return x.Outcomes
+	}
+	return nil
+}
+
 var File_siem_v1_wafmigration_proto protoreflect.FileDescriptor
 
 const file_siem_v1_wafmigration_proto_rawDesc = "" +
@@ -888,12 +1180,41 @@ const file_siem_v1_wafmigration_proto_rawDesc = "" +
 	"\x12cloudflare_rule_id\x18\x10 \x01(\tR\x10cloudflareRuleId\x12!\n" +
 	"\fattack_score\x18\x11 \x01(\rR\vattackScore\"P\n" +
 	"\x17WafMigrationSamplePanel\x125\n" +
-	"\asamples\x18\x01 \x03(\v2\x1b.siem.v1.WafMigrationSampleR\asamples2\x81\x04\n" +
+	"\asamples\x18\x01 \x03(\v2\x1b.siem.v1.WafMigrationSampleR\asamples\"\xce\x02\n" +
+	"\x14WafExpressionRequest\x121\n" +
+	"\n" +
+	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x1c\n" +
+	"\tviolation\x18\x03 \x01(\tR\tviolation\x12\x17\n" +
+	"\arule_id\x18\x04 \x01(\tR\x06ruleId\x12!\n" +
+	"\frequest_host\x18\x05 \x01(\tR\vrequestHost\x12%\n" +
+	"\x0erequest_method\x18\x06 \x01(\tR\rrequestMethod\x12\x1d\n" +
+	"\n" +
+	"f5_verdict\x18\a \x01(\tR\tf5Verdict\x12-\n" +
+	"\x12cloudflare_verdict\x18\b \x01(\tR\x11cloudflareVerdict\x12\x1e\n" +
+	"\n" +
+	"expression\x18\t \x01(\tR\n" +
+	"expression\"\xab\x01\n" +
+	"\x14WafExpressionOutcome\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12!\n" +
+	"\frequest_path\x18\x02 \x01(\tR\vrequestPath\x12#\n" +
+	"\rrequest_query\x18\x03 \x01(\tR\frequestQuery\x12\x18\n" +
+	"\amatched\x18\x04 \x01(\bR\amatched\x12\x16\n" +
+	"\x06caveat\x18\x05 \x01(\tR\x06caveat\"\xfb\x01\n" +
+	"\x13WafExpressionResult\x12\x14\n" +
+	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12-\n" +
+	"\x12unavailable_fields\x18\x03 \x03(\tR\x11unavailableFields\x12\x16\n" +
+	"\x06tested\x18\x04 \x01(\rR\x06tested\x12\x18\n" +
+	"\amatched\x18\x05 \x01(\rR\amatched\x12\x1c\n" +
+	"\tuncertain\x18\x06 \x01(\rR\tuncertain\x129\n" +
+	"\boutcomes\x18\a \x03(\v2\x1d.siem.v1.WafExpressionOutcomeR\boutcomes2\xff\x04\n" +
 	"\fWafMigration\x12q\n" +
 	"\fGetUncovered\x12\x1c.siem.v1.WafMigrationRequest\x1a\x1a.siem.v1.WafUncoveredPanel\"'\x82\xd3\xe4\x93\x02!\x12\x1f/api/v1/waf-migration/uncovered\x12v\n" +
 	"\x11GetReadyToEnforce\x12\x1c.siem.v1.WafMigrationRequest\x1a\x1e.siem.v1.WafRuleAgreementPanel\"#\x82\xd3\xe4\x93\x02\x1d\x12\x1b/api/v1/waf-migration/ready\x12\x80\x01\n" +
 	"\x11GetFalsePositives\x12\x1c.siem.v1.WafMigrationRequest\x1a\x1e.siem.v1.WafRuleAgreementPanel\"-\x82\xd3\xe4\x93\x02'\x12%/api/v1/waf-migration/false-positives\x12\x82\x01\n" +
-	"\x13GetMigrationSamples\x12\".siem.v1.WafMigrationSampleRequest\x1a .siem.v1.WafMigrationSamplePanel\"%\x82\xd3\xe4\x93\x02\x1f\x12\x1d/api/v1/waf-migration/samplesB\x8d\x01\n" +
+	"\x13GetMigrationSamples\x12\".siem.v1.WafMigrationSampleRequest\x1a .siem.v1.WafMigrationSamplePanel\"%\x82\xd3\xe4\x93\x02\x1f\x12\x1d/api/v1/waf-migration/samples\x12|\n" +
+	"\x12EvaluateExpression\x12\x1d.siem.v1.WafExpressionRequest\x1a\x1c.siem.v1.WafExpressionResult\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/waf-migration/evaluateB\x8d\x01\n" +
 	"\vcom.siem.v1B\x11WafmigrationProtoP\x01Z.github.com/menta2k/siem/api/gen/siem/v1;siemv1\xa2\x02\x03SXX\xaa\x02\aSiem.V1\xca\x02\aSiem\\V1\xe2\x02\x13Siem\\V1\\GPBMetadata\xea\x02\bSiem::V1b\x06proto3"
 
 var (
@@ -908,7 +1229,7 @@ func file_siem_v1_wafmigration_proto_rawDescGZIP() []byte {
 	return file_siem_v1_wafmigration_proto_rawDescData
 }
 
-var file_siem_v1_wafmigration_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_siem_v1_wafmigration_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_siem_v1_wafmigration_proto_goTypes = []any{
 	(*WafMigrationRequest)(nil),       // 0: siem.v1.WafMigrationRequest
 	(*WafUncoveredGroup)(nil),         // 1: siem.v1.WafUncoveredGroup
@@ -918,33 +1239,40 @@ var file_siem_v1_wafmigration_proto_goTypes = []any{
 	(*WafMigrationSampleRequest)(nil), // 5: siem.v1.WafMigrationSampleRequest
 	(*WafMigrationSample)(nil),        // 6: siem.v1.WafMigrationSample
 	(*WafMigrationSamplePanel)(nil),   // 7: siem.v1.WafMigrationSamplePanel
-	(*TimeRange)(nil),                 // 8: siem.v1.TimeRange
-	(*timestamppb.Timestamp)(nil),     // 9: google.protobuf.Timestamp
+	(*WafExpressionRequest)(nil),      // 8: siem.v1.WafExpressionRequest
+	(*WafExpressionOutcome)(nil),      // 9: siem.v1.WafExpressionOutcome
+	(*WafExpressionResult)(nil),       // 10: siem.v1.WafExpressionResult
+	(*TimeRange)(nil),                 // 11: siem.v1.TimeRange
+	(*timestamppb.Timestamp)(nil),     // 12: google.protobuf.Timestamp
 }
 var file_siem_v1_wafmigration_proto_depIdxs = []int32{
-	8,  // 0: siem.v1.WafMigrationRequest.time_range:type_name -> siem.v1.TimeRange
-	9,  // 1: siem.v1.WafUncoveredGroup.first_seen:type_name -> google.protobuf.Timestamp
-	9,  // 2: siem.v1.WafUncoveredGroup.last_seen:type_name -> google.protobuf.Timestamp
+	11, // 0: siem.v1.WafMigrationRequest.time_range:type_name -> siem.v1.TimeRange
+	12, // 1: siem.v1.WafUncoveredGroup.first_seen:type_name -> google.protobuf.Timestamp
+	12, // 2: siem.v1.WafUncoveredGroup.last_seen:type_name -> google.protobuf.Timestamp
 	1,  // 3: siem.v1.WafUncoveredPanel.groups:type_name -> siem.v1.WafUncoveredGroup
-	9,  // 4: siem.v1.WafRuleAgreement.first_seen:type_name -> google.protobuf.Timestamp
-	9,  // 5: siem.v1.WafRuleAgreement.last_seen:type_name -> google.protobuf.Timestamp
+	12, // 4: siem.v1.WafRuleAgreement.first_seen:type_name -> google.protobuf.Timestamp
+	12, // 5: siem.v1.WafRuleAgreement.last_seen:type_name -> google.protobuf.Timestamp
 	3,  // 6: siem.v1.WafRuleAgreementPanel.rules:type_name -> siem.v1.WafRuleAgreement
-	8,  // 7: siem.v1.WafMigrationSampleRequest.time_range:type_name -> siem.v1.TimeRange
-	9,  // 8: siem.v1.WafMigrationSample.event_time:type_name -> google.protobuf.Timestamp
+	11, // 7: siem.v1.WafMigrationSampleRequest.time_range:type_name -> siem.v1.TimeRange
+	12, // 8: siem.v1.WafMigrationSample.event_time:type_name -> google.protobuf.Timestamp
 	6,  // 9: siem.v1.WafMigrationSamplePanel.samples:type_name -> siem.v1.WafMigrationSample
-	0,  // 10: siem.v1.WafMigration.GetUncovered:input_type -> siem.v1.WafMigrationRequest
-	0,  // 11: siem.v1.WafMigration.GetReadyToEnforce:input_type -> siem.v1.WafMigrationRequest
-	0,  // 12: siem.v1.WafMigration.GetFalsePositives:input_type -> siem.v1.WafMigrationRequest
-	5,  // 13: siem.v1.WafMigration.GetMigrationSamples:input_type -> siem.v1.WafMigrationSampleRequest
-	2,  // 14: siem.v1.WafMigration.GetUncovered:output_type -> siem.v1.WafUncoveredPanel
-	4,  // 15: siem.v1.WafMigration.GetReadyToEnforce:output_type -> siem.v1.WafRuleAgreementPanel
-	4,  // 16: siem.v1.WafMigration.GetFalsePositives:output_type -> siem.v1.WafRuleAgreementPanel
-	7,  // 17: siem.v1.WafMigration.GetMigrationSamples:output_type -> siem.v1.WafMigrationSamplePanel
-	14, // [14:18] is the sub-list for method output_type
-	10, // [10:14] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	11, // 10: siem.v1.WafExpressionRequest.time_range:type_name -> siem.v1.TimeRange
+	9,  // 11: siem.v1.WafExpressionResult.outcomes:type_name -> siem.v1.WafExpressionOutcome
+	0,  // 12: siem.v1.WafMigration.GetUncovered:input_type -> siem.v1.WafMigrationRequest
+	0,  // 13: siem.v1.WafMigration.GetReadyToEnforce:input_type -> siem.v1.WafMigrationRequest
+	0,  // 14: siem.v1.WafMigration.GetFalsePositives:input_type -> siem.v1.WafMigrationRequest
+	5,  // 15: siem.v1.WafMigration.GetMigrationSamples:input_type -> siem.v1.WafMigrationSampleRequest
+	8,  // 16: siem.v1.WafMigration.EvaluateExpression:input_type -> siem.v1.WafExpressionRequest
+	2,  // 17: siem.v1.WafMigration.GetUncovered:output_type -> siem.v1.WafUncoveredPanel
+	4,  // 18: siem.v1.WafMigration.GetReadyToEnforce:output_type -> siem.v1.WafRuleAgreementPanel
+	4,  // 19: siem.v1.WafMigration.GetFalsePositives:output_type -> siem.v1.WafRuleAgreementPanel
+	7,  // 20: siem.v1.WafMigration.GetMigrationSamples:output_type -> siem.v1.WafMigrationSamplePanel
+	10, // 21: siem.v1.WafMigration.EvaluateExpression:output_type -> siem.v1.WafExpressionResult
+	17, // [17:22] is the sub-list for method output_type
+	12, // [12:17] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_siem_v1_wafmigration_proto_init() }
@@ -959,7 +1287,7 @@ func file_siem_v1_wafmigration_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_wafmigration_proto_rawDesc), len(file_siem_v1_wafmigration_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

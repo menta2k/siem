@@ -66,6 +66,8 @@ services:
       dockerfile: deploy/Dockerfile.backend
       args: { SERVICE: siem-api }
     env_file: [.env]
+    environment:
+      WIREFILTER_EVAL_URL: ${WIREFILTER_EVAL_URL:-http://wirefilter-eval:8010}
     ports:
       - "${API_HTTP_PORT:-8000}:8000"
     depends_on:

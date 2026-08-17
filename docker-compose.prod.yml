@@ -131,6 +131,11 @@ services:
       dockerfile: deploy/Dockerfile.backend
       args: { SERVICE: siem-api, APP_VERSION: "${APP_VERSION:-dev}" }
     env_file: [.env]
+    environment:
+      # Where the expression evaluator listens. Set here rather than in .env so a stack that
+      # has the sidecar gets the feature without an operator editing anything. Deliberately
+      # NOT a depends_on: the evaluator is optional, and the API must start without it.
+      WIREFILTER_EVAL_URL: ${WIREFILTER_EVAL_URL:-http://wirefilter-eval:8010}
     # No host port. The web tier proxies /api to it over the compose network, so the
     # analyst-facing API is never directly addressable from outside.
     expose: ["8000"]

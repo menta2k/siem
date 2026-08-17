@@ -19,12 +19,21 @@ var _ = binding.EncodeURL
 
 const _ = http.SupportPackageIsVersion1
 
+const OperationWafMigrationEvaluateExpression = "/siem.v1.WafMigration/EvaluateExpression"
 const OperationWafMigrationGetFalsePositives = "/siem.v1.WafMigration/GetFalsePositives"
 const OperationWafMigrationGetMigrationSamples = "/siem.v1.WafMigration/GetMigrationSamples"
 const OperationWafMigrationGetReadyToEnforce = "/siem.v1.WafMigration/GetReadyToEnforce"
 const OperationWafMigrationGetUncovered = "/siem.v1.WafMigration/GetUncovered"
 
 type WafMigrationHTTPServer interface {
+	// EvaluateExpression Whether a candidate Cloudflare rule would catch the requests in a stage-1 group,
+	// answered by Cloudflare's own expression engine against the requests as captured.
+	//
+	// Stage 1 asks the operator to write a rule for traffic Cloudflare cannot see. Until this
+	// existed the only way to find out whether the rule works was to deploy it in log mode
+	// and wait, and a mistake cost a day: one rule differed from a working one by a single
+	// backslash and matched nothing while looking correct.
+	EvaluateExpression(context.Context, *WafExpressionRequest) (*WafExpressionResult, error)
 	// GetFalsePositives Stage 3. Cloudflare rules running in log mode on traffic F5 lets through.
 	GetFalsePositives(context.Context, *WafMigrationRequest) (*WafRuleAgreementPanel, error)
 	// GetMigrationSamples The requests behind any row on any of the three stages, with BOTH verdicts on each.
@@ -42,6 +51,7 @@ func RegisterWafMigrationHTTPServer(s *http.Server, srv WafMigrationHTTPServer) 
 	r.GET("/api/v1/waf-migration/ready", _WafMigration_GetReadyToEnforce0_HTTP_Handler(srv))
 	r.GET("/api/v1/waf-migration/false-positives", _WafMigration_GetFalsePositives0_HTTP_Handler(srv))
 	r.GET("/api/v1/waf-migration/samples", _WafMigration_GetMigrationSamples0_HTTP_Handler(srv))
+	r.POST("/api/v1/waf-migration/evaluate", _WafMigration_EvaluateExpression0_HTTP_Handler(srv))
 }
 
 func _WafMigration_GetUncovered0_HTTP_Handler(srv WafMigrationHTTPServer) func(ctx http.Context) error {
@@ -120,7 +130,37 @@ func _WafMigration_GetMigrationSamples0_HTTP_Handler(srv WafMigrationHTTPServer)
 	}
 }
 
+func _WafMigration_EvaluateExpression0_HTTP_Handler(srv WafMigrationHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in WafExpressionRequest
+		if err := ctx.Bind(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationWafMigrationEvaluateExpression)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.EvaluateExpression(ctx, req.(*WafExpressionRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*WafExpressionResult)
+		return ctx.Result(200, reply)
+	}
+}
+
 type WafMigrationHTTPClient interface {
+	// EvaluateExpression Whether a candidate Cloudflare rule would catch the requests in a stage-1 group,
+	// answered by Cloudflare's own expression engine against the requests as captured.
+	//
+	// Stage 1 asks the operator to write a rule for traffic Cloudflare cannot see. Until this
+	// existed the only way to find out whether the rule works was to deploy it in log mode
+	// and wait, and a mistake cost a day: one rule differed from a working one by a single
+	// backslash and matched nothing while looking correct.
+	EvaluateExpression(ctx context.Context, req *WafExpressionRequest, opts ...http.CallOption) (rsp *WafExpressionResult, err error)
 	// GetFalsePositives Stage 3. Cloudflare rules running in log mode on traffic F5 lets through.
 	GetFalsePositives(ctx context.Context, req *WafMigrationRequest, opts ...http.CallOption) (rsp *WafRuleAgreementPanel, err error)
 	// GetMigrationSamples The requests behind any row on any of the three stages, with BOTH verdicts on each.
@@ -138,6 +178,26 @@ type WafMigrationHTTPClientImpl struct {
 
 func NewWafMigrationHTTPClient(client *http.Client) WafMigrationHTTPClient {
 	return &WafMigrationHTTPClientImpl{client}
+}
+
+// EvaluateExpression Whether a candidate Cloudflare rule would catch the requests in a stage-1 group,
+// answered by Cloudflare's own expression engine against the requests as captured.
+//
+// Stage 1 asks the operator to write a rule for traffic Cloudflare cannot see. Until this
+// existed the only way to find out whether the rule works was to deploy it in log mode
+// and wait, and a mistake cost a day: one rule differed from a working one by a single
+// backslash and matched nothing while looking correct.
+func (c *WafMigrationHTTPClientImpl) EvaluateExpression(ctx context.Context, in *WafExpressionRequest, opts ...http.CallOption) (*WafExpressionResult, error) {
+	var out WafExpressionResult
+	pattern := "/api/v1/waf-migration/evaluate"
+	path := binding.EncodeURL(pattern, in, false)
+	opts = append(opts, http.Operation(OperationWafMigrationEvaluateExpression))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // GetFalsePositives Stage 3. Cloudflare rules running in log mode on traffic F5 lets through.
