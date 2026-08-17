@@ -73,6 +73,10 @@ func NewCorrelatedRepo(client *Client) *CorrelatedRepo {
 	return &CorrelatedRepo{client: client}
 }
 
+// correlatedColumns is the column list for the INSERT and for every SELECT that scans a
+// whole record through scanCorrelated. Adding a column here means adding a destination
+// there in the same commit: the driver reports the mismatch as "expected N destination
+// arguments in Scan", which surfaces at runtime in the closer rather than at compile time.
 const correlatedColumns = `tenant_id, correlation_id, window_start, first_event_time,
 	last_event_time, vendors, vendor_count, event_ids, client_ip, client_ip_shared,
 	client_asn, client_country, request_host, request_path, request_method, verdicts,
@@ -332,7 +336,7 @@ func scanCorrelated(row rowScanner) (CorrelatedRequest, error) {
 		&record.Vendors, &record.VendorCount, &record.EventIDs,
 		&clientIP, &record.ClientIPShared, &record.ClientASN, &record.ClientCountry,
 		&record.RequestHost, &record.RequestPath, &record.RequestMethod,
-		&record.Verdicts, &record.RuleIDs, &record.Scores,
+		&record.Verdicts, &record.RuleIDs, &record.MatchedRuleIDs, &record.Scores,
 		&record.CombinedOutcome, &record.HasDisagreement, &record.DisagreementKind,
 		&record.JoinSignals, &record.JoinTier, &record.Confidence,
 		&record.CandidateCount, &record.Version, &record.Amended,
