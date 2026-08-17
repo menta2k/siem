@@ -25,8 +25,9 @@ func (s *stubTenants) ListAll(context.Context) ([]chdata.Tenant, error) {
 
 // stubRuleStore records each snapshot written.
 type stubRuleStore struct {
-	writes  int
-	lastLen int
+	writes    int
+	lastLen   int
+	lastRules []chdata.CloudflareRule
 }
 
 func (s *stubRuleStore) Replace(
@@ -34,6 +35,7 @@ func (s *stubRuleStore) Replace(
 ) error {
 	s.writes++
 	s.lastLen = len(rules)
+	s.lastRules = rules
 	return nil
 }
 
@@ -210,5 +212,120 @@ func TestAFailingTokenIsNotRetriedOnEveryTick(t *testing.T) {
 
 	if store.writes != 0 {
 		t.Errorf("a failing refresh wrote %d snapshots", store.writes)
+	}
+}
+
+// scopedStub answers both scopes: an account with a custom ruleset, and a zone with a
+// managed one. accountStatus lets a test make the account side fail the way a zone-scoped
+// token does.
+func scopedStub(t *testing.T, accountStatus int) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/accounts":
+			if accountStatus != http.StatusOK {
+				w.WriteHeader(accountStatus)
+				_, _ = fmt.Fprint(w, `{"success":false,"errors":[{"code":9109,
+					"message":"Unauthorized to access requested resource"}]}`)
+				return
+			}
+			_, _ = fmt.Fprint(w, `{"success":true,"result":[{"id":"a1","name":"Acme Inc"}],
+				"result_info":{"page":1,"total_pages":1}}`)
+		case "/accounts/a1/rulesets":
+			_, _ = fmt.Fprint(w, `{"success":true,"result":[
+				{"id":"ars1","name":"Jobs custom rules","kind":"custom",
+				 "phase":"http_request_firewall_custom"}]}`)
+		case "/accounts/a1/rulesets/ars1":
+			_, _ = fmt.Fprint(w, `{"success":true,"result":{"rules":[
+				{"id":"acct-rule-1","description":"Block html and htm file uploads",
+				 "action":"log"}]}}`)
+		case "/zones":
+			_, _ = fmt.Fprint(w, `{"success":true,"result":[{"id":"z1","name":"example.com"}],
+				"result_info":{"page":1,"total_pages":1}}`)
+		case "/zones/z1/rulesets":
+			_, _ = fmt.Fprint(w, `{"success":true,"result":[
+				{"id":"rs1","name":"Cloudflare Managed Ruleset","kind":"managed"}]}`)
+		default:
+			_, _ = fmt.Fprint(w, `{"success":true,"result":{"rules":[
+				{"id":"zone-rule-1","description":"SQLi - Body detection","action":"block"}]}}`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func refreshWith(t *testing.T, server *httptest.Server) *stubRuleStore {
+	t.Helper()
+
+	store := &stubRuleStore{}
+	secretStore := secrets.NewMemoryStore()
+	ref, err := secretStore.Put(context.Background(), "cloudflare-api-token", "token-1")
+	if err != nil {
+		t.Fatalf("Put(): %v", err)
+	}
+
+	tenants := &stubTenants{tenants: []chdata.Tenant{tenantWithToken(uuid.New(), ref)}}
+	worker := cfrules.NewWorker(tenants, store, secretStore, server.URL, time.Hour,
+		mw.NewLogger("error", "json"))
+	worker.Check(context.Background(), true)
+	return store
+}
+
+// THE GAP THIS CLOSES. An account-level custom ruleset is deployed to zones through a
+// phase entry point, so its rules decide real traffic while appearing in no zone's
+// listing. On one production account that hid a six-rule ruleset whose members matched
+// 108,599 requests in a day, including the top row of the WAF migration's false-positive
+// list — which the console could only render as a bare hex id.
+func TestRefreshNamesAccountLevelRules(t *testing.T) {
+	store := refreshWith(t, scopedStub(t, http.StatusOK))
+
+	if store.writes != 1 {
+		t.Fatalf("writes = %d, want 1", store.writes)
+	}
+
+	byID := map[string]chdata.CloudflareRule{}
+	for _, rule := range store.lastRules {
+		byID[rule.RuleID] = rule
+	}
+
+	account, ok := byID["acct-rule-1"]
+	if !ok {
+		t.Fatalf("the account ruleset's rule was not stored: %+v", store.lastRules)
+	}
+	if account.Description != "Block html and htm file uploads" {
+		t.Errorf("description = %q, want the name the customer gave it", account.Description)
+	}
+	// An account ruleset is not scoped to one zone, so naming a zone would be a guess.
+	// What identifies it is the ruleset: kind `custom` with the customer's own name.
+	if account.ZoneName != "" || account.ZoneID != "" {
+		t.Errorf("zone = %q/%q, want empty for an account-level rule",
+			account.ZoneName, account.ZoneID)
+	}
+	if account.RulesetKind != "custom" || account.RulesetName != "Jobs custom rules" {
+		t.Errorf("ruleset = %q/%q, want the account ruleset's own identity",
+			account.RulesetKind, account.RulesetName)
+	}
+
+	// And the zone rules are still there — this adds a scope, it does not replace one.
+	if _, ok := byID["zone-rule-1"]; !ok {
+		t.Error("the zone ruleset's rule was lost when account rules were added")
+	}
+}
+
+// A zone-scoped token cannot read /accounts at all. That is a legitimate configuration,
+// not a fault, and it must not cost the tenant the zone rules it CAN read.
+func TestRefreshSurvivesATokenThatCannotReadAccounts(t *testing.T) {
+	store := refreshWith(t, scopedStub(t, http.StatusForbidden))
+
+	if store.writes != 1 {
+		t.Fatalf("writes = %d, want the refresh to succeed on zones alone", store.writes)
+	}
+	for _, rule := range store.lastRules {
+		if rule.RuleID == "acct-rule-1" {
+			t.Fatal("an account rule appeared despite the account listing failing")
+		}
+	}
+	if len(store.lastRules) == 0 {
+		t.Error("no zone rules were stored, so a 403 on /accounts broke the whole refresh")
 	}
 }

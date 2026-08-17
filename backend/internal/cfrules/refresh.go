@@ -199,7 +199,7 @@ func (w *Worker) RefreshTenant(ctx context.Context, tenant chdata.Tenant) (int, 
 	return len(rules), nil
 }
 
-// fetch walks every zone's rulesets and collects their rules.
+// fetch walks every account's and every zone's rulesets and collects their rules.
 //
 // A failure on ONE zone or ruleset is collected and skipped rather than abandoning the
 // run: a token scoped to three of a customer's five zones should still name the rules of
@@ -211,7 +211,12 @@ func (w *Worker) fetch(ctx context.Context, client *Client) ([]chdata.Cloudflare
 		return nil, err
 	}
 
-	var rules []chdata.CloudflareRule
+	// Accounts FIRST, because that is the order Cloudflare evaluates them in and because
+	// account rules are the ones a customer with many zones writes by hand. Failure here
+	// is not fatal: a zone-scoped token cannot read /accounts at all, and it should still
+	// get every zone rule named.
+	rules := w.accountRules(ctx, client)
+
 	for _, zone := range zones {
 		rulesets, err := client.Rulesets(ctx, zone.ID)
 		if err != nil {
@@ -231,6 +236,50 @@ func (w *Worker) fetch(ctx context.Context, client *Client) ([]chdata.Cloudflare
 		}
 	}
 	return rules, nil
+}
+
+// accountRules collects the rules from every account-level ruleset the token can read.
+//
+// THE GAP THIS CLOSES. An account-level custom ruleset is deployed to zones through a
+// phase entry point, so its rules decide real traffic while appearing in no zone's
+// listing. On one production account that hid a six-rule ruleset whose members matched
+// 108,599 requests in a day — including the rule at the top of the WAF migration's
+// false-positive list, which the console could only render as a bare hex id.
+//
+// Every failure here is a WARNING and never fatal. Reading /accounts needs an
+// account-scoped token; a zone-scoped one answers 403 or an empty list, and that is a
+// legitimate configuration rather than a fault.
+func (w *Worker) accountRules(ctx context.Context, client *Client) []chdata.CloudflareRule {
+	accounts, err := client.Accounts(ctx)
+	if err != nil {
+		w.log.Warn(ctx, "cloudflare rules: account rulesets skipped, "+
+			"the token cannot read accounts", "error", err)
+		return nil
+	}
+
+	var rules []chdata.CloudflareRule
+	for _, account := range accounts {
+		rulesets, err := client.AccountRulesets(ctx, account.ID)
+		if err != nil {
+			w.log.Warn(ctx, "cloudflare rules: account skipped",
+				"error", err, "account", account.Name)
+			continue
+		}
+
+		for _, ruleset := range rulesets {
+			fetched, err := client.AccountRules(ctx, account.ID, ruleset.ID)
+			if err != nil {
+				w.log.Warn(ctx, "cloudflare rules: account ruleset skipped",
+					"error", err, "account", account.Name, "ruleset", ruleset.Name)
+				continue
+			}
+			// No zone: an account ruleset is not scoped to one, and naming a zone here
+			// would be a guess. What identifies it instead is the ruleset — kind
+			// `custom` with the name the customer gave it.
+			rules = append(rules, toRows(Zone{}, ruleset, fetched)...)
+		}
+	}
+	return rules
 }
 
 // toRows projects one ruleset's rules onto storage rows.

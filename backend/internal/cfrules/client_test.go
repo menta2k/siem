@@ -143,3 +143,104 @@ func TestTheTokenIsSentAsABearerAndNeverInAnError(t *testing.T) {
 		t.Errorf("the token leaked into an error string: %v", err)
 	}
 }
+
+// Accounts paginate for the same reason zones do: a partner token can see more accounts
+// than one page holds, and stopping at the first would name some rules and not others.
+func TestAccountsAreListedAcrossPages(t *testing.T) {
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/accounts" {
+			t.Errorf("path = %q, want /accounts", r.URL.Path)
+		}
+		if r.URL.Query().Get("page") == "1" {
+			_, _ = fmt.Fprint(w, `{"success":true,"result":[{"id":"a1","name":"Acme Inc"}],
+				"result_info":{"page":1,"total_pages":2}}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"success":true,"result":[{"id":"a2","name":"Acme Labs"}],
+			"result_info":{"page":2,"total_pages":2}}`)
+	})
+
+	accounts, err := client.Accounts(context.Background())
+	if err != nil {
+		t.Fatalf("Accounts(): %v", err)
+	}
+	if len(accounts) != 2 {
+		t.Fatalf("got %d accounts, want 2 — the second page was dropped: %+v",
+			len(accounts), accounts)
+	}
+}
+
+// The account endpoints differ from the zone ones only by prefix, and reading the wrong
+// scope is the bug that hid a whole ruleset. The paths are asserted for that reason.
+func TestAccountRulesetsUseTheAccountScope(t *testing.T) {
+	var paths []string
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/rulesets") {
+			_, _ = fmt.Fprint(w, `{"success":true,"result":[
+				{"id":"ars1","name":"Jobs custom rules","kind":"custom",
+				 "phase":"http_request_firewall_custom"}]}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"success":true,"result":{"rules":[
+			{"id":"r1","description":"Block html and htm file uploads","action":"log"}]}}`)
+	})
+
+	rulesets, err := client.AccountRulesets(context.Background(), "a1")
+	if err != nil {
+		t.Fatalf("AccountRulesets(): %v", err)
+	}
+	if len(rulesets) != 1 || rulesets[0].Kind != "custom" {
+		t.Fatalf("rulesets = %+v, want one of kind custom", rulesets)
+	}
+	// The phase matters: an account custom ruleset only decides traffic once a phase entry
+	// point deploys it, and the phase is how a reader tells which one it is.
+	if rulesets[0].Phase != "http_request_firewall_custom" {
+		t.Errorf("phase = %q, want it carried through", rulesets[0].Phase)
+	}
+
+	rules, err := client.AccountRules(context.Background(), "a1", "ars1")
+	if err != nil {
+		t.Fatalf("AccountRules(): %v", err)
+	}
+	if len(rules) != 1 || rules[0].Action != "log" {
+		t.Fatalf("rules = %+v, want the log rule", rules)
+	}
+
+	want := []string{"/accounts/a1/rulesets", "/accounts/a1/rulesets/ars1"}
+	for i, path := range want {
+		if i >= len(paths) || paths[i] != path {
+			t.Errorf("request %d = %q, want %q", i, paths[i], path)
+		}
+	}
+}
+
+// Zone reads must keep using the zone scope. The two share one implementation now, so a
+// mistake there would silently move every existing lookup to the wrong endpoint.
+func TestZoneRulesetsStillUseTheZoneScope(t *testing.T) {
+	var paths []string
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/rulesets") {
+			_, _ = fmt.Fprint(w, `{"success":true,"result":[
+				{"id":"rs1","name":"Cloudflare Managed Ruleset","kind":"managed"}]}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"success":true,"result":{"rules":[
+			{"id":"r1","description":"SQLi","action":"block"}]}}`)
+	})
+
+	if _, err := client.Rulesets(context.Background(), "z1"); err != nil {
+		t.Fatalf("Rulesets(): %v", err)
+	}
+	if _, err := client.Rules(context.Background(), "z1", "rs1"); err != nil {
+		t.Fatalf("Rules(): %v", err)
+	}
+
+	want := []string{"/zones/z1/rulesets", "/zones/z1/rulesets/rs1"}
+	for i, path := range want {
+		if i >= len(paths) || paths[i] != path {
+			t.Errorf("request %d = %q, want %q", i, paths[i], path)
+		}
+	}
+}

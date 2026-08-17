@@ -39,6 +39,17 @@ type Zone struct {
 	Name string
 }
 
+// Account is a Cloudflare account the token can see.
+//
+// Rulesets live at BOTH levels. An account-level custom ruleset is deployed to zones by a
+// phase entry point and is where a customer with many zones keeps the rules they apply
+// everywhere — so a console that reads only zone rulesets shows a bare hex id for exactly
+// the rules the customer authored deliberately, which is what this exists to fix.
+type Account struct {
+	ID   string
+	Name string
+}
+
 // Ruleset is one ruleset on a zone.
 type Ruleset struct {
 	ID   string
@@ -122,6 +133,35 @@ func (c *Client) Zones(ctx context.Context) ([]Zone, error) {
 	}
 }
 
+// Accounts lists every account the token can read.
+//
+// A zone-scoped token cannot read this at all — Cloudflare answers 403, or success with an
+// empty list — which is not an error worth failing a refresh over. The caller treats it as
+// "this token has no account rules to offer" and carries on with the zones.
+func (c *Client) Accounts(ctx context.Context) ([]Account, error) {
+	var accounts []Account
+
+	// Paginated for the same reason as Zones: a partner or reseller token can see more
+	// accounts than one page holds.
+	for page := 1; ; page++ {
+		var body envelope[[]struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}]
+		path := fmt.Sprintf("/accounts?per_page=50&page=%d", page)
+		if err := c.get(ctx, path, &body); err != nil {
+			return nil, err
+		}
+
+		for _, account := range body.Result {
+			accounts = append(accounts, Account{ID: account.ID, Name: account.Name})
+		}
+		if body.ResultInfo.TotalPages <= page || len(body.Result) == 0 {
+			return accounts, nil
+		}
+	}
+}
+
 // Verify reports how many zones the token can read, and fails if it cannot read at all.
 //
 // One call, made while an operator is watching. Saving a credential that turns out to be
@@ -145,13 +185,24 @@ func (c *Client) Verify(ctx context.Context) (int, error) {
 // The listing deliberately does NOT include each ruleset's rules — Cloudflare returns
 // them only from the per-ruleset endpoint — so this is the first of two calls.
 func (c *Client) Rulesets(ctx context.Context, zoneID string) ([]Ruleset, error) {
+	return c.rulesets(ctx, "/zones/"+url.PathEscape(zoneID))
+}
+
+// AccountRulesets lists the rulesets on an account.
+func (c *Client) AccountRulesets(ctx context.Context, accountID string) ([]Ruleset, error) {
+	return c.rulesets(ctx, "/accounts/"+url.PathEscape(accountID))
+}
+
+// rulesets reads a listing under either scope. The two endpoints are identical apart from
+// their prefix, and one implementation is what keeps them from drifting.
+func (c *Client) rulesets(ctx context.Context, scope string) ([]Ruleset, error) {
 	var body envelope[[]struct {
 		ID    string `json:"id"`
 		Name  string `json:"name"`
 		Kind  string `json:"kind"`
 		Phase string `json:"phase"`
 	}]
-	if err := c.get(ctx, "/zones/"+url.PathEscape(zoneID)+"/rulesets", &body); err != nil {
+	if err := c.get(ctx, scope+"/rulesets", &body); err != nil {
 		return nil, err
 	}
 
@@ -164,6 +215,16 @@ func (c *Client) Rulesets(ctx context.Context, zoneID string) ([]Ruleset, error)
 
 // Rules returns one ruleset's rules.
 func (c *Client) Rules(ctx context.Context, zoneID, rulesetID string) ([]Rule, error) {
+	return c.rules(ctx, "/zones/"+url.PathEscape(zoneID), rulesetID)
+}
+
+// AccountRules returns one account ruleset's rules.
+func (c *Client) AccountRules(ctx context.Context, accountID, rulesetID string) ([]Rule, error) {
+	return c.rules(ctx, "/accounts/"+url.PathEscape(accountID), rulesetID)
+}
+
+// rules reads one ruleset under either scope.
+func (c *Client) rules(ctx context.Context, scope, rulesetID string) ([]Rule, error) {
 	var body envelope[struct {
 		Rules []struct {
 			ID          string   `json:"id"`
@@ -174,7 +235,7 @@ func (c *Client) Rules(ctx context.Context, zoneID, rulesetID string) ([]Rule, e
 		} `json:"rules"`
 	}]
 
-	path := "/zones/" + url.PathEscape(zoneID) + "/rulesets/" + url.PathEscape(rulesetID)
+	path := scope + "/rulesets/" + url.PathEscape(rulesetID)
 	if err := c.get(ctx, path, &body); err != nil {
 		return nil, err
 	}
