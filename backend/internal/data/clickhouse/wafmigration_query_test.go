@@ -266,12 +266,15 @@ func TestEventLookupsAreTimeBounded(t *testing.T) {
 // THE BUG THIS PINS. ClickHouse INLINES a CTE rather than materialising it, so the first
 // version of this query — which named the pair set once and referenced it from three CTEs
 // — read as one scan and ran as six: 10 to 18 seconds, and clicking a row timed out.
-func TestSamplesScanTheCorrelatedTableOnce(t *testing.T) {
+//
+// Two references are the floor: the rows themselves, and the id set that narrows the
+// events side. Three or more means a CTE has crept back in.
+func TestSamplesScanTheCorrelatedTableTwiceAtMost(t *testing.T) {
 	sql := first(migrationSamplesQuery(uuid.New(), WAFMigrationSelector{
 		F5Verdict: "blocked", RequestHost: "www.jobs.bg",
 	}, testQuery()))
 
-	if n := strings.Count(sql, "FROM correlated_requests"); n != 1 {
+	if n := strings.Count(sql, "FROM correlated_requests"); n > 2 {
 		t.Errorf("correlated_requests is read %d times; every extra reference is another full scan", n)
 	}
 	if strings.Contains(sql, "WITH ") {
@@ -279,31 +282,63 @@ func TestSamplesScanTheCorrelatedTableOnce(t *testing.T) {
 	}
 }
 
-// The events side is narrowed by what the ROW already says rather than by an
-// `event_id IN (pair set)` prefilter, which costs a second evaluation of the pair scan.
-// Dropping it took the query from 3.0s to 1.8s.
-func TestSamplesNarrowEventsByTheRowItself(t *testing.T) {
-	sql, args := migrationSamplesQuery(uuid.New(), WAFMigrationSelector{
-		F5Verdict: "blocked", RequestHost: "www.jobs.bg",
+// THE SECOND BUG THIS PINS. The false-positive drill-down timed out because the events
+// side was narrowed by the row's F5 verdict, and on that stage the verdict is `allowed`:
+// 40,656,803 events across seven days, against 2,929 for `blocked`. A narrowing whose
+// selectivity depends on which verdict the stage happens to use is not a narrowing.
+//
+// The rule stages therefore do not scan events at all. They read a PAGE of records — the
+// limit can be applied there, because nothing on that path filters on the event — and then
+// fetch exactly the events that page names.
+func TestRuleStageSamplesAreBoundedByThePage(t *testing.T) {
+	sql, args := sampleRecordsQuery(uuid.New(), WAFMigrationSelector{
+		RuleID: "abc", F5Verdict: "allowed", CloudflareVerdict: "monitored",
 	}, testQuery())
 
-	if strings.Contains(sql, "event_id IN (SELECT") {
-		t.Error("the id prefilter is still there, which re-runs the pair scan")
+	if !strings.Contains(sql, "ORDER BY last_event_time DESC") || !strings.Contains(sql, "LIMIT ?") {
+		t.Error("the record page is not limited, so the cost grows with the range")
 	}
-	if !containsArg(args, "www.jobs.bg") {
-		t.Error("the host is not used to narrow the events side")
+	if strings.Contains(sql, "normalized_events") {
+		t.Error("the record page reads the events table, which is what timed out")
+	}
+	if !containsArg(args, "allowed") || !containsArg(args, "abc") {
+		t.Error("the stage's own filters are not bound")
+	}
+
+	// And the events for that page are an exact lookup, not a scan.
+	eventSQL, eventArgs := f5EventsQuery(uuid.New(), []string{"e1", "e2"}, testQuery())
+	if !strings.Contains(eventSQL, "event_id IN (?)") {
+		t.Error("the F5 events are not fetched by id")
+	}
+	if !strings.Contains(eventSQL, "tenant_id = ?") {
+		t.Error("the F5 event lookup is not tenant-scoped")
+	}
+	if !containsArg(eventArgs, []string{"e1", "e2"}) {
+		t.Error("the ids are not bound")
 	}
 }
 
-// With neither a verdict nor a host the join would read every F5 event in range, so the
-// prefilter has to come back.
-func TestSamplesFallBackToTheIDPrefilter(t *testing.T) {
-	sql := first(migrationSamplesQuery(uuid.New(), WAFMigrationSelector{
-		RuleID: "abc",
-	}, testQuery()))
+// The violation path is the one that must join, because its filter lives on the F5 event
+// and limiting before the join would truncate the evidence. It narrows by the row's host
+// and verdict instead of by an id prefilter, which cost a second scan of the record set:
+// 1.8s against 4.4s.
+func TestViolationStageNarrowsByHostAndVerdict(t *testing.T) {
+	sql, args := migrationSamplesQuery(uuid.New(), WAFMigrationSelector{
+		Violation: "Illegal file type", RequestHost: "www.jobs.bg",
+		RequestMethod: "GET", F5Verdict: "blocked", CloudflareVerdict: "allowed",
+	}, testQuery())
 
-	if !strings.Contains(sql, "event_id IN (SELECT arrayJoin(event_ids)") {
-		t.Error("nothing narrows the events side, which makes the join a full scan")
+	if !strings.Contains(sql, "AND verdict = ?") || !strings.Contains(sql, "AND request_host = ?") {
+		t.Error("the events side is not narrowed by what the row already says")
+	}
+	if strings.Contains(sql, "event_id IN (SELECT") {
+		t.Error("the id prefilter is back, which re-runs the record scan")
+	}
+	if !strings.Contains(sql, "has(f5_violations, ?)") {
+		t.Error("the violation is not applied after the join that produces it")
+	}
+	if !containsArg(args, "Illegal file type") {
+		t.Error("the violation is not bound")
 	}
 }
 
@@ -391,6 +426,40 @@ func TestSamplesSelectorNarrowsEveryField(t *testing.T) {
 	}
 	if strings.Index(sql, "has(f5_violations") < strings.Index(sql, "INNER JOIN f5") {
 		t.Error("the violation is filtered before the join that produces it")
+	}
+}
+
+// Normally a record holds exactly one F5 event. When it holds several — a redelivery, or a
+// retried request — the latest describes what finally happened, and the pick has to be
+// deterministic or the row changes appearance between refreshes.
+func TestPickF5EventTakesTheLatest(t *testing.T) {
+	early := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	found := map[string]f5Event{
+		"a": {eventID: "a", eventTime: early},
+		"b": {eventID: "b", eventTime: early.Add(time.Minute)},
+	}
+
+	got, ok := pickF5Event([]string{"a", "b"}, found)
+	if !ok || got.eventID != "b" {
+		t.Errorf("picked %q, want the later event", got.eventID)
+	}
+
+	tie := map[string]f5Event{
+		"x": {eventID: "x", eventTime: early},
+		"y": {eventID: "y", eventTime: early},
+	}
+	first, _ := pickF5Event([]string{"x", "y"}, tie)
+	second, _ := pickF5Event([]string{"y", "x"}, tie)
+	if first.eventID != second.eventID {
+		t.Error("the pick depends on the order the ids arrive in")
+	}
+}
+
+// A record whose F5 event has aged out has nothing left to show — the path, the violations
+// and the time all come from it — so the caller drops the row rather than rendering blanks.
+func TestPickF5EventReportsAMiss(t *testing.T) {
+	if _, ok := pickF5Event([]string{"gone"}, map[string]f5Event{}); ok {
+		t.Error("a hit was reported for an event that is not there")
 	}
 }
 

@@ -244,10 +244,18 @@ func (r *WAFMigrationRepo) RuleAgreement(
 
 // Samples returns the requests behind one row, with both verdicts on each.
 //
-// Two round trips. The F5 side comes back with the correlated record's whole event list
-// on each row; the Cloudflare side is then fetched for exactly those ids. Reaching it
-// through the same join instead cost seven seconds, because Cloudflare logs twenty-five
-// times as many events as F5 and the join reads all of them to find forty.
+// TWO SHAPES, because the two kinds of row ask different questions of storage.
+//
+// A stage-1 row is keyed on an F5 VIOLATION, which lives on the F5 event rather than on
+// the correlated record — so the rows cannot be limited before the join without
+// truncating the evidence, and the join happens in SQL.
+//
+// A rule row carries no filter on the event at all, so its page of records is read first
+// and their events fetched by id. That matters because its verdict is `allowed`: narrowing
+// the events side by it selects forty million rows, and the false-positive drill-down timed
+// out doing exactly that.
+//
+// Either way the Cloudflare side is a separate lookup — see attachCloudflare.
 func (r *WAFMigrationRepo) Samples(
 	ctx context.Context, sel WAFMigrationSelector, q DashboardQuery,
 ) ([]WAFMigrationSample, error) {
@@ -256,16 +264,36 @@ func (r *WAFMigrationRepo) Samples(
 		return nil, err
 	}
 
+	var samples []WAFMigrationSample
+	var candidates [][]string
+	if sel.Violation != "" {
+		samples, candidates, err = r.samplesByViolation(ctx, tenantID, sel, q)
+	} else {
+		samples, candidates, err = r.samplesByRecord(ctx, tenantID, sel, q)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if err := r.attachCloudflare(ctx, tenantID, samples, candidates, q); err != nil {
+		return nil, err
+	}
+	return samples, nil
+}
+
+// samplesByViolation joins the records to their F5 events in one query, so a filter on the
+// event can be applied without limiting the rows first.
+func (r *WAFMigrationRepo) samplesByViolation(
+	ctx context.Context, tenantID uuid.UUID, sel WAFMigrationSelector, q DashboardQuery,
+) ([]WAFMigrationSample, [][]string, error) {
 	sql, args := migrationSamplesQuery(tenantID, sel, q)
 	rows, err := r.client.Query(ctx, sql, args...)
 	if err != nil {
-		return nil, query.TranslateError(err)
+		return nil, nil, query.TranslateError(err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	out := make([]WAFMigrationSample, 0, q.limitOrDefault())
-	// The candidate ids per sample, kept beside it so the Cloudflare pass can attribute
-	// what it finds back to the right request.
 	candidates := make([][]string, 0, q.limitOrDefault())
 	for rows.Next() {
 		var s WAFMigrationSample
@@ -276,20 +304,159 @@ func (r *WAFMigrationRepo) Samples(
 			&s.RequestHost, &s.RequestPath, &s.RequestQuery, &s.RequestMethod,
 			&s.UserAgent, &s.F5Verdict, &s.F5Violations,
 			&s.CloudflareVerdict, &s.CloudflareRuleID); err != nil {
-			return nil, fmt.Errorf("scan waf migration sample: %w", err)
+			return nil, nil, fmt.Errorf("scan waf migration sample: %w", err)
 		}
 		s.ClientIP = ip
 		out = append(out, s)
 		candidates = append(candidates, eventIDs)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, query.TranslateError(err)
+	return out, candidates, query.TranslateError(rows.Err())
+}
+
+// migrationRecord is one correlated record on its way to becoming a sample.
+type migrationRecord struct {
+	correlationID string
+	eventIDs      []string
+	requestHost   string
+	requestMethod string
+	f5Verdict     string
+	cfVerdict     string
+	cfRule        string
+}
+
+// samplesByRecord reads a page of records, then their F5 events by id.
+func (r *WAFMigrationRepo) samplesByRecord(
+	ctx context.Context, tenantID uuid.UUID, sel WAFMigrationSelector, q DashboardQuery,
+) ([]WAFMigrationSample, [][]string, error) {
+	records, err := r.sampleRecords(ctx, tenantID, sel, q)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(records) == 0 {
+		return nil, nil, nil
 	}
 
-	if err := r.attachCloudflare(ctx, tenantID, out, candidates, q); err != nil {
-		return nil, err
+	ids := make([]string, 0, len(records)*2)
+	for _, rec := range records {
+		ids = append(ids, rec.eventIDs...)
 	}
-	return out, nil
+
+	events, err := r.f5Events(ctx, tenantID, ids, q)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	out := make([]WAFMigrationSample, 0, len(records))
+	candidates := make([][]string, 0, len(records))
+	for _, rec := range records {
+		event, ok := pickF5Event(rec.eventIDs, events)
+		// A record whose F5 event has aged out of retention has nothing left to show:
+		// the request path, the violations and the time all come from that event.
+		if !ok {
+			continue
+		}
+		out = append(out, WAFMigrationSample{
+			CorrelationID:     rec.correlationID,
+			F5EventID:         event.eventID,
+			EventTime:         event.eventTime,
+			ClientIP:          event.clientIP,
+			Country:           event.country,
+			ClientASN:         event.clientASN,
+			RequestHost:       rec.requestHost,
+			RequestPath:       event.requestPath,
+			RequestQuery:      event.requestQuery,
+			RequestMethod:     rec.requestMethod,
+			UserAgent:         event.userAgent,
+			F5Verdict:         rec.f5Verdict,
+			F5Violations:      event.violations,
+			CloudflareVerdict: rec.cfVerdict,
+			CloudflareRuleID:  rec.cfRule,
+		})
+		candidates = append(candidates, rec.eventIDs)
+	}
+	return out, candidates, nil
+}
+
+// sampleRecords reads the page of correlated records behind a rule row.
+func (r *WAFMigrationRepo) sampleRecords(
+	ctx context.Context, tenantID uuid.UUID, sel WAFMigrationSelector, q DashboardQuery,
+) ([]migrationRecord, error) {
+	sql, args := sampleRecordsQuery(tenantID, sel, q)
+	rows, err := r.client.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make([]migrationRecord, 0, q.limitOrDefault())
+	for rows.Next() {
+		var rec migrationRecord
+		if err := rows.Scan(&rec.correlationID, &rec.eventIDs, &rec.requestHost,
+			&rec.requestMethod, &rec.f5Verdict, &rec.cfVerdict, &rec.cfRule); err != nil {
+			return nil, fmt.Errorf("scan waf migration record: %w", err)
+		}
+		out = append(out, rec)
+	}
+	return out, query.TranslateError(rows.Err())
+}
+
+// f5Event is one F5 event's contribution to a sample row.
+type f5Event struct {
+	eventID      string
+	eventTime    time.Time
+	clientIP     net.IP
+	country      string
+	clientASN    uint32
+	requestPath  string
+	requestQuery string
+	userAgent    string
+	violations   []string
+}
+
+// f5Events fetches the F5 events a page of records names, by id.
+func (r *WAFMigrationRepo) f5Events(
+	ctx context.Context, tenantID uuid.UUID, eventIDs []string, q DashboardQuery,
+) (map[string]f5Event, error) {
+	sql, args := f5EventsQuery(tenantID, eventIDs, q)
+	rows, err := r.client.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	found := make(map[string]f5Event, len(eventIDs))
+	for rows.Next() {
+		var e f5Event
+		var ip net.IP
+		if err := rows.Scan(&e.eventID, &e.eventTime, &ip, &e.country, &e.clientASN,
+			&e.requestPath, &e.requestQuery, &e.userAgent, &e.violations); err != nil {
+			return nil, fmt.Errorf("scan f5 sample event: %w", err)
+		}
+		e.clientIP = ip
+		found[e.eventID] = e
+	}
+	return found, query.TranslateError(rows.Err())
+}
+
+// pickF5Event chooses the F5 event for a record.
+//
+// Normally there is exactly one. When a record holds several — a redelivery, or a retried
+// request — the LATEST is the one that describes what finally happened, with the id as a
+// deterministic tiebreak so the row does not change between refreshes.
+func pickF5Event(ids []string, found map[string]f5Event) (f5Event, bool) {
+	var best f5Event
+	var ok bool
+	for _, id := range ids {
+		candidate, present := found[id]
+		if !present {
+			continue
+		}
+		if !ok || candidate.eventTime.After(best.eventTime) ||
+			(candidate.eventTime.Equal(best.eventTime) && candidate.eventID > best.eventID) {
+			best, ok = candidate, true
+		}
+	}
+	return best, ok
 }
 
 // cloudflareEvent is one Cloudflare event's contribution to a sample row.

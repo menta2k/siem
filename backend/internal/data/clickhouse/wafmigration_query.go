@@ -193,21 +193,24 @@ func ruleAgreementQuery(
 	return sql, append(args, q.limitOrDefault())
 }
 
-// migrationSamplesQuery returns the requests behind one row, F5 side first.
+// migrationSamplesQuery returns the requests behind a stage-1 row, keyed on a violation.
 //
-// TWO QUERIES, not one, and the reason is that ClickHouse INLINES a CTE rather than
-// materialising it. The first version of this named the pair set once and referenced it
-// from three CTEs, which read as one scan and ran as six: 10 to 18 seconds, so clicking a
-// row timed out. Everything below exists to scan correlated_requests exactly once.
+// This path JOINS in SQL because the filter it has to apply — F5's violation — lives on
+// the F5 event and not on the correlated record, so the rows cannot be limited before the
+// join without truncating the evidence. The events side is narrowed by what the row
+// supplies: a stage-1 row always carries a host, a method and the `blocked` verdict, and
+// blocked traffic is a small slice of any deployment's traffic by definition. 1.8s.
 //
-// The Cloudflare event is fetched separately, by cloudflareScoresQuery. Joining it here
-// costs seven seconds on its own -- Cloudflare logs twenty-five times as many events as
-// F5, so the join reads them all -- while looking the same handful up by id afterwards
-// costs 0.4s.
+// The rule stages take a different path — see sampleRecordsQuery — because they need no
+// post-join filter, and their verdict is `allowed`, which is most of the traffic there is.
+//
+// ClickHouse INLINES a CTE rather than materialising it, which is why nothing here is one:
+// the first version named the pair set once, referenced it from three CTEs, read as one
+// scan and ran as six. 10 to 18 seconds, and clicking a row timed out.
 func migrationSamplesQuery(
 	tenantID uuid.UUID, sel WAFMigrationSelector, q DashboardQuery,
 ) (string, []any) {
-	pairs, pairArgs := samplePairs(tenantID, sel, q)
+	records, recordArgs := samplePairRecords(tenantID, sel, q)
 
 	sql := `
 		SELECT p.correlation_id AS correlation_id, e.event_id AS f5_event_id,
@@ -219,17 +222,17 @@ func migrationSamplesQuery(
 		       e.user_agent AS user_agent, p.f5_verdict AS f5_verdict,
 		       e.rule_ids AS f5_violations, p.cf_verdict AS cf_verdict,
 		       p.cf_rule AS cf_rule
-		FROM (` + pairs + `) AS p
+		FROM (` + samplePairs(records) + `) AS p
 		INNER JOIN (
 			SELECT event_id, event_time, client_ip, client_country, client_asn,
 			       request_path, request_query, user_agent, rule_ids
 			FROM normalized_events
 			WHERE tenant_id = ? AND vendor = 'f5'
 			  AND event_time >= ? AND event_time < ?`
-	args := append(pairArgs, tenantID,
+	args := append(recordArgs, tenantID,
 		q.Range.From.Add(-eventJoinWindow), q.Range.To.Add(eventJoinWindow))
 
-	narrowSQL, narrowArgs := narrowF5Events(sel, pairs, pairArgs)
+	narrowSQL, narrowArgs := narrowF5Events(sel)
 	sql += narrowSQL + `
 		) AS e USING (event_id)`
 	args = append(args, narrowArgs...)
@@ -247,15 +250,17 @@ func migrationSamplesQuery(
 	return sql, append(args, q.limitOrDefault())
 }
 
-// narrowF5Events restricts the events side of the sample join.
+// narrowF5Events restricts the events side of the stage-1 sample join.
 //
-// By what the ROW already tells us rather than by an `event_id IN (pair set)` prefilter.
-// Both find the same events; the prefilter costs a second full evaluation of the pair
-// scan, and dropping it took the query from 3.0s to 1.8s. Only when the caller has given
-// neither is the prefilter still needed, or the join would read every F5 event in range.
-func narrowF5Events(
-	sel WAFMigrationSelector, pairs string, pairArgs []any,
-) (string, []any) {
+// By the row's own host and verdict. Both are always present on a stage-1 row, and an
+// `event_id IN (record set)` prefilter instead would cost a second evaluation of the record
+// scan — 1.8s against 4.4s, and worse when a record carries several vendor events.
+//
+// This is safe HERE and nowhere else: the verdict is `blocked`, which selects 2,929 events
+// across seven days on this deployment because blocking most of your traffic is not a
+// thing anyone does. The same narrowing on the false-positive stage selects `allowed` —
+// forty million — which is why that stage does not use this path at all.
+func narrowF5Events(sel WAFMigrationSelector) (string, []any) {
 	sql := ""
 	args := make([]any, 0, 2)
 
@@ -267,10 +272,46 @@ func narrowF5Events(
 		sql += ` AND request_host = ?`
 		args = append(args, sel.RequestHost)
 	}
-	if sql == "" {
-		return ` AND event_id IN (SELECT arrayJoin(event_ids) FROM (` + pairs + `))`, pairArgs
-	}
 	return sql, args
+}
+
+// sampleRecordsQuery reads a PAGE of correlated records for the rule stages.
+//
+// Step one of two. No filter on this path touches the F5 event, so the limit can be
+// applied here — which makes the whole thing cost one indexed scan of the correlated table
+// (0.8s) plus an exact lookup of the events it names (0.5s), independent of how common the
+// verdict is. Doing it as a join instead cost 6.7 to 7.9 seconds on the false-positive
+// stage, because narrowing the events side by `allowed` narrows it to forty million rows.
+func sampleRecordsQuery(
+	tenantID uuid.UUID, sel WAFMigrationSelector, q DashboardQuery,
+) (string, []any) {
+	records, args := samplePairRecords(tenantID, sel, q)
+	return `
+		SELECT correlation_id, event_ids, request_host, request_method,
+		       f5_verdict, cf_verdict, cf_rule
+		FROM (` + records + `)
+		ORDER BY last_event_time DESC
+		LIMIT ?`, append(args, q.limitOrDefault())
+}
+
+// f5EventsQuery reads the F5 side of a page of records, by id.
+//
+// Step two. The ids come from the records the page already selected, so this is an exact
+// lookup on the last column of the primary key rather than a scan.
+func f5EventsQuery(
+	tenantID uuid.UUID, eventIDs []string, q DashboardQuery,
+) (string, []any) {
+	return `
+		SELECT event_id, event_time, client_ip, client_country, client_asn,
+		       request_path, request_query, user_agent, rule_ids
+		FROM normalized_events
+		WHERE tenant_id = ? AND vendor = 'f5'
+		  AND event_time >= ? AND event_time < ?
+		  AND event_id IN (?)`, []any{
+			tenantID,
+			q.Range.From.Add(-eventJoinWindow), q.Range.To.Add(eventJoinWindow),
+			eventIDs,
+		}
 }
 
 // cloudflareScoresQuery reads the Cloudflare side for a page of samples, by id.
@@ -294,23 +335,21 @@ func cloudflareScoresQuery(
 		}
 }
 
-// samplePairs builds the narrowed pair set the sample query reads from.
+// samplePairRecords is the filtered set of correlated records a sample list comes from.
 //
-// It carries event_ids through, which is how the Cloudflare lookup afterwards knows which
-// events to ask for without going back to the correlated table a second time.
-func samplePairs(
+// One record per row, NOT one event per row. The exploded form is built from this by
+// samplePairs, and the id prefilter reads this form directly — feeding it the exploded one
+// made every record re-explode its own event list, so a record with three events
+// contributed nine ids instead of three and the query went from 1.8s to 9s.
+func samplePairRecords(
 	tenantID uuid.UUID, sel WAFMigrationSelector, q DashboardQuery,
 ) (string, []any) {
-	sql := `
-		SELECT correlation_id, event_ids, arrayJoin(event_ids) AS event_id,
-		       request_host, request_method, f5_verdict, cf_verdict, cf_rule
-		FROM (` + correlatedF5Pairs
+	sql := correlatedF5Pairs
 	args := []any{tenantID, q.Range.From, q.Range.To}
 
-	// Both sides are always constrained, because the spine no longer says "a record both
-	// vendors saw" — a verdict when the caller named one, non-empty when it did not. A
-	// missing constraint here would let a record through that only one vendor reported,
-	// which is not a comparison at all.
+	// Both sides are always constrained — a verdict when the caller named one, non-empty
+	// when it did not. A missing constraint would let through a record only one vendor
+	// reported, which is not a comparison at all.
 	if sel.F5Verdict != "" {
 		sql += ` AND f5_verdict = ?`
 		args = append(args, sel.F5Verdict)
@@ -337,5 +376,15 @@ func samplePairs(
 		sql += ` AND request_method = ?`
 		args = append(args, sel.RequestMethod)
 	}
-	return sql + `)`, args
+	return sql, args
+}
+
+// samplePairs explodes those records into one row per vendor event, which is what the
+// join below matches on. event_ids rides along so the Cloudflare lookup afterwards knows
+// which events to ask for without going back to the correlated table again.
+func samplePairs(records string) string {
+	return `
+		SELECT correlation_id, event_ids, arrayJoin(event_ids) AS event_id,
+		       request_host, request_method, f5_verdict, cf_verdict, cf_rule
+		FROM (` + records + `)`
 }
