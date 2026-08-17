@@ -80,6 +80,22 @@ jobs:
       - run: cd frontend && npm run lint
       - run: cd frontend && npm run test
 
+  # The one Rust artefact in the repo: the evaluator that checks a candidate Cloudflare rule
+  # expression before it is deployed. Its own job because it shares no toolchain with
+  # anything else here, and it is a merge gate for the same reason the others are -- the
+  # service exists because an expression looked correct and matched nothing.
+  test-evaluator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy, rustfmt }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: tools/wirefilter-eval }
+      - run: cd tools/wirefilter-eval && cargo fmt --check
+      - run: cd tools/wirefilter-eval && cargo clippy --all-targets -- -D warnings
+      - run: cd tools/wirefilter-eval && cargo test
+
   security:
     runs-on: ubuntu-latest
     steps:

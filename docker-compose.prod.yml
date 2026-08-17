@@ -182,6 +182,20 @@ services:
       redis: { condition: service_healthy }
       redpanda: { condition: service_healthy }
 
+  # Evaluates candidate Cloudflare rule expressions against captured requests, using
+  # Cloudflare's own engine. No database, no outbound calls, no state: an expression and some
+  # field values in, a verdict per request out.
+  #
+  # Not exposed to the host. Only siem-api talks to it, and the expression it evaluates comes
+  # from an authenticated operator.
+  wirefilter-eval:
+    <<: *restart
+    image: ${REGISTRY:-ghcr.io/menta2k/siem}/wirefilter-eval:${APP_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.wirefilter-eval
+    expose: ["8010"]
+
   # ---------------------------------------------------------------- web
   frontend:
     <<: *restart

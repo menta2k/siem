@@ -1,0 +1,26 @@
+[package]
+name = "wirefilter-eval"
+version = "0.1.0"
+edition = "2021"
+description = "Evaluates Cloudflare rule expressions against captured requests, locally."
+
+[dependencies]
+# Cloudflare's own expression engine, so a verdict here means what it means in the
+# dashboard. PINNED TO GIT, not to the published 0.6.1 crate: that release cannot parse
+# raw strings, so it rejects `matches r"\.(htm|gz)$"` -- a form real rules are written in --
+# and a tester that reports "parse error" for a rule running in production is worse than no
+# tester at all.
+# PINNED TO A COMMIT, not to a branch. The engine decides what every verdict here means, so
+# it must not change under the service without someone choosing to change it -- a rebuild
+# that quietly picked up a different parser could turn a rule this tester approved into one
+# that behaves differently, which is the exact failure it exists to prevent.
+wirefilter-engine = { git = "https://github.com/cloudflare/wirefilter", rev = "ec8e24e26e2707a88034bfe161beeb2a4f51f8df" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# A blocking, dependency-light HTTP server. This is an internal sidecar answering one
+# endpoint; an async runtime would be more machinery than the job has.
+tiny_http = "0.12"
+base64 = "0.22"
+
+[profile.release]
+strip = true

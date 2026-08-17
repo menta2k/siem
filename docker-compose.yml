@@ -104,6 +104,17 @@ services:
       redis: { condition: service_healthy }
       clickhouse: { condition: service_healthy }
 
+  # Evaluates candidate Cloudflare rule expressions against captured requests, using
+  # Cloudflare's own engine. Stateless and read-only: it takes an expression and some field
+  # values and answers whether they match, which is how a rule gets checked before being
+  # deployed rather than a day after.
+  wirefilter-eval:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.wirefilter-eval
+    ports:
+      - "${WIREFILTER_EVAL_PORT:-8010}:8010"
+
   frontend:
     image: node:22-alpine
     working_dir: /app

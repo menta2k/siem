@@ -53,6 +53,11 @@ jobs:
           - service: siem-frontend
             dockerfile: deploy/Dockerfile.frontend
             service_arg: ""
+          # Rust, not Go, and so its own dockerfile. Same reason as the frontend: no
+          # SERVICE arg, because there is only one binary in it.
+          - service: wirefilter-eval
+            dockerfile: deploy/Dockerfile.wirefilter-eval
+            service_arg: ""
     steps:
       - uses: actions/checkout@v4
 

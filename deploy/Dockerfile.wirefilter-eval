@@ -1,0 +1,44 @@
+# The local evaluator for Cloudflare rule expressions.
+#
+# Its own image rather than a stage in Dockerfile.backend: this is the one Rust artefact in
+# the repo, and folding a Rust toolchain into the Go build would slow every backend image
+# down to carry a dependency none of them uses.
+FROM rust:1.93-alpine AS build
+
+# musl-dev for the C runtime the linker needs, git because wirefilter is pinned to a git
+# revision rather than to a crates.io release -- the published one cannot parse the raw
+# strings real Cloudflare rules are written with.
+RUN apk add --no-cache musl-dev git
+
+WORKDIR /src
+
+# Manifest and LOCKFILE first, so a change to the sources does not re-resolve the dependency
+# tree — and so the tree it resolves is the one that was tested. The engine is pinned to a
+# commit in Cargo.toml and the lockfile is what holds everything under it still.
+COPY tools/wirefilter-eval/Cargo.toml tools/wirefilter-eval/Cargo.lock ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs && cargo fetch --locked
+
+COPY tools/wirefilter-eval/src ./src
+COPY tools/wirefilter-eval/tests ./tests
+
+# Tested in the image that ships. The reason this service exists is that a rule expression
+# looked correct and matched nothing, so "it compiled" is not the bar.
+RUN cargo test --release --locked
+RUN cargo build --release --locked && strip target/release/wirefilter-eval
+
+FROM alpine:3.21
+
+# No shell needed by the service itself; kept for the healthcheck below and for anyone who
+# has to look inside a running container.
+RUN adduser -D -u 65532 evaluator
+
+COPY --from=build /src/target/release/wirefilter-eval /usr/local/bin/wirefilter-eval
+
+# Unprivileged. The service parses attacker-influenced request bodies, and while wirefilter
+# does no I/O of its own, that is exactly the code that should not run as root.
+USER evaluator
+
+ENV WIREFILTER_EVAL_BIND=0.0.0.0:8010
+EXPOSE 8010
+
+ENTRYPOINT ["/usr/local/bin/wirefilter-eval"]
