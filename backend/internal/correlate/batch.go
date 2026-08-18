@@ -31,6 +31,7 @@ func (w *Worker) HandleBatch(
 ) ([]stream.RecordFailure, error) {
 	writes := make([]window.Write, 0, 2*len(records))
 	filed := make([]string, 0, len(records))
+	byTenant := map[uuid.UUID]int{}
 
 	for _, record := range records {
 		event, ok := w.decodeEvent(ctx, record)
@@ -39,6 +40,7 @@ func (w *Worker) HandleBatch(
 		}
 		writes = append(writes, w.writesFor(ctx, event)...)
 		filed = append(filed, event.Vendor)
+		byTenant[event.TenantID]++
 	}
 
 	if err := w.windows.AddBatch(ctx, writes); err != nil {
@@ -50,7 +52,21 @@ func (w *Worker) HandleBatch(
 	for _, vendor := range filed {
 		EventsFiled.WithLabelValues(vendor).Inc()
 	}
+
+	// The health row's denominator. Records emitted means nothing without it: no
+	// output is healthy when nothing was filed and an outage when this is thousands.
+	w.recordFiled(byTenant)
 	return nil, nil
+}
+
+// recordFiled reports what was filed, if anything is listening.
+func (w *Worker) recordFiled(byTenant map[uuid.UUID]int) {
+	if w.health == nil {
+		return
+	}
+	for tenantID, filed := range byTenant {
+		w.health.Record(HealthSample{TenantID: tenantID, EventsFiled: filed})
+	}
 }
 
 // decodeEvent parses a record, reporting whether it is usable.

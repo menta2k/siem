@@ -45,6 +45,12 @@ func newCountingWindowStore() *countingWindowStore {
 	}
 }
 
+// expireMembers drops the window state while leaving the schedule alone, which is what
+// Redis does when the closer falls behind: members carry a TTL, schedule entries do not.
+func (s *countingWindowStore) expireMembers() {
+	s.lists = map[string][]string{}
+}
+
 func (s *countingWindowStore) RPush(
 	_ context.Context, key, value string, _ time.Duration,
 ) (int64, error) {
@@ -337,4 +343,8 @@ func TestAnEmptyBatchDoesNothing(t *testing.T) {
 	if store.pushCalls != 0 || store.zaddCalls != 0 {
 		t.Error("an empty batch issued writes")
 	}
+}
+
+func (s *countingWindowStore) ZBacklog(context.Context, string, float64) (int64, float64, error) {
+	return 0, 0, nil
 }

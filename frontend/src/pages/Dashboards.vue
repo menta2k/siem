@@ -4,6 +4,7 @@ import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
 import { usePreferencesStore } from '@/stores/preferences'
 import FeedHealthChip from '@/components/FeedHealthChip.vue'
+import CorrelationHealthChip from '@/components/CorrelationHealthChip.vue'
 import StoragePanel from '@/components/StoragePanel.vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -15,6 +16,7 @@ type SourcesPanel = components['schemas']['SourcesPanel']
 type DisagreementsPanel = components['schemas']['DisagreementsPanel']
 type FeedHealthPanel = components['schemas']['FeedHealthPanel']
 type StorageState = components['schemas']['StoragePanel']
+type CorrelationHealthResponse = components['schemas']['CorrelationHealth']
 
 const auth = useAuthStore()
 
@@ -37,6 +39,7 @@ const rules = ref<RulesPanel | null>(null)
 const sources = ref<SourcesPanel | null>(null)
 const disagreements = ref<DisagreementsPanel | null>(null)
 const feedHealth = ref<FeedHealthPanel | null>(null)
+const correlationHealth = ref<CorrelationHealthResponse | null>(null)
 const storage = ref<StorageState | null>(null)
 
 /**
@@ -75,18 +78,20 @@ async function load(): Promise<void> {
   try {
     // Requested together so every panel reflects the same instant. Loading them in
     // sequence would let a busy tenant's traffic move between the first and the last.
-    const [o, r, s, d, h] = await Promise.all([
+    const [o, r, s, d, h, c] = await Promise.all([
       api.GET('/api/v1/dashboards/overview', { params }),
       api.GET('/api/v1/dashboards/rules', { params }),
       api.GET('/api/v1/dashboards/sources', { params }),
       api.GET('/api/v1/dashboards/disagreements', { params }),
       api.GET('/api/v1/dashboards/feed-health', { params }),
+      api.GET('/api/v1/dashboards/correlation-health', { params }),
     ])
     overview.value = o.data ?? null
     rules.value = r.data ?? null
     sources.value = s.data ?? null
     disagreements.value = d.data ?? null
     feedHealth.value = h.data ?? null
+    correlationHealth.value = c.data ?? null
 
     // Fetched separately, and its failure is swallowed. It is admin-only and takes no
     // range, so folding it into the batch above would fail the WHOLE dashboard with a
@@ -426,6 +431,42 @@ function asnSearch(asn?: number): { name: string; query: Record<string, string> 
          behind it is restricted server-side, so an analyst would see a permanent
          "unavailable" card telling them nothing they could act on. -->
     <StoragePanel v-if="auth.can.viewStorage" :storage="storage" />
+
+    <!-- ABOVE the traffic panels for a reason: when correlation has stopped, every
+         chart on this page is showing what was written before it stopped, and looks
+         entirely normal. This is the only thing on the page that can say so. -->
+    <v-card>
+      <v-card-title class="text-subtitle-1 d-flex align-center ga-3">
+        <span>Correlation pipeline</span>
+        <CorrelationHealthChip :health="correlationHealth" />
+      </v-card-title>
+      <v-card-text v-if="correlationHealth" class="d-flex flex-wrap ga-6">
+        <div>
+          <div class="text-caption text-medium-emphasis">Events filed</div>
+          <div class="text-body-1">
+            {{ Number(correlationHealth.eventsFiled ?? 0).toLocaleString() }}
+          </div>
+        </div>
+        <div>
+          <div class="text-caption text-medium-emphasis">Records written</div>
+          <div class="text-body-1">
+            {{ Number(correlationHealth.recordsEmitted ?? 0).toLocaleString() }}
+          </div>
+        </div>
+        <div>
+          <div class="text-caption text-medium-emphasis">Windows waiting</div>
+          <div class="text-body-1">
+            {{ Number(correlationHealth.windowsDue ?? 0).toLocaleString() }}
+          </div>
+        </div>
+        <div>
+          <div class="text-caption text-medium-emphasis">Last record</div>
+          <div class="text-body-1">
+            {{ correlationHealth.lastRecordAt ? prefs.dateTime(correlationHealth.lastRecordAt) : 'never' }}
+          </div>
+        </div>
+      </v-card-text>
+    </v-card>
 
     <v-card>
       <v-card-title class="text-subtitle-1">Feed health</v-card-title>

@@ -308,6 +308,14 @@ func buildCorrelationWorkers(
 	windows := window.New(redisClient)
 	settings := correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL)
 
+	// What the pipeline did with itself, minute by minute. Correlation has stopped on
+	// production twice without anything saying so, because the API serves stored
+	// records and a stored record cannot know that no new ones are arriving. Both
+	// halves report into this: the worker knows what went in, the closer knows what
+	// came out, and the console reads the relationship between them.
+	health := correlate.NewHealthAggregator(
+		clickhouse.NewCorrelationHealthRepo(chClient))
+
 	return []Worker{
 		// Files normalized events into their correlation windows. A separate consumer
 		// group from the normalizer so correlation can fall behind without applying
@@ -319,11 +327,15 @@ func buildCorrelationWorkers(
 		newBatchConsumerWorker("correlator", cfg.Redpanda,
 			cfg.Redpanda.ConsumerGroupNormalized,
 			[]string{cfg.Redpanda.TopicNormalized}, nil, deps.Log,
-			correlate.NewWorker(windows, settings, deps.Log).HandleBatch),
+			correlate.NewWorker(windows, settings, deps.Log).
+				WithHealth(health).HandleBatch),
 
 		// Emits correlated records for windows whose deadline has passed.
 		correlate.NewCloser(windows, clickhouse.NewCorrelatedRepo(chClient),
-			settings, deps.Log),
+			settings, deps.Log).WithHealth(health),
+
+		// Flushes the accumulated correlation health once a minute.
+		health,
 	}
 }
 

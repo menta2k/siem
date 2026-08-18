@@ -38,6 +38,16 @@ service Dashboards {
     option (google.api.http) = {get: "/api/v1/dashboards/feed-health"};
   }
 
+  // Whether correlation is still running at all.
+  //
+  // Separate from the panels above because it describes the PIPELINE rather than the
+  // traffic. Every other panel here reads stored records, and stored records cannot
+  // report their own absence: correlation has stopped on this deployment twice while
+  // the console went on serving what was written before the fall and looked healthy.
+  rpc GetCorrelationHealth(DashboardRequest) returns (CorrelationHealth) {
+    option (google.api.http) = {get: "/api/v1/dashboards/correlation-health"};
+  }
+
   // Storage headroom. ADMIN ONLY, unlike every other panel here: it describes the
   // cluster's disk rather than the tenant's traffic, and it is the same disk for every
   // tenant on it. An analyst has no action to take on it and no business seeing another
@@ -199,4 +209,33 @@ message DisagreementsPanel {
 
 message FeedHealthPanel {
   repeated FeedHealth feeds = 1;
+}
+
+// CorrelationHealth is the recent state of the correlation pipeline.
+message CorrelationHealth {
+  // status is the single word to show: healthy, idle, behind, losing, stalled or
+  // failing. Derived on the server so the console cannot disagree with an alert about
+  // what the same counters mean.
+  string status = 1;
+  // since is the start of the window the counters cover.
+  google.protobuf.Timestamp since = 2;
+  // events_filed is the denominator. No records emitted is healthy when this is zero
+  // and an outage when it is thousands.
+  uint64 events_filed = 3;
+  uint64 windows_closed = 4;
+  uint64 records_emitted = 5;
+  // windows_dropped_empty counts windows closed after their state had expired. Those
+  // events will never be correlated — this is loss, not delay.
+  uint64 windows_dropped_empty = 6;
+  uint64 close_failures = 7;
+  // windows_due is how many closed windows are waiting to be claimed.
+  uint64 windows_due = 8;
+  // claim_lag_ms is how long the oldest of them has waited, and window_ttl_ms is when
+  // waiting turns into loss: past the TTL, window state has expired and the windows
+  // being closed are empty.
+  uint64 claim_lag_ms = 9;
+  uint64 window_ttl_ms = 10;
+  // last_record_at is the plain answer to "is this thing running": the last minute
+  // that produced a correlated record.
+  google.protobuf.Timestamp last_record_at = 11;
 }

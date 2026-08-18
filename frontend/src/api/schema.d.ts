@@ -440,6 +440,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dashboards/correlation-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Whether correlation is still running at all.
+         *
+         *      Separate from the panels above because it describes the PIPELINE rather than the
+         *      traffic. Every other panel here reads stored records, and stored records cannot
+         *      report their own absence: correlation has stopped on this deployment twice while
+         *      the console went on serving what was written before the fall and looked healthy.
+         */
+        get: operations["Dashboards_GetCorrelationHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dashboards/disagreements": {
         parameters: {
             query?: never;
@@ -1227,6 +1251,48 @@ export interface components {
              */
             version?: string;
             amended?: boolean;
+        };
+        /** @description CorrelationHealth is the recent state of the correlation pipeline. */
+        CorrelationHealth: {
+            /**
+             * @description status is the single word to show: healthy, idle, behind, losing, stalled or
+             *      failing. Derived on the server so the console cannot disagree with an alert about
+             *      what the same counters mean.
+             */
+            status?: string;
+            /**
+             * Format: date-time
+             * @description since is the start of the window the counters cover.
+             */
+            since?: string;
+            /**
+             * @description events_filed is the denominator. No records emitted is healthy when this is zero
+             *      and an outage when it is thousands.
+             */
+            eventsFiled?: string;
+            windowsClosed?: string;
+            recordsEmitted?: string;
+            /**
+             * @description windows_dropped_empty counts windows closed after their state had expired. Those
+             *      events will never be correlated — this is loss, not delay.
+             */
+            windowsDroppedEmpty?: string;
+            closeFailures?: string;
+            /** @description windows_due is how many closed windows are waiting to be claimed. */
+            windowsDue?: string;
+            /**
+             * @description claim_lag_ms is how long the oldest of them has waited, and window_ttl_ms is when
+             *      waiting turns into loss: past the TTL, window state has expired and the windows
+             *      being closed are empty.
+             */
+            claimLagMs?: string;
+            windowTtlMs?: string;
+            /**
+             * Format: date-time
+             * @description last_record_at is the plain answer to "is this thing running": the last minute
+             *      that produced a correlated record.
+             */
+            lastRecordAt?: string;
         };
         CorrelationSettings: {
             /**
@@ -3281,6 +3347,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CorrelatedRequest"];
+                };
+            };
+        };
+    };
+    Dashboards_GetCorrelationHealth: {
+        parameters: {
+            query?: {
+                "timeRange.from"?: string;
+                "timeRange.to"?: string;
+                interval?: "BUCKET_INTERVAL_UNSPECIFIED" | "BUCKET_INTERVAL_5M" | "BUCKET_INTERVAL_1H" | "BUCKET_INTERVAL_1D";
+                /** @description Caps the rows a top-N panel returns. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrelationHealth"];
                 };
             };
         };

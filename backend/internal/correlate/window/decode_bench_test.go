@@ -227,3 +227,11 @@ func BenchmarkMembersMany(b *testing.B) {
 		}
 	}
 }
+
+func (s *overlapStore) ZBacklog(context.Context, string, float64) (int64, float64, error) {
+	return 0, 0, nil
+}
+
+func (s *benchStore) ZBacklog(context.Context, string, float64) (int64, float64, error) {
+	return 0, 0, nil
+}

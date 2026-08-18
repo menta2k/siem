@@ -93,6 +93,10 @@ type Store interface {
 	Lookup(ctx context.Context, key string) (string, bool, error)
 	ZAdd(ctx context.Context, key, member string, score float64, ttl time.Duration) error
 	ZPopDue(ctx context.Context, key string, max float64, limit int64) ([]string, error)
+	// ZBacklog reports how many members are due at or below max, and the lowest score
+	// in the set. It is a READ: the closer's claims are what drain the schedule, and a
+	// health check that consumed work would change what it measures.
+	ZBacklog(ctx context.Context, key string, max float64) (int64, float64, error)
 }
 
 // Member is one event's contribution to a window, as persisted.
@@ -538,6 +542,28 @@ func (w *Windows) Due(ctx context.Context, now time.Time, limit int) ([]Schedule
 		out = append(out, scheduled)
 	}
 	return out, nil
+}
+
+// Backlog reports how far behind the closer's claims are.
+//
+// Two readings, because neither is sufficient alone. Due is how many windows are
+// waiting — the steady one, and the one that shows a deficit accumulating. Lag is how
+// long the oldest of them has been waiting, which is the number that has to be compared
+// against the window TTL to know whether the pipeline is merely slow or already losing
+// data. Lag is the noisier of the two: a feed delivering events hours after they
+// happened schedules windows whose deadline is already past, and those sit at the head
+// of the schedule through no fault of the closer.
+func (w *Windows) Backlog(ctx context.Context, now time.Time) (int64, time.Duration, error) {
+	due, oldest, err := w.store.ZBacklog(ctx, scheduleKey(), float64(now.UTC().UnixMilli()))
+	if err != nil {
+		return 0, 0, fmt.Errorf("read correlation schedule backlog: %w", err)
+	}
+	if due == 0 || oldest <= 0 {
+		return due, 0, nil
+	}
+
+	lag := now.UTC().Sub(time.UnixMilli(int64(oldest)).UTC())
+	return due, max(lag, 0), nil
 }
 
 func membersKey(tenantID uuid.UUID, key string) string {

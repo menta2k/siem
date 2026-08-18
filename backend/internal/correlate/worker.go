@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
+
 	"github.com/menta2k/siem/internal/correlate/window"
 	"github.com/menta2k/siem/internal/data/stream"
 	mw "github.com/menta2k/siem/internal/middleware"
@@ -19,6 +21,16 @@ type Worker struct {
 	windows  *window.Windows
 	settings SettingsSource
 	log      mw.Logger
+
+	// health is optional, as it is on the Closer: filing events works without it.
+	health HealthRecorder
+}
+
+// WithHealth attaches a health recorder, returning the worker so construction reads as
+// one expression.
+func (w *Worker) WithHealth(health HealthRecorder) *Worker {
+	w.health = health
+	return w
 }
 
 // NewWorker constructs the correlation worker.
@@ -58,5 +70,6 @@ func (w *Worker) Handle(ctx context.Context, record stream.Record) error {
 	}
 
 	EventsFiled.WithLabelValues(event.Vendor).Inc()
+	w.recordFiled(map[uuid.UUID]int{event.TenantID: 1})
 	return nil
 }

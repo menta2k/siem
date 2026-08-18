@@ -1059,6 +1059,145 @@ func (x *FeedHealthPanel) GetFeeds() []*FeedHealth {
 	return nil
 }
 
+// CorrelationHealth is the recent state of the correlation pipeline.
+type CorrelationHealth struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// status is the single word to show: healthy, idle, behind, losing, stalled or
+	// failing. Derived on the server so the console cannot disagree with an alert about
+	// what the same counters mean.
+	Status string `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// since is the start of the window the counters cover.
+	Since *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3" json:"since,omitempty"`
+	// events_filed is the denominator. No records emitted is healthy when this is zero
+	// and an outage when it is thousands.
+	EventsFiled    uint64 `protobuf:"varint,3,opt,name=events_filed,json=eventsFiled,proto3" json:"events_filed,omitempty"`
+	WindowsClosed  uint64 `protobuf:"varint,4,opt,name=windows_closed,json=windowsClosed,proto3" json:"windows_closed,omitempty"`
+	RecordsEmitted uint64 `protobuf:"varint,5,opt,name=records_emitted,json=recordsEmitted,proto3" json:"records_emitted,omitempty"`
+	// windows_dropped_empty counts windows closed after their state had expired. Those
+	// events will never be correlated — this is loss, not delay.
+	WindowsDroppedEmpty uint64 `protobuf:"varint,6,opt,name=windows_dropped_empty,json=windowsDroppedEmpty,proto3" json:"windows_dropped_empty,omitempty"`
+	CloseFailures       uint64 `protobuf:"varint,7,opt,name=close_failures,json=closeFailures,proto3" json:"close_failures,omitempty"`
+	// windows_due is how many closed windows are waiting to be claimed.
+	WindowsDue uint64 `protobuf:"varint,8,opt,name=windows_due,json=windowsDue,proto3" json:"windows_due,omitempty"`
+	// claim_lag_ms is how long the oldest of them has waited, and window_ttl_ms is when
+	// waiting turns into loss: past the TTL, window state has expired and the windows
+	// being closed are empty.
+	ClaimLagMs  uint64 `protobuf:"varint,9,opt,name=claim_lag_ms,json=claimLagMs,proto3" json:"claim_lag_ms,omitempty"`
+	WindowTtlMs uint64 `protobuf:"varint,10,opt,name=window_ttl_ms,json=windowTtlMs,proto3" json:"window_ttl_ms,omitempty"`
+	// last_record_at is the plain answer to "is this thing running": the last minute
+	// that produced a correlated record.
+	LastRecordAt  *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=last_record_at,json=lastRecordAt,proto3" json:"last_record_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CorrelationHealth) Reset() {
+	*x = CorrelationHealth{}
+	mi := &file_siem_v1_dashboards_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CorrelationHealth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CorrelationHealth) ProtoMessage() {}
+
+func (x *CorrelationHealth) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_dashboards_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CorrelationHealth.ProtoReflect.Descriptor instead.
+func (*CorrelationHealth) Descriptor() ([]byte, []int) {
+	return file_siem_v1_dashboards_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *CorrelationHealth) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *CorrelationHealth) GetSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Since
+	}
+	return nil
+}
+
+func (x *CorrelationHealth) GetEventsFiled() uint64 {
+	if x != nil {
+		return x.EventsFiled
+	}
+	return 0
+}
+
+func (x *CorrelationHealth) GetWindowsClosed() uint64 {
+	if x != nil {
+		return x.WindowsClosed
+	}
+	return 0
+}
+
+func (x *CorrelationHealth) GetRecordsEmitted() uint64 {
+	if x != nil {
+		return x.RecordsEmitted
+	}
+	return 0
+}
+
+func (x *CorrelationHealth) GetWindowsDroppedEmpty() uint64 {
+	if x != nil {
+		return x.WindowsDroppedEmpty
+	}
+	return 0
+}
+
+func (x *CorrelationHealth) GetCloseFailures() uint64 {
+	if x != nil {
+		return x.CloseFailures
+	}
+	return 0
+}
+
+func (x *CorrelationHealth) GetWindowsDue() uint64 {
+	if x != nil {
+		return x.WindowsDue
+	}
+	return 0
+}
+
+func (x *CorrelationHealth) GetClaimLagMs() uint64 {
+	if x != nil {
+		return x.ClaimLagMs
+	}
+	return 0
+}
+
+func (x *CorrelationHealth) GetWindowTtlMs() uint64 {
+	if x != nil {
+		return x.WindowTtlMs
+	}
+	return 0
+}
+
+func (x *CorrelationHealth) GetLastRecordAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastRecordAt
+	}
+	return nil
+}
+
 var File_siem_v1_dashboards_proto protoreflect.FileDescriptor
 
 const file_siem_v1_dashboards_proto_rawDesc = "" +
@@ -1132,12 +1271,27 @@ const file_siem_v1_dashboards_proto_rawDesc = "" +
 	"\rtotal_records\x18\x02 \x01(\x04R\ftotalRecords\x12/\n" +
 	"\x13total_disagreements\x18\x03 \x01(\x04R\x12totalDisagreements\"<\n" +
 	"\x0fFeedHealthPanel\x12)\n" +
-	"\x05feeds\x18\x01 \x03(\v2\x13.siem.v1.FeedHealthR\x05feeds*y\n" +
+	"\x05feeds\x18\x01 \x03(\v2\x13.siem.v1.FeedHealthR\x05feeds\"\xd4\x03\n" +
+	"\x11CorrelationHealth\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x120\n" +
+	"\x05since\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\x12!\n" +
+	"\fevents_filed\x18\x03 \x01(\x04R\veventsFiled\x12%\n" +
+	"\x0ewindows_closed\x18\x04 \x01(\x04R\rwindowsClosed\x12'\n" +
+	"\x0frecords_emitted\x18\x05 \x01(\x04R\x0erecordsEmitted\x122\n" +
+	"\x15windows_dropped_empty\x18\x06 \x01(\x04R\x13windowsDroppedEmpty\x12%\n" +
+	"\x0eclose_failures\x18\a \x01(\x04R\rcloseFailures\x12\x1f\n" +
+	"\vwindows_due\x18\b \x01(\x04R\n" +
+	"windowsDue\x12 \n" +
+	"\fclaim_lag_ms\x18\t \x01(\x04R\n" +
+	"claimLagMs\x12\"\n" +
+	"\rwindow_ttl_ms\x18\n" +
+	" \x01(\x04R\vwindowTtlMs\x12@\n" +
+	"\x0elast_record_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\flastRecordAt*y\n" +
 	"\x0eBucketInterval\x12\x1f\n" +
 	"\x1bBUCKET_INTERVAL_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12BUCKET_INTERVAL_5M\x10\x01\x12\x16\n" +
 	"\x12BUCKET_INTERVAL_1H\x10\x02\x12\x16\n" +
-	"\x12BUCKET_INTERVAL_1D\x10\x032\x82\x05\n" +
+	"\x12BUCKET_INTERVAL_1D\x10\x032\x80\x06\n" +
 	"\n" +
 	"Dashboards\x12e\n" +
 	"\vGetOverview\x12\x19.siem.v1.DashboardRequest\x1a\x16.siem.v1.OverviewPanel\"#\x82\xd3\xe4\x93\x02\x1d\x12\x1b/api/v1/dashboards/overview\x12\\\n" +
@@ -1145,7 +1299,8 @@ const file_siem_v1_dashboards_proto_rawDesc = "" +
 	"\n" +
 	"GetSources\x12\x19.siem.v1.DashboardRequest\x1a\x15.siem.v1.SourcesPanel\"\"\x82\xd3\xe4\x93\x02\x1c\x12\x1a/api/v1/dashboards/sources\x12t\n" +
 	"\x10GetDisagreements\x12\x19.siem.v1.DashboardRequest\x1a\x1b.siem.v1.DisagreementsPanel\"(\x82\xd3\xe4\x93\x02\"\x12 /api/v1/dashboards/disagreements\x12q\n" +
-	"\x12GetFeedHealthPanel\x12\x19.siem.v1.DashboardRequest\x1a\x18.siem.v1.FeedHealthPanel\"&\x82\xd3\xe4\x93\x02 \x12\x1e/api/v1/dashboards/feed-health\x12b\n" +
+	"\x12GetFeedHealthPanel\x12\x19.siem.v1.DashboardRequest\x1a\x18.siem.v1.FeedHealthPanel\"&\x82\xd3\xe4\x93\x02 \x12\x1e/api/v1/dashboards/feed-health\x12|\n" +
+	"\x14GetCorrelationHealth\x12\x19.siem.v1.DashboardRequest\x1a\x1a.siem.v1.CorrelationHealth\"-\x82\xd3\xe4\x93\x02'\x12%/api/v1/dashboards/correlation-health\x12b\n" +
 	"\n" +
 	"GetStorage\x12\x19.siem.v1.DashboardRequest\x1a\x15.siem.v1.StoragePanel\"\"\x82\xd3\xe4\x93\x02\x1c\x12\x1a/api/v1/dashboards/storageB\x8b\x01\n" +
 	"\vcom.siem.v1B\x0fDashboardsProtoP\x01Z.github.com/menta2k/siem/api/gen/siem/v1;siemv1\xa2\x02\x03SXX\xaa\x02\aSiem.V1\xca\x02\aSiem\\V1\xe2\x02\x13Siem\\V1\\GPBMetadata\xea\x02\bSiem::V1b\x06proto3"
@@ -1163,7 +1318,7 @@ func file_siem_v1_dashboards_proto_rawDescGZIP() []byte {
 }
 
 var file_siem_v1_dashboards_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_siem_v1_dashboards_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_siem_v1_dashboards_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_siem_v1_dashboards_proto_goTypes = []any{
 	(BucketInterval)(0),           // 0: siem.v1.BucketInterval
 	(*DashboardRequest)(nil),      // 1: siem.v1.DashboardRequest
@@ -1180,49 +1335,54 @@ var file_siem_v1_dashboards_proto_goTypes = []any{
 	(*DisagreementPoint)(nil),     // 12: siem.v1.DisagreementPoint
 	(*DisagreementsPanel)(nil),    // 13: siem.v1.DisagreementsPanel
 	(*FeedHealthPanel)(nil),       // 14: siem.v1.FeedHealthPanel
-	(*TimeRange)(nil),             // 15: siem.v1.TimeRange
-	(*timestamppb.Timestamp)(nil), // 16: google.protobuf.Timestamp
-	(Vendor)(0),                   // 17: siem.v1.Vendor
-	(Verdict)(0),                  // 18: siem.v1.Verdict
-	(DisagreementKind)(0),         // 19: siem.v1.DisagreementKind
-	(*FeedHealth)(nil),            // 20: siem.v1.FeedHealth
+	(*CorrelationHealth)(nil),     // 15: siem.v1.CorrelationHealth
+	(*TimeRange)(nil),             // 16: siem.v1.TimeRange
+	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
+	(Vendor)(0),                   // 18: siem.v1.Vendor
+	(Verdict)(0),                  // 19: siem.v1.Verdict
+	(DisagreementKind)(0),         // 20: siem.v1.DisagreementKind
+	(*FeedHealth)(nil),            // 21: siem.v1.FeedHealth
 }
 var file_siem_v1_dashboards_proto_depIdxs = []int32{
-	15, // 0: siem.v1.DashboardRequest.time_range:type_name -> siem.v1.TimeRange
+	16, // 0: siem.v1.DashboardRequest.time_range:type_name -> siem.v1.TimeRange
 	0,  // 1: siem.v1.DashboardRequest.interval:type_name -> siem.v1.BucketInterval
-	16, // 2: siem.v1.VolumePoint.bucket:type_name -> google.protobuf.Timestamp
-	17, // 3: siem.v1.VolumePoint.vendor:type_name -> siem.v1.Vendor
-	16, // 4: siem.v1.VerdictPoint.bucket:type_name -> google.protobuf.Timestamp
-	17, // 5: siem.v1.VerdictPoint.vendor:type_name -> siem.v1.Vendor
-	18, // 6: siem.v1.VerdictPoint.verdict:type_name -> siem.v1.Verdict
+	17, // 2: siem.v1.VolumePoint.bucket:type_name -> google.protobuf.Timestamp
+	18, // 3: siem.v1.VolumePoint.vendor:type_name -> siem.v1.Vendor
+	17, // 4: siem.v1.VerdictPoint.bucket:type_name -> google.protobuf.Timestamp
+	18, // 5: siem.v1.VerdictPoint.vendor:type_name -> siem.v1.Vendor
+	19, // 6: siem.v1.VerdictPoint.verdict:type_name -> siem.v1.Verdict
 	2,  // 7: siem.v1.OverviewPanel.volume:type_name -> siem.v1.VolumePoint
 	3,  // 8: siem.v1.OverviewPanel.verdicts:type_name -> siem.v1.VerdictPoint
-	17, // 9: siem.v1.RuleCount.vendor:type_name -> siem.v1.Vendor
+	18, // 9: siem.v1.RuleCount.vendor:type_name -> siem.v1.Vendor
 	5,  // 10: siem.v1.RulesPanel.rules:type_name -> siem.v1.RuleCount
 	7,  // 11: siem.v1.SourcesPanel.sources:type_name -> siem.v1.SourceCount
 	8,  // 12: siem.v1.SourcesPanel.asns:type_name -> siem.v1.AsnCount
 	10, // 13: siem.v1.StoragePanel.tables:type_name -> siem.v1.TableSize
-	16, // 14: siem.v1.DisagreementPoint.bucket:type_name -> google.protobuf.Timestamp
-	19, // 15: siem.v1.DisagreementPoint.kind:type_name -> siem.v1.DisagreementKind
+	17, // 14: siem.v1.DisagreementPoint.bucket:type_name -> google.protobuf.Timestamp
+	20, // 15: siem.v1.DisagreementPoint.kind:type_name -> siem.v1.DisagreementKind
 	12, // 16: siem.v1.DisagreementsPanel.points:type_name -> siem.v1.DisagreementPoint
-	20, // 17: siem.v1.FeedHealthPanel.feeds:type_name -> siem.v1.FeedHealth
-	1,  // 18: siem.v1.Dashboards.GetOverview:input_type -> siem.v1.DashboardRequest
-	1,  // 19: siem.v1.Dashboards.GetRules:input_type -> siem.v1.DashboardRequest
-	1,  // 20: siem.v1.Dashboards.GetSources:input_type -> siem.v1.DashboardRequest
-	1,  // 21: siem.v1.Dashboards.GetDisagreements:input_type -> siem.v1.DashboardRequest
-	1,  // 22: siem.v1.Dashboards.GetFeedHealthPanel:input_type -> siem.v1.DashboardRequest
-	1,  // 23: siem.v1.Dashboards.GetStorage:input_type -> siem.v1.DashboardRequest
-	4,  // 24: siem.v1.Dashboards.GetOverview:output_type -> siem.v1.OverviewPanel
-	6,  // 25: siem.v1.Dashboards.GetRules:output_type -> siem.v1.RulesPanel
-	9,  // 26: siem.v1.Dashboards.GetSources:output_type -> siem.v1.SourcesPanel
-	13, // 27: siem.v1.Dashboards.GetDisagreements:output_type -> siem.v1.DisagreementsPanel
-	14, // 28: siem.v1.Dashboards.GetFeedHealthPanel:output_type -> siem.v1.FeedHealthPanel
-	11, // 29: siem.v1.Dashboards.GetStorage:output_type -> siem.v1.StoragePanel
-	24, // [24:30] is the sub-list for method output_type
-	18, // [18:24] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	21, // 17: siem.v1.FeedHealthPanel.feeds:type_name -> siem.v1.FeedHealth
+	17, // 18: siem.v1.CorrelationHealth.since:type_name -> google.protobuf.Timestamp
+	17, // 19: siem.v1.CorrelationHealth.last_record_at:type_name -> google.protobuf.Timestamp
+	1,  // 20: siem.v1.Dashboards.GetOverview:input_type -> siem.v1.DashboardRequest
+	1,  // 21: siem.v1.Dashboards.GetRules:input_type -> siem.v1.DashboardRequest
+	1,  // 22: siem.v1.Dashboards.GetSources:input_type -> siem.v1.DashboardRequest
+	1,  // 23: siem.v1.Dashboards.GetDisagreements:input_type -> siem.v1.DashboardRequest
+	1,  // 24: siem.v1.Dashboards.GetFeedHealthPanel:input_type -> siem.v1.DashboardRequest
+	1,  // 25: siem.v1.Dashboards.GetCorrelationHealth:input_type -> siem.v1.DashboardRequest
+	1,  // 26: siem.v1.Dashboards.GetStorage:input_type -> siem.v1.DashboardRequest
+	4,  // 27: siem.v1.Dashboards.GetOverview:output_type -> siem.v1.OverviewPanel
+	6,  // 28: siem.v1.Dashboards.GetRules:output_type -> siem.v1.RulesPanel
+	9,  // 29: siem.v1.Dashboards.GetSources:output_type -> siem.v1.SourcesPanel
+	13, // 30: siem.v1.Dashboards.GetDisagreements:output_type -> siem.v1.DisagreementsPanel
+	14, // 31: siem.v1.Dashboards.GetFeedHealthPanel:output_type -> siem.v1.FeedHealthPanel
+	15, // 32: siem.v1.Dashboards.GetCorrelationHealth:output_type -> siem.v1.CorrelationHealth
+	11, // 33: siem.v1.Dashboards.GetStorage:output_type -> siem.v1.StoragePanel
+	27, // [27:34] is the sub-list for method output_type
+	20, // [20:27] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_siem_v1_dashboards_proto_init() }
@@ -1238,7 +1398,7 @@ func file_siem_v1_dashboards_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_dashboards_proto_rawDesc), len(file_siem_v1_dashboards_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   14,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

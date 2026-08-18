@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -417,6 +418,40 @@ func (c *Client) ZAdd(
 		return fmt.Errorf("redis zadd %s: %w", key, err)
 	}
 	return nil
+}
+
+// ZBacklog reports the number of members scored at or below max, and the lowest score
+// in the set.
+//
+// One round trip for both, because they are read together every time: a count without
+// an age cannot tell a deep backlog of fresh work from a shallow one that has been
+// stuck, and an age without a count cannot tell a single stale entry from a flood.
+func (c *Client) ZBacklog(
+	ctx context.Context, key string, max float64,
+) (int64, float64, error) {
+	const script = `
+local due = redis.call('ZCOUNT', KEYS[1], '-inf', ARGV[1])
+local head = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+return {tostring(due), head[2] or '0'}`
+	values, err := goredis.NewScript(script).Run(ctx, c.rdb, []string{key}, max).StringSlice()
+	if err != nil {
+		return 0, 0, fmt.Errorf("redis zbacklog %s: %w", key, err)
+	}
+	if len(values) != 2 {
+		return 0, 0, fmt.Errorf("redis zbacklog %s: got %d values, want 2", key, len(values))
+	}
+
+	// Both come back as strings because a Lua table cannot carry a float through the
+	// protocol without losing the millisecond precision the score is measured in.
+	due, err := strconv.ParseInt(values[0], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("redis zbacklog %s: due count %q: %w", key, values[0], err)
+	}
+	oldest, err := strconv.ParseFloat(values[1], 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("redis zbacklog %s: head score %q: %w", key, values[1], err)
+	}
+	return due, oldest, nil
 }
 
 // ZPopDue atomically removes and returns up to limit members scored at or below max.

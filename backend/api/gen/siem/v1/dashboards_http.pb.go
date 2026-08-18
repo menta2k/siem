@@ -19,6 +19,7 @@ var _ = binding.EncodeURL
 
 const _ = http.SupportPackageIsVersion1
 
+const OperationDashboardsGetCorrelationHealth = "/siem.v1.Dashboards/GetCorrelationHealth"
 const OperationDashboardsGetDisagreements = "/siem.v1.Dashboards/GetDisagreements"
 const OperationDashboardsGetFeedHealthPanel = "/siem.v1.Dashboards/GetFeedHealthPanel"
 const OperationDashboardsGetOverview = "/siem.v1.Dashboards/GetOverview"
@@ -27,6 +28,13 @@ const OperationDashboardsGetSources = "/siem.v1.Dashboards/GetSources"
 const OperationDashboardsGetStorage = "/siem.v1.Dashboards/GetStorage"
 
 type DashboardsHTTPServer interface {
+	// GetCorrelationHealth Whether correlation is still running at all.
+	//
+	// Separate from the panels above because it describes the PIPELINE rather than the
+	// traffic. Every other panel here reads stored records, and stored records cannot
+	// report their own absence: correlation has stopped on this deployment twice while
+	// the console went on serving what was written before the fall and looked healthy.
+	GetCorrelationHealth(context.Context, *DashboardRequest) (*CorrelationHealth, error)
 	GetDisagreements(context.Context, *DashboardRequest) (*DisagreementsPanel, error)
 	GetFeedHealthPanel(context.Context, *DashboardRequest) (*FeedHealthPanel, error)
 	GetOverview(context.Context, *DashboardRequest) (*OverviewPanel, error)
@@ -46,6 +54,7 @@ func RegisterDashboardsHTTPServer(s *http.Server, srv DashboardsHTTPServer) {
 	r.GET("/api/v1/dashboards/sources", _Dashboards_GetSources0_HTTP_Handler(srv))
 	r.GET("/api/v1/dashboards/disagreements", _Dashboards_GetDisagreements0_HTTP_Handler(srv))
 	r.GET("/api/v1/dashboards/feed-health", _Dashboards_GetFeedHealthPanel0_HTTP_Handler(srv))
+	r.GET("/api/v1/dashboards/correlation-health", _Dashboards_GetCorrelationHealth0_HTTP_Handler(srv))
 	r.GET("/api/v1/dashboards/storage", _Dashboards_GetStorage0_HTTP_Handler(srv))
 }
 
@@ -144,6 +153,25 @@ func _Dashboards_GetFeedHealthPanel0_HTTP_Handler(srv DashboardsHTTPServer) func
 	}
 }
 
+func _Dashboards_GetCorrelationHealth0_HTTP_Handler(srv DashboardsHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in DashboardRequest
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationDashboardsGetCorrelationHealth)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.GetCorrelationHealth(ctx, req.(*DashboardRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*CorrelationHealth)
+		return ctx.Result(200, reply)
+	}
+}
+
 func _Dashboards_GetStorage0_HTTP_Handler(srv DashboardsHTTPServer) func(ctx http.Context) error {
 	return func(ctx http.Context) error {
 		var in DashboardRequest
@@ -164,6 +192,13 @@ func _Dashboards_GetStorage0_HTTP_Handler(srv DashboardsHTTPServer) func(ctx htt
 }
 
 type DashboardsHTTPClient interface {
+	// GetCorrelationHealth Whether correlation is still running at all.
+	//
+	// Separate from the panels above because it describes the PIPELINE rather than the
+	// traffic. Every other panel here reads stored records, and stored records cannot
+	// report their own absence: correlation has stopped on this deployment twice while
+	// the console went on serving what was written before the fall and looked healthy.
+	GetCorrelationHealth(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *CorrelationHealth, err error)
 	GetDisagreements(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *DisagreementsPanel, err error)
 	GetFeedHealthPanel(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *FeedHealthPanel, err error)
 	GetOverview(ctx context.Context, req *DashboardRequest, opts ...http.CallOption) (rsp *OverviewPanel, err error)
@@ -182,6 +217,25 @@ type DashboardsHTTPClientImpl struct {
 
 func NewDashboardsHTTPClient(client *http.Client) DashboardsHTTPClient {
 	return &DashboardsHTTPClientImpl{client}
+}
+
+// GetCorrelationHealth Whether correlation is still running at all.
+//
+// Separate from the panels above because it describes the PIPELINE rather than the
+// traffic. Every other panel here reads stored records, and stored records cannot
+// report their own absence: correlation has stopped on this deployment twice while
+// the console went on serving what was written before the fall and looked healthy.
+func (c *DashboardsHTTPClientImpl) GetCorrelationHealth(ctx context.Context, in *DashboardRequest, opts ...http.CallOption) (*CorrelationHealth, error) {
+	var out CorrelationHealth
+	pattern := "/api/v1/dashboards/correlation-health"
+	path := binding.EncodeURL(pattern, in, true)
+	opts = append(opts, http.Operation(OperationDashboardsGetCorrelationHealth))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "GET", path, nil, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func (c *DashboardsHTTPClientImpl) GetDisagreements(ctx context.Context, in *DashboardRequest, opts ...http.CallOption) (*DisagreementsPanel, error) {

@@ -214,3 +214,7 @@ func (s *fixedStore) ZAdd(context.Context, string, string, float64, time.Duratio
 func (s *fixedStore) ZPopDue(context.Context, string, float64, int64) ([]string, error) {
 	return nil, nil
 }
+
+func (s *fixedStore) ZBacklog(context.Context, string, float64) (int64, float64, error) {
+	return 0, 0, nil
+}

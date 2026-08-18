@@ -59,7 +59,33 @@ type Closer struct {
 	interval time.Duration
 	batch    int
 	log      mw.Logger
+
+	// health is optional. A closer without one still closes windows; it simply cannot
+	// say afterwards whether it was keeping up, which is how the last two outages
+	// managed to be invisible.
+	health HealthRecorder
+	// sampledAt is when the schedule backlog was last read. The tick loop runs
+	// continuously while the closer is behind — exactly when the reading matters most
+	// — and a Redis round trip on every pass would be measuring the thing it slows.
+	sampledAt time.Time
+	due       int64
+	claimLag  time.Duration
 }
+
+// HealthRecorder accumulates what a close pass did, for the console to read back.
+type HealthRecorder interface {
+	Record(sample HealthSample)
+}
+
+// WithHealth attaches a health recorder, returning the closer so construction reads as
+// one expression.
+func (c *Closer) WithHealth(health HealthRecorder) *Closer {
+	c.health = health
+	return c
+}
+
+// BacklogSampleInterval is how often the schedule's depth is read.
+const BacklogSampleInterval = 15 * time.Second
 
 // NewCloser constructs the closer.
 func NewCloser(
@@ -152,9 +178,10 @@ func (c *Closer) tick(ctx context.Context, now time.Time) (bool, error) {
 	var failed error
 	drainedAll := true
 	byTenant := map[uuid.UUID][]emission{}
+	tallies := map[uuid.UUID]*tally{}
 
 	for range MaxPassesPerTick {
-		drained, err := c.pass(ctx, now, byTenant)
+		drained, err := c.pass(ctx, now, byTenant, tallies)
 		failed = errors.Join(failed, err)
 		if drained {
 			break
@@ -171,9 +198,80 @@ func (c *Closer) tick(ctx context.Context, now time.Time) (bool, error) {
 	for tenantID, emitted := range byTenant {
 		if err := c.insert(ctx, tenantID, emitted); err != nil {
 			failed = errors.Join(failed, err)
+			tallyFor(tallies, tenantID).failures++
+			continue
 		}
+		tallyFor(tallies, tenantID).emitted += len(emitted)
 	}
+
+	c.reportHealth(ctx, now, tallies)
 	return drainedAll, failed
+}
+
+// tally is what one tick did for one tenant, which is what the health row is made of.
+type tally struct {
+	closed   int
+	dropped  int
+	emitted  int
+	failures int
+}
+
+func tallyFor(tallies map[uuid.UUID]*tally, tenantID uuid.UUID) *tally {
+	t, ok := tallies[tenantID]
+	if !ok {
+		t = &tally{}
+		tallies[tenantID] = t
+	}
+	return t
+}
+
+// reportHealth hands the tick's work to the recorder, with the schedule's depth beside
+// it so "emitting nothing" can be told apart from "nothing was due".
+//
+// A tenant that closed no windows is still reported when the backlog is deep: a closer
+// that has fallen behind produces exactly that shape — no output, plenty waiting — and
+// reporting only the tenants that produced something would hide it.
+func (c *Closer) reportHealth(
+	ctx context.Context, now time.Time, tallies map[uuid.UUID]*tally,
+) {
+	if c.health == nil {
+		return
+	}
+
+	c.sampleBacklog(ctx, now)
+
+	for tenantID, t := range tallies {
+		c.health.Record(HealthSample{
+			TenantID:       tenantID,
+			WindowsClosed:  t.closed,
+			WindowsDropped: t.dropped,
+			RecordsEmitted: t.emitted,
+			CloseFailures:  t.failures,
+			WindowsDue:     uint64(max(c.due, 0)), //nolint:gosec // clamped
+			ClaimLag:       c.claimLag,
+			WindowTTL:      c.windows.TTL(c.settings.For(ctx, tenantID).Keys),
+		})
+	}
+}
+
+// sampleBacklog refreshes the schedule reading, at most once per interval.
+//
+// A failed read is logged and the previous reading kept. The backlog is the health
+// signal, not the work: losing it must not fail a tick that closed windows perfectly
+// well, and reporting zero would read as "caught up" — the opposite of the truth in the
+// case where Redis is the thing going wrong.
+func (c *Closer) sampleBacklog(ctx context.Context, now time.Time) {
+	if now.Sub(c.sampledAt) < BacklogSampleInterval {
+		return
+	}
+	c.sampledAt = now
+
+	due, lag, err := c.windows.Backlog(ctx, now)
+	if err != nil {
+		c.log.Warn(ctx, "correlate: could not read the schedule backlog", "error", err)
+		return
+	}
+	c.due, c.claimLag = due, lag
 }
 
 // pass claims one batch of closed windows and accumulates their records into byTenant,
@@ -181,6 +279,7 @@ func (c *Closer) tick(ctx context.Context, now time.Time) (bool, error) {
 // "drained" means here.
 func (c *Closer) pass(
 	ctx context.Context, now time.Time, byTenant map[uuid.UUID][]emission,
+	tallies map[uuid.UUID]*tally,
 ) (bool, error) {
 	due, err := c.windows.Due(ctx, now, c.batch)
 	if err != nil {
@@ -215,7 +314,16 @@ func (c *Closer) pass(
 		if err != nil {
 			// One window's failure must not abandon the rest of the batch.
 			failed = errors.Join(failed, err)
+			tallyFor(tallies, scheduled.TenantID).failures++
 			continue
+		}
+		// A window with no members left is one whose state expired before it was
+		// claimed — the shape of an outage when it is most of them, so it is counted
+		// apart from the ones that closed with something in them.
+		if len(members[scheduled]) == 0 {
+			tallyFor(tallies, scheduled.TenantID).dropped++
+		} else {
+			tallyFor(tallies, scheduled.TenantID).closed++
 		}
 		byTenant[scheduled.TenantID] = append(byTenant[scheduled.TenantID], emitted...)
 	}

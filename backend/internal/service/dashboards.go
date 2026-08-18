@@ -35,6 +35,11 @@ type FeedHealthReader interface {
 	ListFeedHealth(ctx context.Context) (map[uuid.UUID]chdata.FeedHealth, error)
 }
 
+// CorrelationHealthReader reports whether correlation is still running.
+type CorrelationHealthReader interface {
+	GetCorrelationHealth(ctx context.Context) (chdata.CorrelationHealth, error)
+}
+
 // DashboardsService implements the Dashboards proto service.
 type DashboardsService struct {
 	panels  PanelReader
@@ -47,17 +52,23 @@ type DashboardsService struct {
 	// networks names the ASNs the source panels rank. Optional: nil where the lookup is
 	// disabled, in which case the panels show bare numbers.
 	networks NetworkNamer
-	now      func() time.Time
+	// correlation reports the pipeline's own health. Optional: nil on a deployment
+	// whose processor predates the health table, where the panel reports that it has
+	// nothing to say rather than failing the page.
+	correlation CorrelationHealthReader
+	now         func() time.Time
 }
 
 // NewDashboardsService constructs the service.
 func NewDashboardsService(
 	panels PanelReader, feeds *chdata.FeedRepo, health FeedHealthReader,
 	limits query.Limits, networks NetworkNamer, storage StorageReader, rules RuleNamer,
+	correlation CorrelationHealthReader,
 ) *DashboardsService {
 	return &DashboardsService{
 		panels: panels, feeds: feeds, health: health, limits: limits,
-		networks: networks, storage: storage, rules: rules, now: time.Now,
+		networks: networks, storage: storage, rules: rules,
+		correlation: correlation, now: time.Now,
 	}
 }
 
@@ -377,4 +388,58 @@ func intervalFromProto(interval pb.BucketInterval) (chdata.Interval, error) {
 	default:
 		return "", mw.ValidationFailed("unsupported dashboard interval")
 	}
+}
+
+// GetCorrelationHealth reports whether the correlation pipeline is still running.
+//
+// Takes no time range and ignores the one it is sent, like GetStorage: the question is
+// "is this working NOW", and a range would suggest it could be asked about last week —
+// which the counters can answer but nobody needs, and which would let a stale range
+// hide a live outage behind a healthy afternoon.
+func (s *DashboardsService) GetCorrelationHealth(
+	ctx context.Context, _ *pb.DashboardRequest,
+) (*pb.CorrelationHealth, error) {
+	if s.correlation == nil {
+		// Nothing has ever written the table. Reported as idle with an empty window
+		// rather than as an error, because a page that fails to load says far less
+		// than a panel that says it does not know yet.
+		return &pb.CorrelationHealth{Status: string(chdata.CorrelationIdle)}, nil
+	}
+
+	ctx, cancel := s.limits.WithTimeout(ctx)
+	defer cancel()
+
+	health, err := s.correlation.GetCorrelationHealth(ctx)
+	if err != nil {
+		return nil, query.TranslateError(err)
+	}
+	return toCorrelationHealthProto(health), nil
+}
+
+// toCorrelationHealthProto maps the read model, deriving the status on the SERVER.
+//
+// The console could compute it from the counters it is sent, and then two places would
+// decide what "losing data" means and drift apart the first time one of them was
+// edited.
+func toCorrelationHealthProto(health chdata.CorrelationHealth) *pb.CorrelationHealth {
+	out := &pb.CorrelationHealth{
+		Status:              string(health.Status()),
+		EventsFiled:         health.EventsFiled,
+		WindowsClosed:       health.WindowsClosed,
+		RecordsEmitted:      health.RecordsEmitted,
+		WindowsDroppedEmpty: health.WindowsDroppedEmpty,
+		CloseFailures:       health.CloseFailures,
+		WindowsDue:          health.WindowsDue,
+		ClaimLagMs:          uint64(health.ClaimLag.Milliseconds()),  //nolint:gosec // non-negative
+		WindowTtlMs:         uint64(health.WindowTTL.Milliseconds()), //nolint:gosec // non-negative
+	}
+	if !health.Since.IsZero() {
+		out.Since = timestamppb.New(health.Since)
+	}
+	// Left unset when nothing has ever been emitted, so the console can say "never"
+	// rather than rendering the zero time as 1970.
+	if !health.LastRecordAt.IsZero() {
+		out.LastRecordAt = timestamppb.New(health.LastRecordAt)
+	}
+	return out
 }

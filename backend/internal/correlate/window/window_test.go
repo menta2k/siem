@@ -507,3 +507,7 @@ func TestTheGraceDoesNotMakeRecordsStale(t *testing.T) {
 			settled, tolerable)
 	}
 }
+
+func (s *fakeStore) ZBacklog(context.Context, string, float64) (int64, float64, error) {
+	return 0, 0, nil
+}

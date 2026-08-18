@@ -35,6 +35,7 @@ p, admin, *, /api/v1/dashboards/rules, GET
 p, admin, *, /api/v1/dashboards/sources, GET
 p, admin, *, /api/v1/dashboards/disagreements, GET
 p, admin, *, /api/v1/dashboards/feed-health, GET
+p, admin, *, /api/v1/dashboards/correlation-health, GET
 # Storage headroom is admin-only, unlike the panels above it. It describes the cluster's
 # disk rather than the tenant's traffic, and the same disk serves every tenant on it --
 # so it is neither an analyst's decision nor a figure one customer should read about the
@@ -111,6 +112,7 @@ p, analyst, *, /api/v1/dashboards/rules, GET
 p, analyst, *, /api/v1/dashboards/sources, GET
 p, analyst, *, /api/v1/dashboards/disagreements, GET
 p, analyst, *, /api/v1/dashboards/feed-health, GET
+p, analyst, *, /api/v1/dashboards/correlation-health, GET
 
 p, analyst, *, /api/v1/waf-tuning/rules, GET
 p, analyst, *, /api/v1/waf-tuning/rules/:id/paths, GET
@@ -154,6 +156,7 @@ p, auditor, *, /api/v1/dashboards/rules, GET
 p, auditor, *, /api/v1/dashboards/sources, GET
 p, auditor, *, /api/v1/dashboards/disagreements, GET
 p, auditor, *, /api/v1/dashboards/feed-health, GET
+p, auditor, *, /api/v1/dashboards/correlation-health, GET
 
 p, auditor, *, /api/v1/alert-rules, GET
 p, auditor, *, /api/v1/alerts, GET
