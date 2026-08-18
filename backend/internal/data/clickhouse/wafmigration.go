@@ -134,11 +134,14 @@ const (
 // the rule's own stored action still says block.
 const ActionObservedMonitored = "log (observed)"
 
-// minCorrelatedForReading is the floor below which a rule is reported as insufficient.
+// MinCorrelatedForReading is the floor below which a rule is reported as insufficient.
+//
+// Exported because the console reports it: "8 of 10" tells a rule's author what is missing
+// and when it will change, where "not enough evidence" tells them only that something is.
 //
 // Ten is low enough that a genuinely rare detection still becomes actionable within a
 // day, and high enough that a single unlucky pair cannot read as a verdict.
-const minCorrelatedForReading = 10
+const MinCorrelatedForReading = 10
 
 // agreementReadingExpr classifies a rule by how F5 treated the same requests.
 //

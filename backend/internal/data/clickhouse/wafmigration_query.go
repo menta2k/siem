@@ -248,7 +248,7 @@ func ruleAgreementQuery(
 	sql := agreementSelect
 	args := []any{
 		vendors.VerdictBlocked, vendors.VerdictMonitored, vendors.VerdictAllowed,
-		minCorrelatedForReading,
+		MinCorrelatedForReading,
 		monitoredRuleIDs,
 		tenantID, q.Range.From, q.Range.To,
 		"", "",

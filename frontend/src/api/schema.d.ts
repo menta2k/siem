@@ -2282,6 +2282,16 @@ export interface components {
         };
         WafRuleAgreementPanel: {
             rules?: components["schemas"]["WafRuleAgreement"][];
+            /**
+             * Format: uint32
+             * @description How many correlated requests a rule needs before it is given a reading at all.
+             *
+             *      Sent so the console can say "8 of 10" instead of "not enough evidence" — a reader
+             *      should not have to guess how much is enough, or when their rule will graduate. Carried
+             *      from the server for the same reason the reading itself is: a number repeated in the
+             *      frontend is a number that can drift from the one the query used.
+             */
+            minCorrelated?: number;
         };
         WafRulePathsPanel: {
             paths?: components["schemas"]["WafPathCount"][];

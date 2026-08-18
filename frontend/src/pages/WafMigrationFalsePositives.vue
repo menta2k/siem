@@ -24,6 +24,8 @@ type RuleAgreement = components['schemas']['WafRuleAgreement']
 const { rangeHours, host, currentRange, queryParams } = useMigrationRange()
 
 const rules = ref<RuleAgreement[]>([])
+/** The floor the server applies before it will judge a rule. */
+const minCorrelated = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
 const range = ref(currentRange())
@@ -38,6 +40,7 @@ async function load(): Promise<void> {
       params: { query: queryParams() },
     })
     rules.value = data?.rules ?? []
+    minCorrelated.value = Number(data?.minCorrelated ?? 0)
   } catch (err) {
     errorMessage.value = toDisplayMessage(err)
   } finally {
@@ -90,7 +93,12 @@ onMounted(load)
             allowing a request is evidence, not proof — it may have no signature for this either,
             which is what step 1 measures.
           </div>
-          <RuleAgreementTable :rules="rules" :range="range" sample-verdict="allowed" />
+          <RuleAgreementTable
+            :rules="rules"
+            :range="range"
+            :min-correlated="minCorrelated"
+            sample-verdict="allowed"
+          />
         </template>
       </v-card-text>
     </v-card>

@@ -428,8 +428,15 @@ func (x *WafRuleAgreement) GetLastSeen() *timestamppb.Timestamp {
 }
 
 type WafRuleAgreementPanel struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Rules         []*WafRuleAgreement    `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Rules []*WafRuleAgreement    `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
+	// How many correlated requests a rule needs before it is given a reading at all.
+	//
+	// Sent so the console can say "8 of 10" instead of "not enough evidence" — a reader
+	// should not have to guess how much is enough, or when their rule will graduate. Carried
+	// from the server for the same reason the reading itself is: a number repeated in the
+	// frontend is a number that can drift from the one the query used.
+	MinCorrelated uint32 `protobuf:"varint,2,opt,name=min_correlated,json=minCorrelated,proto3" json:"min_correlated,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -469,6 +476,13 @@ func (x *WafRuleAgreementPanel) GetRules() []*WafRuleAgreement {
 		return x.Rules
 	}
 	return nil
+}
+
+func (x *WafRuleAgreementPanel) GetMinCorrelated() uint32 {
+	if x != nil {
+		return x.MinCorrelated
+	}
+	return 0
 }
 
 // WafMigrationSampleRequest asks for the requests behind one row.
@@ -1142,9 +1156,10 @@ const file_siem_v1_wafmigration_proto_rawDesc = "" +
 	" \x01(\tR\areading\x129\n" +
 	"\n" +
 	"first_seen\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tfirstSeen\x127\n" +
-	"\tlast_seen\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\"H\n" +
+	"\tlast_seen\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\blastSeen\"o\n" +
 	"\x15WafRuleAgreementPanel\x12/\n" +
-	"\x05rules\x18\x01 \x03(\v2\x19.siem.v1.WafRuleAgreementR\x05rules\"\xb3\x02\n" +
+	"\x05rules\x18\x01 \x03(\v2\x19.siem.v1.WafRuleAgreementR\x05rules\x12%\n" +
+	"\x0emin_correlated\x18\x02 \x01(\rR\rminCorrelated\"\xb3\x02\n" +
 	"\x19WafMigrationSampleRequest\x121\n" +
 	"\n" +
 	"time_range\x18\x01 \x01(\v2\x12.siem.v1.TimeRangeR\ttimeRange\x12\x14\n" +

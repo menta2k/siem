@@ -23,6 +23,8 @@ type RuleAgreement = components['schemas']['WafRuleAgreement']
 const { rangeHours, host, currentRange, queryParams } = useMigrationRange()
 
 const rules = ref<RuleAgreement[]>([])
+/** The floor the server applies before it will judge a rule. */
+const minCorrelated = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
 const range = ref(currentRange())
@@ -38,6 +40,7 @@ async function load(): Promise<void> {
       params: { query: queryParams() },
     })
     rules.value = data?.rules ?? []
+    minCorrelated.value = Number(data?.minCorrelated ?? 0)
   } catch (err) {
     errorMessage.value = toDisplayMessage(err)
   } finally {
@@ -98,7 +101,12 @@ const accumulating = computed(() => rules.value.filter((r) => r.reading === 'ins
         <template v-else>
           <div v-if="ready.length" class="mb-4">
             <div class="text-subtitle-2 mb-1">Ready to enforce</div>
-            <RuleAgreementTable :rules="ready" :range="range" sample-verdict="blocked" />
+            <RuleAgreementTable
+              :rules="ready"
+              :range="range"
+              :min-correlated="minCorrelated"
+              sample-verdict="blocked"
+            />
           </div>
 
           <!-- Kept apart rather than sorted in. A rule that is 60% confirmed is not a
@@ -110,7 +118,12 @@ const accumulating = computed(() => rules.value.filter((r) => r.reading === 'ins
               Read the requests before enforcing. Where F5 let something through that the rule
               logged, enforcing would start blocking it.
             </div>
-            <RuleAgreementTable :rules="disputed" :range="range" sample-verdict="allowed" />
+            <RuleAgreementTable
+              :rules="disputed"
+              :range="range"
+              :min-correlated="minCorrelated"
+              sample-verdict="allowed"
+            />
           </div>
 
           <!-- Last, and deliberately not silent. These are working rules that have not yet
@@ -121,7 +134,12 @@ const accumulating = computed(() => rules.value.filter((r) => r.reading === 'ins
               Matching, but on too few requests to judge yet. Widen the range, or come back once the
               traffic has built up — this is what a newly deployed rule looks like.
             </div>
-            <RuleAgreementTable :rules="accumulating" :range="range" sample-verdict="blocked" />
+            <RuleAgreementTable
+              :rules="accumulating"
+              :range="range"
+              :min-correlated="minCorrelated"
+              sample-verdict="blocked"
+            />
           </div>
         </template>
       </v-card-text>

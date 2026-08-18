@@ -183,7 +183,9 @@ func (s *WAFMigrationService) agreement(
 		return nil, err
 	}
 	if len(candidates) == 0 {
-		return &pb.WafRuleAgreementPanel{}, nil
+		return &pb.WafRuleAgreementPanel{
+			MinCorrelated: chdata.MinCorrelatedForReading,
+		}, nil
 	}
 
 	rules, err := s.waf.RuleAgreement(ctx, q, chdata.WAFMigrationFilter{
@@ -193,7 +195,12 @@ func (s *WAFMigrationService) agreement(
 		return nil, query.TranslateError(err)
 	}
 
-	out := &pb.WafRuleAgreementPanel{Rules: make([]*pb.WafRuleAgreement, 0, len(rules))}
+	out := &pb.WafRuleAgreementPanel{
+		Rules: make([]*pb.WafRuleAgreement, 0, len(rules)),
+		// Stated on every panel, including an empty one: "nothing here yet, and here is
+		// the bar" is a more useful empty state than silence.
+		MinCorrelated: chdata.MinCorrelatedForReading,
+	}
 	for _, r := range rules {
 		// A rule known only from the requests has no configured action to report — its
 		// log-ness came from a ruleset override — so it is labelled by what was observed

@@ -42,10 +42,11 @@ function rule(overrides: Record<string, unknown> = {}) {
 function render(
   rules: ReturnType<typeof rule>[],
   sampleVerdict: 'blocked' | 'allowed' = 'blocked',
+  minCorrelated = 10,
 ) {
   setActivePinia(createPinia())
   return mount(RuleAgreementTable, {
-    props: { rules, range, sampleVerdict },
+    props: { rules, range, sampleVerdict, minCorrelated },
     global: { plugins: [vuetify] },
   })
 }
@@ -81,15 +82,23 @@ describe('RuleAgreementTable', () => {
     expect(view.text()).toContain('23548ee2b36547a1be09bb2c0550c529')
   })
 
-  // THE ONE A RULE'S AUTHOR NOTICES. A rule deployed that morning had matched four
-  // requests, all four blocked by F5 — working — and appeared on no page at all, because
-  // four is below the floor for a reading. The label has to say that plainly, because
-  // "nowhere" and "matches nothing" are indistinguishable from the outside.
-  it('labels a rule that is matching but not yet judgeable', () => {
-    const view = render([rule({ reading: 'insufficient', correlated: '4', f5Blocked: '4' })])
+  // THE ONE A RULE'S AUTHOR NOTICES. A rule matching perfectly but under the floor used to
+  // read "not enough evidence", which says only that something is missing and never what or
+  // how much — its author read it as a criticism of the rule. It is shown as PROGRESS
+  // instead, so the bar and the distance to it are both on screen.
+  it('shows an unjudged rule as progress towards the bar, not as a verdict', () => {
+    const view = render([rule({ reading: 'insufficient', correlated: '8', f5Blocked: '8' })])
 
-    expect(view.text()).toContain('not enough evidence')
-    expect(view.text()).toContain('4')
+    expect(view.text()).toContain('8 of 10 requests')
+    expect(view.text()).not.toContain('not enough evidence')
+  })
+
+  // The bar comes from the server, which is also where it is applied. A number repeated in
+  // the frontend is a number that can drift from the one the query used.
+  it('takes the bar from the server rather than assuming it', () => {
+    const view = render([rule({ reading: 'insufficient', correlated: '3' })], 'blocked', 25)
+
+    expect(view.text()).toContain('3 of 25 requests')
   })
 
   // The reading is computed server-side so the stage a rule appears under and the label
@@ -99,7 +108,7 @@ describe('RuleAgreementTable', () => {
       ['ready', 'ready to enforce'],
       ['disputed', 'needs a look'],
       ['false_positive', 'likely false positive'],
-      ['insufficient', 'not enough evidence'],
+      ['insufficient', 'too few requests yet'],
     ]) {
       expect(render([rule({ reading })]).text()).toContain(label)
     }
@@ -108,7 +117,7 @@ describe('RuleAgreementTable', () => {
   // An unknown reading must not render an empty chip: a blank verdict on this table reads
   // as "no opinion" when it actually means the client is out of date with the server.
   it('degrades to insufficient for a reading it does not know', () => {
-    expect(render([rule({ reading: 'something_new' })]).text()).toContain('not enough evidence')
+    expect(render([rule({ reading: 'something_new' })]).text()).toContain('too few requests yet')
   })
 
   // Naming one of several hosts would be wrong, so the server sends an empty host and a

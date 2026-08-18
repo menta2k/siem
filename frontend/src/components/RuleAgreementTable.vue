@@ -23,6 +23,13 @@ const props = defineProps<{
   range: MigrationRange
   /** Which side of the disagreement this stage drills into. */
   sampleVerdict: 'blocked' | 'allowed'
+  /**
+   * How many correlated requests a rule needs before it is judged at all.
+   *
+   * Comes from the server, which is also where the threshold is applied. Hardcoding it here
+   * would let the number a reader is shown drift from the number the query used.
+   */
+  minCorrelated?: number
 }>()
 
 const prefs = usePreferencesStore()
@@ -50,14 +57,36 @@ const READINGS: Record<string, { label: string; colour: string; hint: string }> 
     hint: 'F5 lets through nearly everything this rule logs',
   },
   insufficient: {
-    label: 'not enough evidence',
+    label: 'too few requests yet',
     colour: 'default',
-    hint: 'too few correlated requests to conclude anything yet',
+    hint: 'not a judgement on the rule — just not enough requests to make one',
   },
 }
 
+/**
+ * How a rule's reading is shown.
+ *
+ * `insufficient` is rendered as PROGRESS rather than as a verdict — "8 of 10" — because the
+ * old wording, "not enough evidence", said only that something was missing and never what
+ * or how much. The author of a working rule read it as a criticism of the rule.
+ */
 function reading(rule: RuleAgreement) {
-  return READINGS[rule.reading ?? ''] ?? READINGS.insufficient
+  const base = READINGS[rule.reading ?? ''] ?? READINGS.insufficient
+  if (rule.reading !== 'insufficient' || !props.minCorrelated) return base
+
+  // Progress only makes sense below the bar. A rule the server left unjudged while sitting
+  // above it is something else, and "147 of 10" would be nonsense.
+  const seen = Number(rule.correlated ?? 0)
+  if (seen >= props.minCorrelated) return base
+
+  return {
+    ...base,
+    label: `${seen} of ${props.minCorrelated} requests`,
+    hint:
+      `A reading needs ${props.minCorrelated} requests that both vendors saw; this rule ` +
+      `has ${seen}. It is matching — the counts beside it are real — and will be judged ` +
+      `once the traffic builds up.`,
+  }
 }
 
 /**
