@@ -76,6 +76,13 @@ type Secrets struct {
 	Backend  string
 	Endpoint string
 	Token    string
+	// EncryptionKey seals the durable copy of every feed credential, base64 of 32 bytes.
+	//
+	// Without it there IS no durable copy and the cache is again the only one, which is
+	// the arrangement that cost two hours of ingestion. Optional so an existing
+	// deployment still starts, but its absence is logged loudly at start-up rather than
+	// left to be discovered by the next restart.
+	EncryptionKey string
 }
 
 // Server holds bind settings for the running service.
@@ -261,9 +268,10 @@ func loadAuth(collect func(error)) Auth {
 func loadSecrets(collect func(error)) Secrets {
 	backend := optional("SECRET_BACKEND", "env")
 	s := Secrets{
-		Backend:  backend,
-		Endpoint: os.Getenv("SECRET_BACKEND_ENDPOINT"),
-		Token:    os.Getenv("SECRET_BACKEND_TOKEN"),
+		Backend:       backend,
+		Endpoint:      os.Getenv("SECRET_BACKEND_ENDPOINT"),
+		Token:         os.Getenv("SECRET_BACKEND_TOKEN"),
+		EncryptionKey: os.Getenv("SECRETS_ENCRYPTION_KEY"),
 	}
 	// The "env" backend is development-only; anything else must be reachable.
 	if backend != "env" && s.Endpoint == "" {

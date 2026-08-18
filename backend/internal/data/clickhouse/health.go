@@ -84,6 +84,13 @@ func (h FeedHealth) SchemaDriftWarning() bool {
 	return float64(h.UnknownFieldEvents1h)/float64(h.EventsReceived1h) > 0.01
 }
 
+// credentialWindow is how recently a credential failure still counts as current.
+//
+// Long enough that a feed delivering every few minutes cannot flicker back to healthy
+// between two failures, short enough that a fixed credential shows as fixed while the
+// operator is still looking at the screen.
+const credentialWindow = 5 * time.Minute
+
 // GetFeedHealth summarizes the last hour for one feed.
 func (r *HealthRepo) GetFeedHealth(ctx context.Context, feedID uuid.UUID) (FeedHealth, error) {
 	tenantID, err := tenancy.MustID(ctx)
@@ -94,6 +101,18 @@ func (r *HealthRepo) GetFeedHealth(ctx context.Context, feedID uuid.UUID) (FeedH
 	// The last-event time comes from the newest minute that actually carried events.
 	// Using max(minute) over all rows would report a feed as alive purely because a
 	// zero-count row exists, which is exactly the silence the query must detect.
+	//
+	// The credential is read as its RECENT state, not the worst of the hour. min() was
+	// answering a different question — "did anything fail in the last hour" — and after a
+	// two-hour outage it kept every recovered feed marked broken for an hour after it had
+	// come back, with events arriving the whole time. A console that still says "down"
+	// once a feed is up is a console nobody believes the next time.
+	//
+	// A window rather than the single latest minute, because the column is min-aggregated
+	// across parts that may not be merged yet: picking "the newest row" could read either
+	// copy of the same minute, while a min over the window is the same answer whatever
+	// state the merges are in. No rows at all means nothing has failed — an idle feed is
+	// silent, which is a different fault and is reported separately.
 	const query = `SELECT
 			maxIf(minute, events_received > 0) AS last_event_minute,
 			sum(events_received)               AS total_received,
@@ -102,18 +121,28 @@ func (r *HealthRepo) GetFeedHealth(ctx context.Context, feedID uuid.UUID) (FeedH
 			sum(bytes_received)                AS total_bytes,
 			max(max_ingest_lag_ms)             AS peak_lag,
 			sum(unknown_field_events)          AS total_unknown_fields,
-			min(credential_valid)              AS all_credentials_valid
+			if(countIf(minute >= ?) = 0, 1,
+			   minIf(credential_valid, minute >= ?)) AS credential_valid_now
 		FROM feed_health
 		WHERE tenant_id = ? AND feed_id = ? AND minute >= ?`
 
-	since := time.Now().UTC().Add(-time.Hour).Truncate(time.Minute)
+	now := time.Now().UTC()
+	since := now.Add(-time.Hour).Truncate(time.Minute)
+	recent := now.Add(-credentialWindow).Truncate(time.Minute)
 
-	rows, err := r.client.Query(ctx, query, tenantID, feedID, since)
+	rows, err := r.client.Query(ctx, query, recent, recent, tenantID, feedID, since)
 	if err != nil {
 		return FeedHealth{}, err
 	}
 	defer func() { _ = rows.Close() }()
 
+	return scanOneFeedHealth(rows, feedID, now)
+}
+
+// scanOneFeedHealth reads the single summary row, or reports an untouched feed.
+func scanOneFeedHealth(
+	rows rowCursor, feedID uuid.UUID, now time.Time,
+) (FeedHealth, error) {
 	health := FeedHealth{FeedID: feedID, CredentialValid: true}
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
@@ -135,7 +164,7 @@ func (r *HealthRepo) GetFeedHealth(ctx context.Context, feedID uuid.UUID) (FeedH
 
 	health.LastEventAt = lastEventMinute
 	health.CredentialValid = credentialValid == 1
-	health.Silent = ingest.IsSilent(lastEventMinute, time.Now().UTC())
+	health.Silent = ingest.IsSilent(lastEventMinute, now)
 	health.EventsPerSec = float64(health.EventsReceived1h) / 3600.0
 
 	return health, nil
@@ -158,20 +187,21 @@ func (r *HealthRepo) ListFeedHealth(ctx context.Context) (map[uuid.UUID]FeedHeal
 			sum(bytes_received),
 			max(max_ingest_lag_ms),
 			sum(unknown_field_events),
-			min(credential_valid)
+			if(countIf(minute >= ?) = 0, 1, minIf(credential_valid, minute >= ?))
 		FROM feed_health
 		WHERE tenant_id = ? AND minute >= ?
 		GROUP BY feed_id`
 
-	since := time.Now().UTC().Add(-time.Hour).Truncate(time.Minute)
+	now := time.Now().UTC()
+	since := now.Add(-time.Hour).Truncate(time.Minute)
+	recent := now.Add(-credentialWindow).Truncate(time.Minute)
 
-	rows, err := r.client.Query(ctx, query, tenantID, since)
+	rows, err := r.client.Query(ctx, query, recent, recent, tenantID, since)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 
-	now := time.Now().UTC()
 	out := map[uuid.UUID]FeedHealth{}
 
 	for rows.Next() {

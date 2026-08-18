@@ -13,6 +13,7 @@ import (
 
 	"github.com/menta2k/siem/internal/conf"
 	"github.com/menta2k/siem/internal/middleware"
+	"github.com/menta2k/siem/internal/secrets"
 	"github.com/menta2k/siem/internal/version"
 )
 
@@ -147,4 +148,39 @@ func Fatal(log *middleware.SlogLogger, msg string, err error) {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", msg, err)
 	}
 	os.Exit(1)
+}
+
+// SecretStore assembles the credential store every service reads and writes through.
+//
+// One place, because the failure it guards against is service-wide: the ingest path
+// resolving a credential, the console rotating one, and the alerting webhook reading one
+// all lost their secrets together when the cache was emptied, and a durability fix that
+// covered only one of them would have looked like a fix while leaving the outage
+// reachable from the other two.
+//
+// A missing key is reported and the service continues on the cache alone — that is the
+// arrangement every existing deployment already has, and refusing to start would turn an
+// upgrade into an outage. It is logged as a WARNING with the consequence spelled out,
+// because the alternative is finding out at the next restart.
+func SecretStore(
+	log *middleware.SlogLogger, cache secrets.CacheWriter, db secrets.DB, encodedKey string,
+) (secrets.Store, error) {
+	store, err := secrets.Build(cache, db, encodedKey, func(ctx context.Context, ref string) {
+		// A refill means the cache had been emptied. Not an error — the platform just
+		// healed itself — but the operator has to be able to see that it happened.
+		log.Warn(ctx, "feed credential refilled from the durable copy: the cache was empty",
+			"ref", ref)
+	})
+
+	switch {
+	case errors.Is(err, secrets.ErrNoDurableCopy):
+		log.Warn(context.Background(),
+			"feed credentials have NO durable copy: a Redis restart will lose every one of "+
+				"them and stop all ingestion until each is restored by hand",
+			"fix", "set SECRETS_ENCRYPTION_KEY to base64 of 32 random bytes")
+		return store, nil
+	case err != nil:
+		return nil, err
+	}
+	return store, nil
 }

@@ -122,9 +122,17 @@ func buildReceiver(
 	// that can start it.
 	health := ingest.NewHealthAggregator(clickhouse.NewHealthRepo(chClient))
 
+	// The store the delivery path resolves every credential through. Built here so a
+	// deployment without a durable copy says so once, at start-up, rather than never.
+	secretStore, err := server.SecretStore(deps.Log, secrets.NewRedisStore(redisClient),
+		clickhouse.NewSecretVault(chClient), cfg.Secrets.EncryptionKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build secret store: %w", err)
+	}
+
 	return receiver.New(
 		clickhouse.NewFeedRepo(chClient, clickhouse.NewLocker(redisClient)),
-		secrets.NewRedisStore(redisClient),
+		secretStore,
 		adapters,
 		ingest.NewPublisher(producer, cfg.Redpanda.TopicRaw, cfg.Redpanda.TopicDLQ),
 		dedup.New(redisClient, dedup.DefaultWindow),

@@ -45,23 +45,20 @@ func run(ctx context.Context, tenantName, email, password string) error {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
-	ch, err := clickhouse.New(ctx, cfg.ClickHouse, clickhouse.Options{Profile: "default"})
+	ch, rdb, closeStores, err := openStores(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("connect clickhouse: %w", err)
+		return err
 	}
-	defer func() { _ = ch.Close() }()
-
-	rdb, err := redis.New(ctx, cfg.Redis)
-	if err != nil {
-		return fmt.Errorf("connect redis: %w", err)
-	}
-	defer func() { _ = rdb.Close() }()
+	defer closeStores()
 
 	locker := clickhouse.NewLocker(rdb)
 	tenants := clickhouse.NewTenantRepo(ch, locker)
 	users := clickhouse.NewUserRepo(ch, locker)
 	feeds := clickhouse.NewFeedRepo(ch, locker)
-	secretStore := secrets.NewRedisStore(rdb)
+	secretStore, err := seedSecretStore(cfg, ch, rdb)
+	if err != nil {
+		return err
+	}
 
 	tenant, err := ensureTenant(ctx, tenants, tenantName)
 	if err != nil {
@@ -261,4 +258,46 @@ func report(
 			feed.vendor, feed.feedID, feed.token)
 	}
 	fmt.Println()
+}
+
+// seedSecretStore builds the same store the services use.
+//
+// Seeded credentials go through it too: a demo feed whose credential evaporates on the
+// next restart teaches the wrong lesson about where these live. This is a CLI, so the
+// warning goes to stderr rather than to a logger.
+func seedSecretStore(
+	cfg *conf.Config, ch *clickhouse.Client, rdb *redis.Client,
+) (secrets.Store, error) {
+	store, err := secrets.Build(secrets.NewRedisStore(rdb),
+		clickhouse.NewSecretVault(ch), cfg.Secrets.EncryptionKey, nil)
+	switch {
+	case errors.Is(err, secrets.ErrNoDurableCopy):
+		fmt.Fprintln(os.Stderr,
+			"warning: SECRETS_ENCRYPTION_KEY is not set, so seeded feed credentials live "+
+				"only in Redis and are lost on its next restart")
+	case err != nil:
+		return nil, fmt.Errorf("build secret store: %w", err)
+	}
+	return store, nil
+}
+
+// openStores connects the two stores the seed writes through, and returns their closer.
+func openStores(ctx context.Context, cfg *conf.Config) (
+	*clickhouse.Client, *redis.Client, func(), error,
+) {
+	ch, err := clickhouse.New(ctx, cfg.ClickHouse, clickhouse.Options{Profile: "default"})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("connect clickhouse: %w", err)
+	}
+
+	rdb, err := redis.New(ctx, cfg.Redis)
+	if err != nil {
+		_ = ch.Close()
+		return nil, nil, nil, fmt.Errorf("connect redis: %w", err)
+	}
+
+	return ch, rdb, func() {
+		_ = rdb.Close()
+		_ = ch.Close()
+	}, nil
 }

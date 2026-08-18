@@ -33,6 +33,7 @@ import (
 	"github.com/menta2k/siem/internal/ingest/filter"
 	mw "github.com/menta2k/siem/internal/middleware"
 	"github.com/menta2k/siem/internal/normalize"
+	"github.com/menta2k/siem/internal/secrets"
 	"github.com/menta2k/siem/internal/vendors"
 )
 
@@ -153,6 +154,12 @@ func (r *Receiver) handleDelivery(w http.ResponseWriter, req *http.Request) {
 		r.health.Record(ctx, ingest.HealthSample{
 			TenantID: feed.TenantID, FeedID: feed.ID, CredentialValid: false,
 		})
+		// AND IT IS LOGGED. This was the one refusal that was not, which is how the
+		// platform once spent two hours rejecting every delivery from every feed while
+		// its own logs held three lines, all of them from start-up. The counter it
+		// records is a number on a dashboard nobody was looking at; the log line is what
+		// an operator finds when they go looking for why a feed went quiet.
+		r.logRefusedAuth(ctx, feed, err)
 		writeError(w, mw.AsError(err))
 		return
 	}
@@ -208,6 +215,18 @@ func (r *Receiver) commitDelivery(
 		status = http.StatusMultiStatus
 	}
 	writeJSON(w, status, outcome)
+}
+
+// logRefusedAuth records a delivery refused before its credential could be accepted.
+//
+// Separate from logRefusedDelivery because the two lead to different places: a refused
+// body is about size or a disconnect, and a refused credential is about configuration —
+// either the sender's, or this platform's own secret store having lost the value it was
+// supposed to compare against.
+func (r *Receiver) logRefusedAuth(ctx context.Context, feed chdata.Feed, err error) {
+	r.log.Warn(ctx, "delivery refused: credential not accepted",
+		"feed_id", feed.ID.String(), "vendor", feed.Vendor,
+		"code", mw.AsError(err).Code, "cause", err.Error())
 }
 
 // logRefusedDelivery records a delivery that never became events.
@@ -326,7 +345,18 @@ func (r *Receiver) authenticate(
 	}
 
 	expected, err := r.secrets.Resolve(ctx, feed.CredentialRef)
-	if err != nil {
+	switch {
+	case errors.Is(err, secrets.ErrNotFound):
+		// THIS PLATFORM'S FAULT, NOT THE SENDER'S. The feed is configured and the
+		// sender is presenting something; what is missing is the stored secret to
+		// compare it against. Answering 500 said "an error occurred" and told nobody
+		// which one — including the operator, who then had a dark platform and no clue.
+		//
+		// 503 rather than 500 because it is also true and it is ACTIONABLE by the
+		// sender: senders that honour it back off and retry instead of dropping, so a
+		// store that is restored within their retry window loses nothing.
+		return mw.FeedCredentialUnavailable()
+	case err != nil:
 		return mw.Internal().WithCause(err)
 	}
 	// Constant time: a byte-by-byte comparison leaks how much of the token matched.

@@ -33,12 +33,16 @@ const (
 	CodeConflict              = "CONFLICT"
 	CodeRateLimited           = "RATE_LIMITED"
 	CodeFeedCredentialInvalid = "FEED_CREDENTIAL_INVALID" //nolint:gosec // an error code, not a secret
-	CodeFeedTokenMismatch     = "FEED_TOKEN_MISMATCH"     //nolint:gosec // an error code, not a secret
-	CodePayloadTooLarge       = "PAYLOAD_TOO_LARGE"
-	CodeRuleConditionInvalid  = "RULE_CONDITION_INVALID"
-	CodeExportTooLarge        = "EXPORT_TOO_LARGE"
-	CodeBrokerUnavailable     = "BROKER_UNAVAILABLE"
-	CodeInternal              = "INTERNAL"
+	// CodeFeedCredentialUnavailable means the stored secret could not be read, so the
+	// presented one could not be checked. A platform fault, not a sender fault.
+	//nolint:gosec // an error code, not a secret
+	CodeFeedCredentialUnavailable = "FEED_CREDENTIAL_UNAVAILABLE"
+	CodeFeedTokenMismatch         = "FEED_TOKEN_MISMATCH" //nolint:gosec // an error code, not a secret
+	CodePayloadTooLarge           = "PAYLOAD_TOO_LARGE"
+	CodeRuleConditionInvalid      = "RULE_CONDITION_INVALID"
+	CodeExportTooLarge            = "EXPORT_TOO_LARGE"
+	CodeBrokerUnavailable         = "BROKER_UNAVAILABLE"
+	CodeInternal                  = "INTERNAL"
 )
 
 // Detail identifies a specific field that failed validation.
@@ -179,6 +183,20 @@ func Conflict(msg string) *Error {
 // RateLimited reports an exhausted rate-limit bucket.
 func RateLimited() *Error {
 	return newError(http.StatusTooManyRequests, CodeRateLimited, "rate limit exceeded")
+}
+
+// FeedCredentialUnavailable reports that the platform cannot check a credential at all.
+//
+// Distinct from FeedCredentialInvalid, and the distinction is the point: one says the
+// sender presented the wrong token, the other says this platform lost the token it was
+// meant to compare against. They look identical from the outside and lead to opposite
+// fixes — reconfigure the vendor, or restore the secret store.
+//
+// 503 rather than 500 because a sender that honours it retries: a store restored within
+// the retry window then loses nothing.
+func FeedCredentialUnavailable() *Error {
+	return newError(http.StatusServiceUnavailable, CodeFeedCredentialUnavailable,
+		"this platform cannot verify the feed credential right now")
 }
 
 // FeedCredentialInvalid reports a feed token that does not authenticate.

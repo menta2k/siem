@@ -1,10 +1,17 @@
 // Package secrets stores and resolves credentials by reference.
 //
 // The rule this package exists to enforce: a vendor credential is NEVER written to
-// ClickHouse. The feeds table holds a reference — an opaque key — and the actual
-// secret lives here. Persisting credentials in the analytical store would put every
-// customer's log-delivery keys in the same place as their logs, retained for the same
-// 30 days, readable by every query path.
+// ClickHouse IN THE CLEAR. The feeds table holds a reference — an opaque key — and the
+// actual secret lives here. Persisting credentials in the analytical store would put
+// every customer's log-delivery keys in the same place as their logs, retained for the
+// same 30 days, readable by every query path.
+//
+// The rule used to say "never written to ClickHouse" at all, and the cache below was the
+// only copy. That cost two hours of total ingestion loss: Redis runs without persistence
+// by design, one restart emptied it, and every feed failed authentication at once with
+// nothing left anywhere to restore from. A durable copy is now kept in ClickHouse, sealed
+// with AES-256-GCM under a key held in the service environment — see DurableStore. What
+// is written there is not a credential, and none of the three harms above survive it.
 package secrets
 
 import (
@@ -85,12 +92,31 @@ func (s *RedisStore) Put(ctx context.Context, purpose, secret string) (string, e
 	}
 
 	ref := NewReference(purpose)
-	if err := s.client.Set(ctx, s.key(ref), secret, secretTTL); err != nil {
-		// The error is wrapped without the secret, obviously — but also without the
-		// reference, since a failed Put means the caller must not persist it.
-		return "", fmt.Errorf("store %s secret: %w", purpose, err)
+	if err := s.PutRef(ctx, ref, purpose, secret); err != nil {
+		return "", err
 	}
 	return ref, nil
+}
+
+// PutRef stores a secret under a reference that already exists.
+//
+// This is what lets the cache be REFILLED after it has been emptied: the feeds table
+// points at a reference, so restoring the secret behind it has to reuse that reference
+// rather than mint a new one.
+func (s *RedisStore) PutRef(ctx context.Context, ref, purpose, secret string) error {
+	if secret == "" {
+		return errors.New("secrets: refusing to store an empty secret")
+	}
+	if ref == "" {
+		return errors.New("secrets: refusing to store a secret with no reference")
+	}
+
+	if err := s.client.Set(ctx, s.key(ref), secret, secretTTL); err != nil {
+		// The error is wrapped without the secret, obviously — but also without the
+		// reference, since a failed write means the caller must not persist it.
+		return fmt.Errorf("store %s secret: %w", purpose, err)
+	}
+	return nil
 }
 
 // Resolve returns the secret behind a reference.

@@ -204,7 +204,10 @@ type harness struct {
 	producer *fakeProducer
 	counter  *memCounter
 	health   *recordedHealth
-	feedID   uuid.UUID
+	// log keeps what the receiver wrote, because "was this refusal written down" is
+	// itself a requirement: a silent rejection cost two hours of dark ingestion once.
+	log    *captureLogger
+	feedID uuid.UUID
 }
 
 func newHarness(t *testing.T) *harness {
@@ -226,17 +229,18 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
 
+	log := &captureLogger{}
 	r := New(
 		feeds, secrets, registry,
 		ingest.NewPublisher(producer, "raw", "dlq"),
 		dedup.New(counter, time.Minute),
 		ingest.NewQuotaEnforcer(counter),
 		nil, // no ingest filters configured
-		health, mw.NewLogger("error", "json"),
+		health, log,
 		Options{MaxBodyBytes: 1 << 20, MaxBatchEvents: 100},
 	)
 
-	return &harness{r, feeds, secrets, producer, counter, health, feedID}
+	return &harness{r, feeds, secrets, producer, counter, health, log, feedID}
 }
 
 // deliver posts a payload and returns the response.

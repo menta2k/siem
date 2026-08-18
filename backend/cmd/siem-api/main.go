@@ -151,17 +151,7 @@ func buildServices(
 	correlated := clickhouse.NewCorrelatedRepo(ch)
 	panels := clickhouse.NewDashboardRepo(ch)
 
-	// Names the client's network on read. The table is filled by the processor's
-	// refresh worker; the API only reads it, so an API that starts before the first
-	// refresh serves bare AS numbers rather than failing.
-	networks := asnowner.NewResolver(
-		clickhouse.NewASNOwnerRepo(ch), asnowner.DefaultCacheTTL)
-
-	// Names the WAF rule that matched. The table is filled by the processor's refresh
-	// worker from the tenant's own Cloudflare token, so an API running before the first
-	// refresh — or for a tenant with no token — serves bare rule ids.
-	ruleNames := cfrules.NewResolver(
-		clickhouse.NewCloudflareRuleRepo(ch), cfrules.DefaultCacheTTL)
+	networks, ruleNames := buildResolvers(ch)
 
 	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New(), nginx.New())
 	if err != nil {
@@ -170,11 +160,13 @@ func buildServices(
 		server.Fatal(deps.Log, "build vendor registry", err)
 	}
 
+	secretStore := buildSecretStore(cfg, deps, ch, rdb)
+
 	return server.Services{
 		Auth: service.NewAuthService(users, tenants, auditLog, invites, tokens, users,
 			cfg.Auth.MFAIssuer),
 		Feeds: service.NewFeedsService(feeds, events, health,
-			secrets.NewRedisStore(rdb), auditLog, adapters),
+			secretStore, auditLog, adapters),
 		Search: service.NewSearchService(
 			searchRepo, events, auditLog, limits, adapters, tenants, networks, ruleNames).
 			WithLogger(deps.Log).
@@ -188,13 +180,13 @@ func buildServices(
 		Admin: service.NewAdminService(users, tenants, auditLog, invites,
 			retentionWorker(deps, ch, locker, tenants, events),
 			correlate.NewSettingsCache(tenants, correlate.DefaultSettingsTTL),
-			secrets.NewRedisStore(rdb), cfg.CloudflareRules.APIBase, deps.Log),
+			secretStore, cfg.CloudflareRules.APIBase, deps.Log),
 		// Reads the WAF rollups and the events behind them. The rule namer is the same
 		// resolver the rest of the console uses, so a rule reads by name here too.
 		WafTuning: service.NewWAFTuningService(
 			clickhouse.NewWAFTuningRepo(ch), limits, ruleNames),
 		WafMigration: wafMigrationService(cfg, ch, limits, ruleNames, events, adapters),
-		Alerts:       buildAlertsService(rdb, alertingRepo, auditLog),
+		Alerts:       buildAlertsService(secretStore, alertingRepo, auditLog),
 	}
 }
 
@@ -223,14 +215,47 @@ func wafMigrationService(
 		}))
 }
 
+// buildResolvers builds the two read-through name resolvers the console renders with.
+//
+// Both tables are filled by the processor's refresh workers, so an API that starts before
+// the first refresh — or serves a tenant with no Cloudflare token — renders bare AS
+// numbers and bare rule ids rather than failing.
+func buildResolvers(ch *clickhouse.Client) (*asnowner.Resolver, *cfrules.Resolver) {
+	return asnowner.NewResolver(clickhouse.NewASNOwnerRepo(ch), asnowner.DefaultCacheTTL),
+		cfrules.NewResolver(clickhouse.NewCloudflareRuleRepo(ch), cfrules.DefaultCacheTTL)
+}
+
+// buildSecretStore assembles the ONE store every service that touches a credential reads
+// through.
+//
+// Rotating one through the console, resolving one on delivery and reading a webhook secret
+// are the same secrets seen from three sides, and they were lost together when the cache
+// was emptied — so a durability fix that covered one of them would have looked like a fix
+// while leaving the outage reachable from the other two.
+func buildSecretStore(
+	cfg *conf.Config, deps *server.Deps, ch *clickhouse.Client, rdb *redis.Client,
+) secrets.Store {
+	store, err := server.SecretStore(deps.Log, secrets.NewRedisStore(rdb),
+		clickhouse.NewSecretVault(ch), cfg.Secrets.EncryptionKey)
+	if err != nil {
+		server.Fatal(deps.Log, "build secret store", err)
+	}
+	return store
+}
+
 // buildAlertsService assembles the alerting read and write path.
+//
+// Takes the shared secret store rather than building its own: a webhook secret is a
+// credential like any other, and one that survives a restart only sometimes is worse than
+// one that survives always.
 func buildAlertsService(
-	rdb *redis.Client, alertingRepo *clickhouse.AlertingRepo, auditLog *clickhouse.AuditRepo,
+	secretStore secrets.Store, alertingRepo *clickhouse.AlertingRepo,
+	auditLog *clickhouse.AuditRepo,
 ) *service.AlertsService {
 	return service.NewAlertsService(
 		alertingRepo,
 		alerting.NewEvaluator(alerting.NewRepoStore(alertingRepo)),
-		secrets.NewRedisStore(rdb), auditLog,
+		secretStore, auditLog,
 	)
 }
 

@@ -160,10 +160,12 @@ func buildWorkers(
 	cfg *conf.Config, deps *server.Deps,
 	chClient *clickhouse.Client, redisClient *redis.Client, producer *stream.Producer,
 ) ([]Worker, error) {
-	locker := clickhouse.NewLocker(redisClient)
-	events := clickhouse.NewEventRepo(chClient)
-	tenants := clickhouse.NewTenantRepo(chClient, locker)
-	feeds := clickhouse.NewFeedRepo(chClient, locker)
+	locker, events, tenants, feeds := processorRepos(chClient, redisClient)
+
+	secretStore, err := buildSecretStore(cfg, deps, chClient, redisClient)
+	if err != nil {
+		return nil, err
+	}
 
 	adapters, err := vendors.NewRegistry(cloudflare.New(), f5.New(), datadome.New(), nginx.New())
 	if err != nil {
@@ -195,16 +197,11 @@ func buildWorkers(
 			normalize.NewDeadLetterWorker(events, deps.Log).Handle),
 
 		// Polls vendors that cannot push to us.
-		puller.NewWorker(feeds,
-			puller.NewRegistry(puller.NewCloudflareSource(), puller.NewF5Source(),
-				puller.NewDataDomeSource()),
-			adapters,
-			ingest.NewPublisher(producer, cfg.Redpanda.TopicRaw, cfg.Redpanda.TopicDLQ),
-			deduper, secrets.NewRedisStore(redisClient),
-			filter.NewCache(tenants, filter.DefaultCacheTTL), healthAggregator, deps.Log),
+		buildPullWorker(cfg, deps, feeds, tenants, adapters, producer, deduper,
+			secretStore, healthAggregator),
 
 		// Evaluates alert rules and delivers the alerts they produce.
-		buildAlertingWorker(cfg, deps, chClient, redisClient, locker),
+		buildAlertingWorker(cfg, deps, chClient, redisClient, locker, secretStore),
 
 		// Applies each tenant's retention window. The table TTL is the platform
 		// default; this closes the gap for tenants configured shorter than it.
@@ -221,10 +218,52 @@ func buildWorkers(
 	// Omitted entirely when disabled, rather than started and made to do nothing: a
 	// worker in the list that never works is a worker an operator has to investigate.
 
-	workers = append(workers, buildLookupWorkers(cfg, deps, chClient, redisClient, tenants)...)
+	workers = append(workers,
+		buildLookupWorkers(cfg, deps, chClient, redisClient, tenants, secretStore)...)
 
 	return append(workers,
 		buildCorrelationWorkers(cfg, deps, chClient, redisClient, tenants)...), nil
+}
+
+// buildPullWorker assembles the worker for vendors that cannot push to us.
+func buildPullWorker(
+	cfg *conf.Config, deps *server.Deps, feeds *clickhouse.FeedRepo,
+	tenants *clickhouse.TenantRepo, adapters *vendors.Registry, producer *stream.Producer,
+	deduper *dedup.Deduper, secretStore secrets.Store, health *ingest.HealthAggregator,
+) *puller.Worker {
+	return puller.NewWorker(feeds,
+		puller.NewRegistry(puller.NewCloudflareSource(), puller.NewF5Source(),
+			puller.NewDataDomeSource()),
+		adapters,
+		ingest.NewPublisher(producer, cfg.Redpanda.TopicRaw, cfg.Redpanda.TopicDLQ),
+		deduper, secretStore,
+		filter.NewCache(tenants, filter.DefaultCacheTTL), health, deps.Log)
+}
+
+// processorRepos opens the repositories every worker group shares.
+func processorRepos(chClient *clickhouse.Client, redisClient *redis.Client) (
+	clickhouse.Locker, *clickhouse.EventRepo, *clickhouse.TenantRepo, *clickhouse.FeedRepo,
+) {
+	locker := clickhouse.NewLocker(redisClient)
+	return locker,
+		clickhouse.NewEventRepo(chClient),
+		clickhouse.NewTenantRepo(chClient, locker),
+		clickhouse.NewFeedRepo(chClient, locker)
+}
+
+// buildSecretStore assembles the store every worker that reads a credential goes through
+// — the pull feeds, the Cloudflare rule sync and the alert webhooks all lost theirs
+// together when the cache was emptied.
+func buildSecretStore(
+	cfg *conf.Config, deps *server.Deps, chClient *clickhouse.Client,
+	redisClient *redis.Client,
+) (secrets.Store, error) {
+	store, err := server.SecretStore(deps.Log, secrets.NewRedisStore(redisClient),
+		clickhouse.NewSecretVault(chClient), cfg.Secrets.EncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("build secret store: %w", err)
+	}
+	return store, nil
 }
 
 // buildLookupWorkers builds the workers that keep the console's REFERENCE tables
@@ -234,7 +273,7 @@ func buildWorkers(
 // the last good copy keeps being served.
 func buildLookupWorkers(
 	cfg *conf.Config, deps *server.Deps, chClient *clickhouse.Client,
-	redisClient *redis.Client, tenants *clickhouse.TenantRepo,
+	redisClient *redis.Client, tenants *clickhouse.TenantRepo, secretStore secrets.Store,
 ) []Worker {
 	var workers []Worker
 
@@ -251,7 +290,7 @@ func buildLookupWorkers(
 	// token — which is every tenant until someone adds one.
 	workers = append(workers, cfrules.NewWorker(
 		tenants, clickhouse.NewCloudflareRuleRepo(chClient),
-		secrets.NewRedisStore(redisClient),
+		secretStore,
 		cfg.CloudflareRules.APIBase, cfg.CloudflareRules.Interval, deps.Log))
 
 	return workers
@@ -352,7 +391,7 @@ func buildRetentionWorker(
 // buildAlertingWorker assembles the evaluate-suppress-persist-deliver pipeline.
 func buildAlertingWorker(
 	cfg *conf.Config, deps *server.Deps, chClient *clickhouse.Client,
-	redisClient *redis.Client, locker clickhouse.Locker,
+	redisClient *redis.Client, locker clickhouse.Locker, secretStore secrets.Store,
 ) *alerting.Worker {
 	repo := clickhouse.NewAlertingRepo(chClient, locker)
 
@@ -360,7 +399,7 @@ func buildAlertingWorker(
 		repo,
 		alerting.NewEvaluator(alerting.NewRepoStore(repo)),
 		alerting.NewCooldown(redisClient),
-		alerting.NewWebhook(secrets.NewRedisStore(redisClient), cfg.Redpanda.ConsoleURL),
+		alerting.NewWebhook(secretStore, cfg.Redpanda.ConsoleURL),
 		deps.Log,
 	)
 }
