@@ -11,6 +11,9 @@
 *.out
 vendor/
 backend/bin/
+# A `go build ./cmd/...` from inside backend/ drops the binary beside the source
+backend/crs-eval
+backend/siem-*
 coverage.out
 coverage.html
 
