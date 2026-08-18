@@ -64,13 +64,18 @@ func (s *stubSearch) SearchCorrelated(
 // enough for a shape contract, and the resolution itself is exercised against real
 // storage in the integration suite.
 func (s *stubSearch) EventIDsFor(
-	_ context.Context, _, _ string, _ query.TimeRange,
-) ([]string, error) {
-	ids := make([]string, 0, len(s.events))
+	_ context.Context, _, _ string, rng query.TimeRange,
+) (chdata.IdentifiedEvents, error) {
+	out := chdata.IdentifiedEvents{IDs: make([]string, 0, len(s.events))}
 	for _, e := range s.events {
-		ids = append(ids, e.EventID)
+		out.IDs = append(out.IDs, e.EventID)
 	}
-	return ids, nil
+	if len(out.IDs) > 0 {
+		// Inside the requested range, so the narrowing the service applies afterwards
+		// cannot empty the window this stub's records live in.
+		out.First, out.Last = rng.From, rng.To
+	}
+	return out, nil
 }
 
 type stubEvents struct {

@@ -35,7 +35,9 @@ type EventSearcher interface {
 	// EventIDsFor resolves a vendor identifier to the events carrying it. Correlated
 	// records store event ids rather than identifiers, so searching them by ray or
 	// support id is a two-step lookup.
-	EventIDsFor(ctx context.Context, column, value string, rng query.TimeRange) ([]string, error)
+	EventIDsFor(
+		ctx context.Context, column, value string, rng query.TimeRange,
+	) (chdata.IdentifiedEvents, error)
 }
 
 // EventDetailReader fetches one event with its raw payload.
@@ -170,7 +172,7 @@ func (s *SearchService) SearchCorrelated(
 	// stores the ids and not the identifiers. Resolving to nothing is a real answer —
 	// the identifier matched no event — and must render as an empty page rather than as
 	// an absent filter, which would return everything in the range.
-	eventIDs, matched, err := s.resolveIdentifiers(ctx, req.GetFilters(), rng)
+	resolved, matched, err := s.resolveIdentifiers(ctx, req.GetFilters(), rng)
 	if err != nil {
 		return nil, err
 	}
@@ -179,8 +181,13 @@ func (s *SearchService) SearchCorrelated(
 			Items: []*pb.CorrelatedRequest{}, Page: &pb.PageResponse{},
 		}, nil
 	}
+	// Narrowed to when those events actually happened. A request is looked up by an
+	// identifier from a link, and the range the page happens to be showing has nothing to
+	// do with it — a ray found in the last week is not a reason to read a week of
+	// correlated records looking for it.
+	rng = narrowToEvents(rng, resolved)
 
-	conditions, args, err := correlatedConditions(req.GetFilters(), eventIDs)
+	conditions, args, err := correlatedConditions(req.GetFilters(), resolved.IDs)
 	if err != nil {
 		return nil, err
 	}
@@ -396,9 +403,9 @@ func eventConditions(f *pb.EventFilters) (string, []any, error) {
 // specific question with every record in the range.
 func (s *SearchService) resolveIdentifiers(
 	ctx context.Context, f *pb.CorrelatedFilters, rng query.TimeRange,
-) (eventIDs []string, matched bool, err error) {
+) (resolved chdata.IdentifiedEvents, matched bool, err error) {
 	if f == nil {
-		return nil, true, nil
+		return chdata.IdentifiedEvents{}, true, nil
 	}
 
 	lookups := []struct{ column, value string }{
@@ -417,14 +424,58 @@ func (s *SearchService) resolveIdentifiers(
 		}
 		found, err := s.search.EventIDsFor(ctx, lookup.column, lookup.value, rng)
 		if err != nil {
-			return nil, false, query.TranslateError(err)
+			return chdata.IdentifiedEvents{}, false, query.TranslateError(err)
 		}
-		if len(found) == 0 {
-			return nil, false, nil
+		if len(found.IDs) == 0 {
+			return chdata.IdentifiedEvents{}, false, nil
 		}
-		eventIDs = append(eventIDs, found...)
+		resolved.IDs = append(resolved.IDs, found.IDs...)
+		resolved.First = earliest(resolved.First, found.First)
+		resolved.Last = latest(resolved.Last, found.Last)
 	}
-	return eventIDs, true, nil
+	return resolved, true, nil
+}
+
+// correlationSlack is how far either side of an event its correlated record may start.
+//
+// A record's window_start is the start of the bucket the events fell into, so it is at
+// most one correlation window before the earliest event and never after the latest. Ten
+// minutes is enormous against a five-second window and still narrows a week-long range to
+// something that reads in under a second.
+const correlationSlack = 10 * time.Minute
+
+// narrowToEvents bounds a correlated search to when the identified events happened.
+//
+// Only ever NARROWS: the caller's range is a permission, and a record outside it must not
+// be returned because an identifier pointed at it. Widening would also hand back records
+// from outside the window the analyst believes they are looking at.
+func narrowToEvents(rng query.TimeRange, resolved chdata.IdentifiedEvents) query.TimeRange {
+	if resolved.First.IsZero() || resolved.Last.IsZero() {
+		return rng
+	}
+
+	if from := resolved.First.Add(-correlationSlack); from.After(rng.From) {
+		rng.From = from
+	}
+	if to := resolved.Last.Add(correlationSlack); to.Before(rng.To) {
+		rng.To = to
+	}
+	return rng
+}
+
+// earliest and latest fold two timestamps, treating the zero value as "not set yet".
+func earliest(a, b time.Time) time.Time {
+	if a.IsZero() || (!b.IsZero() && b.Before(a)) {
+		return b
+	}
+	return a
+}
+
+func latest(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 func correlatedConditions(f *pb.CorrelatedFilters, eventIDs []string) (string, []any, error) {

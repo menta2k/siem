@@ -39,6 +39,17 @@ const total = ref(0)
 const totalIsEstimate = ref(false)
 const hasMore = computed(() => nextCursor.value !== '')
 
+/** The window in words, for a message that has to explain what was searched. */
+const rangeLabel = computed(
+  () =>
+    rangeOptions
+      .find((option) => option.value === rangeHours.value)
+      ?.title.replace(/^Last /, 'last ') ?? 'selected range',
+)
+
+/** The identifier this page was opened for, if it was opened for one. */
+const identifierSearch = computed(() => ray.value || supportID.value || ja4.value || '')
+
 // The window is pinned when a search starts and reused for every following page.
 // Recomputing "now" per page would slide the range under the cursor, so rows would be
 // skipped or repeated as the pages advanced.
@@ -76,7 +87,22 @@ const rangeOptions = [
   { title: 'Last hour', value: 1 },
   { title: 'Last 6 hours', value: 6 },
   { title: 'Last 24 hours', value: 24 },
+  { title: 'Last 7 days', value: 168 },
 ]
+
+/**
+ * The window a link to ONE request opens with.
+ *
+ * A ray or a support id names a specific request, and the hour this page browses by
+ * default has nothing to do with when that request happened. Arriving from an event
+ * seventeen hours old, the page reported no correlation for a record that was there all
+ * along — the request was outside the window, and nothing on screen said so.
+ *
+ * A week is affordable here in a way it is not for browsing: the identifier resolves
+ * through an indexed column, and the server then narrows the correlated scan to the few
+ * minutes those events actually span.
+ */
+const IDENTIFIER_LOOKUP_HOURS = 168
 
 async function load(append = false): Promise<void> {
   const mine = ++generation
@@ -171,6 +197,9 @@ onMounted(() => {
   // A link to one request should not also be filtered to cross-vendor records: a
   // single-vendor result is the honest answer when only one vendor saw it.
   if (ray.value || supportID.value) onlyMultiVendor.value = false
+  // ...and it must open on a window that can contain the request. The selector shows the
+  // widened range rather than hiding it, so the reader can see what was searched.
+  if (ray.value || supportID.value || ja4.value) rangeHours.value = IDENTIFIER_LOOKUP_HOURS
   refresh()
 })
 
@@ -402,7 +431,14 @@ const disagreementCount = computed(() => records.value.filter((r) => r.hasDisagr
               by two vendors — usually because only one feed is delivering, or because the vendors
               disagree on the hostname or client IP that the join is made on.
             </template>
-            <template v-else>No correlated requests in this window.</template>
+            <!-- Naming the window is the whole point of this state: "nothing here" and
+                 "nothing here YET, because you are looking at the last 15 minutes" are
+                 the same sentence to a reader who cannot see the range from the table. -->
+            <template v-else-if="identifierSearch">
+              Nothing matched {{ identifierSearch }} in the {{ rangeLabel }}. The request may be
+              older than the window — widen the range above.
+            </template>
+            <template v-else>No correlated requests in the {{ rangeLabel }}.</template>
           </div>
         </template>
       </v-data-table>

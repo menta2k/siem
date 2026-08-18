@@ -279,6 +279,27 @@ func (r *SearchRepo) SearchCorrelated(
 // value an analyst pasted in.
 const MaxIdentifierEvents = 100
 
+// rowCursor is the iteration surface of a result set, so the scanning below can be
+// exercised without a database.
+type rowCursor interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}
+
+// IdentifiedEvents is what one identifier resolved to.
+//
+// The SPAN is the half that makes the lookup affordable. Correlated records are searched
+// by hasAny(event_ids, ...), which no index answers, so the range decides the cost: over a
+// week it reads 69 million rows and takes 25 seconds, and over the half hour the events
+// actually happened in it reads half a million. The events know when they were, so the
+// caller never has to guess.
+type IdentifiedEvents struct {
+	IDs   []string
+	First time.Time
+	Last  time.Time
+}
+
 // EventIDsFor resolves a vendor identifier to the events carrying it.
 //
 // Correlated records store event ids, not identifiers, so searching them by ray or
@@ -289,37 +310,63 @@ const MaxIdentifierEvents = 100
 // caller has to render it as an empty result rather than as an absent filter.
 func (r *SearchRepo) EventIDsFor(
 	ctx context.Context, column, value string, rng query.TimeRange,
-) ([]string, error) {
+) (IdentifiedEvents, error) {
 	tenantID, err := tenancy.MustID(ctx)
 	if err != nil {
-		return nil, err
+		return IdentifiedEvents{}, err
 	}
 
 	// The column is chosen from a fixed set by the caller, never taken from input.
 	switch column {
 	case "vendor_request_id", "vendor_event_id", "linked_request_id", "ja4":
 	default:
-		return nil, fmt.Errorf("event lookup: unsupported identifier column %q", column)
+		return IdentifiedEvents{}, fmt.Errorf(
+			"event lookup: unsupported identifier column %q", column)
 	}
 
 	sql := fmt.Sprintf(
-		`SELECT DISTINCT event_id FROM normalized_events
+		`SELECT event_id, event_time FROM normalized_events
 		 WHERE tenant_id = ? AND event_time >= ? AND event_time < ? AND %s = ?
 		 LIMIT %d`, column, MaxIdentifierEvents)
 
 	rows, err := r.client.Query(ctx, sql, tenantID, rng.From, rng.To, value)
 	if err != nil {
-		return nil, fmt.Errorf("resolve identifier: %w", err)
+		return IdentifiedEvents{}, fmt.Errorf("resolve identifier: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	out := make([]string, 0, 8)
+	return scanIdentifiedEvents(rows)
+}
+
+// scanIdentifiedEvents collects the resolved events and the span they cover.
+//
+// Deduplicated here rather than with DISTINCT, because the timestamps have to be read to
+// know the span and a DISTINCT over two columns would no longer dedupe the id.
+func scanIdentifiedEvents(rows rowCursor) (IdentifiedEvents, error) {
+	var (
+		out  = IdentifiedEvents{IDs: make([]string, 0, 8)}
+		seen = make(map[string]struct{}, 8)
+	)
 	for rows.Next() {
-		var eventID string
-		if err := rows.Scan(&eventID); err != nil {
-			return nil, fmt.Errorf("scan event id: %w", err)
+		var (
+			eventID   string
+			eventTime time.Time
+		)
+		if err := rows.Scan(&eventID, &eventTime); err != nil {
+			return IdentifiedEvents{}, fmt.Errorf("scan event id: %w", err)
 		}
-		out = append(out, eventID)
+		if _, duplicate := seen[eventID]; duplicate {
+			continue
+		}
+		seen[eventID] = struct{}{}
+		out.IDs = append(out.IDs, eventID)
+
+		if out.First.IsZero() || eventTime.Before(out.First) {
+			out.First = eventTime
+		}
+		if eventTime.After(out.Last) {
+			out.Last = eventTime
+		}
 	}
 	return out, rows.Err()
 }
