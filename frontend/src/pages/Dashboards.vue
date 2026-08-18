@@ -78,20 +78,26 @@ async function load(): Promise<void> {
   try {
     // Requested together so every panel reflects the same instant. Loading them in
     // sequence would let a busy tenant's traffic move between the first and the last.
-    const [o, r, s, d, h, c] = await Promise.all([
+    const [o, r, s, d, h] = await Promise.all([
       api.GET('/api/v1/dashboards/overview', { params }),
       api.GET('/api/v1/dashboards/rules', { params }),
       api.GET('/api/v1/dashboards/sources', { params }),
       api.GET('/api/v1/dashboards/disagreements', { params }),
       api.GET('/api/v1/dashboards/feed-health', { params }),
-      api.GET('/api/v1/dashboards/correlation-health', { params }),
     ])
     overview.value = o.data ?? null
     rules.value = r.data ?? null
     sources.value = s.data ?? null
     disagreements.value = d.data ?? null
     feedHealth.value = h.data ?? null
-    correlationHealth.value = c.data ?? null
+
+    // Fetched separately, and its failure swallowed, for the same reason storage is
+    // below — and this panel proved the point the hard way. Batched in with the rest,
+    // one 500 from it blanked the ENTIRE dashboard: no events, no rules, no feeds,
+    // just "an internal error occurred" over a page whose other five panels had all
+    // answered. A panel that reports the pipeline is unhealthy must not be able to
+    // take down the panels that show what the pipeline produced.
+    void loadCorrelationHealth(params)
 
     // Fetched separately, and its failure is swallowed. It is admin-only and takes no
     // range, so folding it into the batch above would fail the WHOLE dashboard with a
@@ -101,6 +107,18 @@ async function load(): Promise<void> {
     errorMessage.value = toDisplayMessage(err)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadCorrelationHealth(params: { query: Record<string, unknown> }): Promise<void> {
+  try {
+    const { data } = await api.GET('/api/v1/dashboards/correlation-health', { params })
+    correlationHealth.value = data ?? null
+  } catch {
+    // Left null, which the chip renders as "Unavailable" — the honest answer. Claiming
+    // health on the strength of a failed request is the exact inversion this panel
+    // exists to end.
+    correlationHealth.value = null
   }
 }
 

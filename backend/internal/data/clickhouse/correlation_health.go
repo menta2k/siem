@@ -219,15 +219,26 @@ func (r *CorrelationHealthRepo) GetCorrelationHealth(
 		lagMS  uint64
 		ttlMS  uint64
 	)
+	// A destination per column, and the integration suite counts them: this shipped
+	// once with eight against nine and 500ed every request, which is the same fault
+	// 8c32245 fixed in the closer. Neither the compiler nor gofmt can see it — the
+	// driver reports it at runtime, so something has to run it.
 	err = row.Scan(
 		&health.EventsFiled, &health.WindowsClosed, &health.RecordsEmitted,
 		&health.WindowsDroppedEmpty, &health.CloseFailures, &health.WindowsDue,
-		&lagMS, &ttlMS)
+		&lagMS, &ttlMS, &health.LastRecordAt)
 	if err != nil {
 		return CorrelationHealth{}, fmt.Errorf("query correlation health: %w", err)
 	}
 
 	health.ClaimLag = time.Duration(lagMS) * time.Millisecond
 	health.WindowTTL = time.Duration(ttlMS) * time.Millisecond
+	// maxIf over no matching rows returns the EPOCH, and a Go zero time is year 1, so
+	// IsZero() is false for it and the console would render "last record 01/01/1970" —
+	// a pipeline that stopped 56 years ago — for a tenant that has simply never
+	// emitted one. Normalised here, at the boundary the epoch comes from.
+	if health.LastRecordAt.Unix() <= 0 {
+		health.LastRecordAt = time.Time{}
+	}
 	return health, nil
 }
