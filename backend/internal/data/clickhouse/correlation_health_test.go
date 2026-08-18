@@ -44,12 +44,25 @@ func TestCorrelationStatus(t *testing.T) {
 	}, {
 		// The warning the second incident never got to give: still emitting, but the
 		// claim lag has eaten half the margin before windows start expiring.
-		name: "lag past half the TTL is the warning before the loss",
+		name: "lag past half the TTL with a real backlog is the warning before the loss",
 		health: chdata.CorrelationHealth{
 			EventsFiled: 172_000, WindowsClosed: 40_000, RecordsEmitted: 40_000,
-			ClaimLag: 12 * time.Minute, WindowTTL: ttl,
+			WindowsDue: 315_000, ClaimLag: 12 * time.Minute, WindowTTL: ttl,
 		},
 		want: chdata.CorrelationBehind,
+	}, {
+		// MEASURED ON PRODUCTION, from the first health rows this table ever held: a
+		// claim lag of 4.2 hours with 23 windows waiting and nothing dropped. The
+		// closer was entirely caught up — a feed delivering hours-late events had put
+		// an entry at the head of the schedule that was overdue the moment it was
+		// written. Reported as behind, this would have been on every screen forever,
+		// and a warning that is always on is one nobody reads.
+		name: "a stale schedule head with nothing behind it is not a slow closer",
+		health: chdata.CorrelationHealth{
+			EventsFiled: 41_886, WindowsClosed: 18_579, RecordsEmitted: 21_908,
+			WindowsDue: 23, ClaimLag: 4*time.Hour + 9*time.Minute, WindowTTL: ttl,
+		},
+		want: chdata.CorrelationHealthy,
 	}, {
 		// A tenant that filed nothing has a pipeline that did nothing wrong. Calling
 		// that healthy would be a claim the data does not support; calling it stalled

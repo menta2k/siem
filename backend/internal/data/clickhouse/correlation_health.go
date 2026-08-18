@@ -134,6 +134,21 @@ const DroppedShareThreshold = 0.05
 // lost — and the pipeline has minutes, not hours, before it starts losing data.
 const BehindShareOfTTL = 0.5
 
+// BehindWindowsFloor is how many windows must be waiting before a lag means anything.
+//
+// One tick's claim: the closer takes up to 32 batches of 256 in a pass, so a backlog
+// smaller than that is one it will clear on its next tick whatever the clock says.
+//
+// The floor is not a tolerance, it is a CORRECTION. The lag is the age of the oldest
+// entry in the schedule, and a window's deadline is derived from its events' time, so a
+// feed delivering hours-late events puts an entry at the head that was born overdue.
+// Production does this during a backfill: the first health rows written showed a claim
+// lag of 4.2 hours against 23 windows waiting and nothing dropped — a closer that was
+// entirely caught up, which the lag alone would have reported as behind on every
+// screen, forever. A warning that is always on is one nobody reads, which would leave
+// the pipeline exactly as unwatched as it was before this table existed.
+const BehindWindowsFloor = 32 * 256
+
 // Status reports the state an operator should act on.
 func (h CorrelationHealth) Status() CorrelationStatus {
 	switch {
@@ -161,12 +176,14 @@ func (h CorrelationHealth) losing() bool {
 	return float64(h.WindowsDroppedEmpty)/float64(attempted) > DroppedShareThreshold
 }
 
-// behind reports whether the claim lag has eaten into the window TTL.
+// behind reports whether a real backlog has been waiting past half the window TTL.
 //
-// Silent when the TTL is unknown — a row written before the closer reported one — rather
-// than comparing against a default the deployment may not use.
+// BOTH readings, for the reason BehindWindowsFloor gives: a lag with nothing behind it
+// is a stale entry, not a slow closer. Silent when the TTL is unknown — a row written
+// before the closer reported one — rather than comparing against a default the
+// deployment may not use.
 func (h CorrelationHealth) behind() bool {
-	if h.WindowTTL <= 0 {
+	if h.WindowTTL <= 0 || h.WindowsDue < BehindWindowsFloor {
 		return false
 	}
 	return h.ClaimLag > time.Duration(float64(h.WindowTTL)*BehindShareOfTTL)
