@@ -181,12 +181,20 @@ func TestRuleStagesAskForOppositeReadings(t *testing.T) {
 	if _, err := svc.GetReadyToEnforce(context.Background(), req); err != nil {
 		t.Fatalf("GetReadyToEnforce: %v", err)
 	}
-	// Disputed rides along with ready: a rule the vendors half agree on is the case that
-	// most needs a person, and it would otherwise appear on no screen at all.
-	if len(reader.gotReadings) != 2 ||
-		reader.gotReadings[0] != chdata.ReadingReady ||
-		reader.gotReadings[1] != chdata.ReadingDisputed {
-		t.Errorf("ready stage asked for %v, want ready and disputed", reader.gotReadings)
+	// Disputed and insufficient ride along with ready. A rule the vendors half agree on
+	// needs a person; a rule with too few requests to judge yet is still WORKING, and one
+	// that appears nowhere is indistinguishable from one that matches nothing. That is not
+	// hypothetical: it was reported twice from production before this test existed.
+	want := []string{
+		chdata.ReadingReady, chdata.ReadingDisputed, chdata.ReadingInsufficient,
+	}
+	if len(reader.gotReadings) != len(want) {
+		t.Fatalf("ready stage asked for %v, want %v", reader.gotReadings, want)
+	}
+	for i := range want {
+		if reader.gotReadings[i] != want[i] {
+			t.Errorf("ready stage asked for %v, want %v", reader.gotReadings, want)
+		}
 	}
 
 	if _, err := svc.GetFalsePositives(context.Background(), req); err != nil {

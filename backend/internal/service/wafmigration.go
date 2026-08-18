@@ -138,16 +138,24 @@ func (s *WAFMigrationService) GetUncovered(
 	return out, nil
 }
 
-// GetReadyToEnforce returns logging Cloudflare rules that F5 independently blocks.
+// GetReadyToEnforce returns logging Cloudflare rules measured against F5.
 //
-// `disputed` is included alongside `ready`. A rule the two vendors mostly agree on is
-// the point of the stage, but one they half agree on is the case that most needs a
-// person to look at it, and leaving it off both this stage and the false-positive stage
-// would make it invisible on the only screen built to find it.
+// THREE readings, not one. `ready` is the point of the stage; `disputed` is the case that
+// most needs a person and would otherwise appear on no screen at all.
+//
+// `insufficient` is here for a reason found in production, twice. A rule deployed that
+// morning had matched requests that F5 blocked every time -- working exactly as intended --
+// and showed up nowhere, because it was under the floor for a reading and neither stage
+// asked for rules below it. The floor is right: a handful of requests is not grounds to
+// enforce. Hiding the rule was not, because "my new rule appears nowhere" and "my new rule
+// matches nothing" are indistinguishable from the outside, and one of them is the anxiety
+// this whole surface exists to answer.
 func (s *WAFMigrationService) GetReadyToEnforce(
 	ctx context.Context, req *pb.WafMigrationRequest,
 ) (*pb.WafRuleAgreementPanel, error) {
-	return s.agreement(ctx, req, []string{chdata.ReadingReady, chdata.ReadingDisputed})
+	return s.agreement(ctx, req, []string{
+		chdata.ReadingReady, chdata.ReadingDisputed, chdata.ReadingInsufficient,
+	})
 }
 
 // GetFalsePositives returns logging Cloudflare rules on traffic F5 lets through.
