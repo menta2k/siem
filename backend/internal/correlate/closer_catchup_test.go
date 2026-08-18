@@ -96,12 +96,12 @@ type nothingStored struct{}
 
 func (nothingStored) Insert(context.Context, []chdata.CorrelatedRequest) error { return nil }
 func (nothingStored) Versions(
-	context.Context, []uuid.UUID,
+	context.Context, []uuid.UUID, chdata.PartitionBound,
 ) (map[uuid.UUID]uint64, error) {
 	return map[uuid.UUID]uint64{}, nil
 }
 func (nothingStored) ByIDs(
-	context.Context, []uuid.UUID,
+	context.Context, []uuid.UUID, chdata.PartitionBound,
 ) (map[uuid.UUID]chdata.CorrelatedRequest, error) {
 	return map[uuid.UUID]chdata.CorrelatedRequest{}, nil
 }

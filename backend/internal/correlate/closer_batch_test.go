@@ -30,6 +30,10 @@ type countingCorrelatedStore struct {
 	// written keeps the rows themselves, so the version contract can be asserted on
 	// what was actually stored rather than on a count.
 	written []chdata.CorrelatedRequest
+
+	// bounds keeps the partition range each lookup was given, so a test can assert
+	// that the reads are pruned rather than trusting that they are.
+	bounds []chdata.PartitionBound
 }
 
 func (s *countingCorrelatedStore) Insert(
@@ -44,8 +48,9 @@ func (s *countingCorrelatedStore) Insert(
 // ByIDs returns the records this store has already been given, so an amendment can be
 // merged into them exactly as it is against real storage.
 func (s *countingCorrelatedStore) ByIDs(
-	_ context.Context, correlationIDs []uuid.UUID,
+	_ context.Context, correlationIDs []uuid.UUID, bound chdata.PartitionBound,
 ) (map[uuid.UUID]chdata.CorrelatedRequest, error) {
+	s.bounds = append(s.bounds, bound)
 	wanted := make(map[uuid.UUID]struct{}, len(correlationIDs))
 	for _, id := range correlationIDs {
 		wanted[id] = struct{}{}
@@ -62,9 +67,10 @@ func (s *countingCorrelatedStore) ByIDs(
 }
 
 func (s *countingCorrelatedStore) Versions(
-	_ context.Context, correlationIDs []uuid.UUID,
+	_ context.Context, correlationIDs []uuid.UUID, bound chdata.PartitionBound,
 ) (map[uuid.UUID]uint64, error) {
 	s.versionCalls++
+	s.bounds = append(s.bounds, bound)
 
 	found := map[uuid.UUID]uint64{}
 	for _, id := range correlationIDs {
@@ -264,13 +270,13 @@ func (s *failingCorrelatedStore) Insert(
 }
 
 func (s *failingCorrelatedStore) Versions(
-	_ context.Context, _ []uuid.UUID,
+	_ context.Context, _ []uuid.UUID, _ chdata.PartitionBound,
 ) (map[uuid.UUID]uint64, error) {
 	return map[uuid.UUID]uint64{}, nil
 }
 
 func (s *failingCorrelatedStore) ByIDs(
-	_ context.Context, _ []uuid.UUID,
+	_ context.Context, _ []uuid.UUID, _ chdata.PartitionBound,
 ) (map[uuid.UUID]chdata.CorrelatedRequest, error) {
 	return map[uuid.UUID]chdata.CorrelatedRequest{}, nil
 }

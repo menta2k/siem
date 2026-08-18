@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/menta2k/siem/internal/correlate"
+	chdata "github.com/menta2k/siem/internal/data/clickhouse"
 )
 
 // chunkRecordingStore records the size of each version lookup so the query bound can be
@@ -18,10 +19,10 @@ type chunkRecordingStore struct {
 }
 
 func (s *chunkRecordingStore) Versions(
-	ctx context.Context, correlationIDs []uuid.UUID,
+	ctx context.Context, correlationIDs []uuid.UUID, bound chdata.PartitionBound,
 ) (map[uuid.UUID]uint64, error) {
 	s.lookupSizes = append(s.lookupSizes, len(correlationIDs))
-	return s.countingCorrelatedStore.Versions(ctx, correlationIDs)
+	return s.countingCorrelatedStore.Versions(ctx, correlationIDs, bound)
 }
 
 // THE PRODUCTION FAILURE THIS FIXES. Batching the closer's writes was right — it took the
@@ -121,5 +122,47 @@ func TestTheInsertIsNotChunkedWithTheLookup(t *testing.T) {
 	if records.calls != 1 {
 		t.Errorf("%d inserts, want 1 — chunking the read must not chunk the write",
 			records.calls)
+	}
+}
+
+// The version lookup must name the partitions it is looking in.
+//
+// THE PRODUCTION FAILURE THIS FIXES. correlated_requests is partitioned by
+// toDate(window_start) and ordered by (tenant_id, toDate(window_start), correlation_id),
+// so a lookup that names no date prunes nothing: correlation_id is the third key column
+// and the second is missing. Measured on production, the closer's version lookup
+// averaged 964ms across 68 million rows and spent 246 seconds of every 600 there — more
+// than the inserts, the record loads and everything else in a close pass combined. The
+// closer could not keep up with the rate windows were being filed, and a closer that
+// cannot keep up eventually falls past the window TTL, where every window it closes is
+// empty and correlation stops entirely.
+//
+// The range has to COVER the records being written, though, or an amendment silently
+// becomes a second first-emission. It is derived from their own window starts, widened
+// by the lateness bound — how far a record's window start can move between emissions —
+// and a day of slack for feeds that deliver events hours late.
+func TestTheLookupsAreBoundedToTheRecordsOwnPartitions(t *testing.T) {
+	windowStore := newCountingWindowStore()
+	records := &countingCorrelatedStore{}
+
+	fileAndClose(t, 10, windowStore, records)
+
+	if len(records.bounds) == 0 {
+		t.Fatal("no lookup was made, so nothing was asserted")
+	}
+
+	written := records.written[0].WindowStart
+	for _, bound := range records.bounds {
+		if !bound.From.Before(written) || !bound.To.After(written) {
+			t.Errorf("bound [%s, %s] does not cover a record written at %s — an "+
+				"amendment inside it would be read as a record that does not exist",
+				bound.From, bound.To, written)
+		}
+		// Wide enough to cover, narrow enough to prune: anything approaching the
+		// ninety-day retention would leave the scan exactly where it was.
+		if span := bound.To.Sub(bound.From); span > 7*24*time.Hour {
+			t.Errorf("bound spans %s, which prunes almost nothing off a 90-day table",
+				span)
+		}
 	}
 }

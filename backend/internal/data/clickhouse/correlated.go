@@ -83,6 +83,43 @@ const correlatedColumns = `tenant_id, correlation_id, window_start, first_event_
 	rule_ids, matched_rule_ids, scores, combined_outcome, has_disagreement, disagreement_kind,
 	join_signals, join_tier, confidence, candidate_count, version, amended`
 
+// PartitionBound narrows a correlation-id lookup to the partitions an existing copy of
+// those records could be in.
+//
+// correlated_requests is PARTITIONed BY toDate(window_start) and ORDERed BY
+// (tenant_id, toDate(window_start), correlation_id), so a lookup that names no date has
+// to visit all ninety days: correlation_id is the THIRD key column and prunes nothing
+// without the second. Measured on production, the closer's version lookup averaged 964ms
+// over 68 million rows per call and spent 246 seconds of every 600 doing it — the single
+// largest cost in a close pass, and the reason the closer could not keep up with the rate
+// windows were being filed. With the date named, the same lookup is a binary search
+// inside one or two partitions.
+//
+// The range is derived from the records being written, widened by the lateness bound and
+// a day. That is not a guess: a record's window_start only ever moves EARLIER, because
+// mergeRecords keeps the stored one, and it can only move by the drift of the events a
+// window is still accepting — which is what the lateness bound bounds. The extra day is
+// slack for a backfilling feed whose events are hours old, which production does have.
+//
+// The residual is deliberate. An amendment arriving more than a day past its record is
+// not found, and is written as a first emission rather than a new version — which the
+// engine then discards in favour of the stored row. An arrival that late is already
+// outside the lateness bound the tenant configured, so it is a correlation the platform
+// has said it will not make; this reads it the same way rather than paying ninety
+// partitions on every close pass to honour the exception.
+type PartitionBound struct {
+	From time.Time
+	To   time.Time
+}
+
+// where renders the bound as a partition-pruning predicate.
+//
+// Written over toDate(window_start) rather than over window_start because that IS the
+// partition expression, so the pruning is exact rather than inferred from a range.
+func (b PartitionBound) where() string {
+	return "toDate(window_start) >= toDate(?) AND toDate(window_start) <= toDate(?) "
+}
+
 // ByIDs loads the stored records for a set of correlation ids.
 //
 // Exists so the closer can MERGE a late arrival into what is already stored rather than
@@ -94,7 +131,7 @@ const correlatedColumns = `tenant_id, correlation_id, window_start, first_event_
 // Returns only what it finds. A first emission has nothing stored, which is the ordinary
 // case and not an error.
 func (r *CorrelatedRepo) ByIDs(
-	ctx context.Context, correlationIDs []uuid.UUID,
+	ctx context.Context, correlationIDs []uuid.UUID, bound PartitionBound,
 ) (map[uuid.UUID]CorrelatedRequest, error) {
 	out := make(map[uuid.UUID]CorrelatedRequest, len(correlationIDs))
 	if len(correlationIDs) == 0 {
@@ -118,9 +155,9 @@ func (r *CorrelatedRepo) ByIDs(
 	// in a tick — and during a backlog replay nearly every record IS an amendment.
 	rows, err := r.client.Query(ctx,
 		"SELECT "+correlatedColumns+" FROM correlated_requests "+
-			"WHERE tenant_id = ? AND correlation_id IN (?) "+
+			"WHERE tenant_id = ? AND "+bound.where()+"AND correlation_id IN (?) "+
 			"ORDER BY version DESC LIMIT 1 BY correlation_id",
-		tenantID, correlationIDs)
+		tenantID, bound.From, bound.To, correlationIDs)
 	if err != nil {
 		return nil, fmt.Errorf("query correlated records: %w", err)
 	}
@@ -186,7 +223,7 @@ var ErrCorrelatedNotFound = errors.New("correlated request not found")
 // is the dominant cost of closing a window. Ids with no existing record are simply
 // absent from the map; that is the "this is a new record" answer, not an error.
 func (r *CorrelatedRepo) Versions(
-	ctx context.Context, correlationIDs []uuid.UUID,
+	ctx context.Context, correlationIDs []uuid.UUID, bound PartitionBound,
 ) (map[uuid.UUID]uint64, error) {
 	versions := make(map[uuid.UUID]uint64, len(correlationIDs))
 	if len(correlationIDs) == 0 {
@@ -208,8 +245,9 @@ func (r *CorrelatedRepo) Versions(
 	// ten seconds, in chunks of VersionLookupChunk over a tick's whole output.
 	rows, err := r.client.Query(ctx,
 		"SELECT correlation_id, max(version) FROM correlated_requests "+
-			"WHERE tenant_id = ? AND correlation_id IN (?) GROUP BY correlation_id",
-		tenantID, correlationIDs)
+			"WHERE tenant_id = ? AND "+bound.where()+
+			"AND correlation_id IN (?) GROUP BY correlation_id",
+		tenantID, bound.From, bound.To, correlationIDs)
 	if err != nil {
 		return nil, fmt.Errorf("query correlated versions: %w", err)
 	}

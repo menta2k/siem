@@ -25,6 +25,14 @@ import (
 // the NORMAL case here rather than a rare one — the closer reads records it wrote seconds
 // earlier, long before ClickHouse has merged anything.
 
+// boundAround is the partition range the closer would compute for records written at
+// `at`: see chdata.PartitionBound. The suite passes it explicitly so that a test which
+// means "look everywhere" cannot get there by accident.
+func boundAround(at time.Time) chdata.PartitionBound {
+	const wide = 48 * time.Hour
+	return chdata.PartitionBound{From: at.Add(-wide), To: at.Add(wide)}
+}
+
 // versionedRecord builds one version of a correlated record, distinguishable by the
 // fields the merge path actually reads back.
 func versionedRecord(
@@ -77,7 +85,7 @@ func TestVersionsReportsTheLatestOfAnAmendedRecord(t *testing.T) {
 		}
 	}
 
-	versions, err := repo.Versions(ctx, []uuid.UUID{id})
+	versions, err := repo.Versions(ctx, []uuid.UUID{id}, boundAround(at))
 	if err != nil {
 		t.Fatalf("Versions(): %v", err)
 	}
@@ -100,7 +108,7 @@ func TestVersionsOmitsIdsThatWereNeverStored(t *testing.T) {
 	ctx, _ := f.NewTenant(t, "correlated-versions-absent")
 
 	versions, err := chdata.NewCorrelatedRepo(f.ClickHouse).
-		Versions(ctx, []uuid.UUID{uuid.New()})
+		Versions(ctx, []uuid.UUID{uuid.New()}, boundAround(time.Now().UTC()))
 	if err != nil {
 		t.Fatalf("Versions(): %v", err)
 	}
@@ -137,7 +145,7 @@ func TestByIDsReturnsTheWinningVersionNotASupersededOne(t *testing.T) {
 		t.Fatalf("Insert(version 2): %v", err)
 	}
 
-	records, err := repo.ByIDs(ctx, []uuid.UUID{id})
+	records, err := repo.ByIDs(ctx, []uuid.UUID{id}, boundAround(at))
 	if err != nil {
 		t.Fatalf("ByIDs(): %v", err)
 	}
@@ -190,7 +198,7 @@ func TestByIDsResolvesEachIdIndependently(t *testing.T) {
 		t.Fatalf("Insert(single): %v", err)
 	}
 
-	records, err := repo.ByIDs(ctx, []uuid.UUID{amended, single, absent})
+	records, err := repo.ByIDs(ctx, []uuid.UUID{amended, single, absent}, boundAround(at))
 	if err != nil {
 		t.Fatalf("ByIDs(): %v", err)
 	}
@@ -206,5 +214,46 @@ func TestByIDsResolvesEachIdIndependently(t *testing.T) {
 	}
 	if _, present := records[absent]; present {
 		t.Error("an id with no record must be absent from the map, not zero-valued")
+	}
+}
+
+// The bound must actually EXCLUDE. It exists to keep the closer's two reads inside a
+// day or two of the ninety they would otherwise scan, and a predicate that pruned
+// nothing would leave that cost in place while looking fixed in a unit test.
+//
+// The other half of the contract — that a record INSIDE the range is still found — is
+// what every test above asserts, since they all pass a bound now.
+func TestTheLookupsHonourTheirPartitionBound(t *testing.T) {
+	f := support.Shared(t)
+	ctx, tenant := f.NewTenant(t, "correlated-bound")
+
+	repo := chdata.NewCorrelatedRepo(f.ClickHouse)
+	id := uuid.New()
+	at := time.Now().UTC().Truncate(time.Second)
+
+	record := versionedRecord(tenant.ID, id, at, 1, []string{vendors.Cloudflare})
+	if err := repo.Insert(ctx, []chdata.CorrelatedRequest{record}); err != nil {
+		t.Fatalf("Insert(): %v", err)
+	}
+
+	// A range that ends the day before the record was written.
+	stale := chdata.PartitionBound{From: at.AddDate(0, 0, -9), To: at.AddDate(0, 0, -2)}
+
+	versions, err := repo.Versions(ctx, []uuid.UUID{id}, stale)
+	if err != nil {
+		t.Fatalf("Versions(): %v", err)
+	}
+	if len(versions) != 0 {
+		t.Errorf("Versions() returned %v for a partition range the record is not in; "+
+			"the bound is not pruning and the lookup still costs the whole retention",
+			versions)
+	}
+
+	records, err := repo.ByIDs(ctx, []uuid.UUID{id}, stale)
+	if err != nil {
+		t.Fatalf("ByIDs(): %v", err)
+	}
+	if len(records) != 0 {
+		t.Errorf("ByIDs() returned %d records outside the bound, want 0", len(records))
 	}
 }

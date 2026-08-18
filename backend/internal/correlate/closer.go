@@ -21,11 +21,16 @@ type CorrelatedStore interface {
 	Insert(ctx context.Context, records []chdata.CorrelatedRequest) error
 	// Versions reports the current version of each id that already exists. Ids with
 	// no record are absent, which is how "this is a new record" is expressed.
-	Versions(ctx context.Context, correlationIDs []uuid.UUID) (map[uuid.UUID]uint64, error)
+	//
+	// Both reads take the partitions to look in. Unbounded, they scan the whole
+	// retention for ids that live in one day of it: see chdata.PartitionBound.
+	Versions(
+		ctx context.Context, correlationIDs []uuid.UUID, bound chdata.PartitionBound,
+	) (map[uuid.UUID]uint64, error)
 	// ByIDs loads the stored records so an amendment can be MERGED into what is there
 	// rather than replacing it. See mergeRecords.
 	ByIDs(
-		ctx context.Context, correlationIDs []uuid.UUID,
+		ctx context.Context, correlationIDs []uuid.UUID, bound chdata.PartitionBound,
 	) (map[uuid.UUID]chdata.CorrelatedRequest, error)
 }
 
@@ -257,14 +262,14 @@ const VersionLookupChunk = 1000
 // Only the READ is split. The insert stays whole because one part per tick is the entire
 // point of batching — it is the read that has a query-size limit, not the write.
 func (c *Closer) versionsOf(
-	ctx context.Context, ids []uuid.UUID,
+	ctx context.Context, ids []uuid.UUID, bound chdata.PartitionBound,
 ) (map[uuid.UUID]uint64, error) {
 	existing := make(map[uuid.UUID]uint64, len(ids))
 
 	for start := 0; start < len(ids); start += VersionLookupChunk {
 		end := min(start+VersionLookupChunk, len(ids))
 
-		found, err := c.store.Versions(ctx, ids[start:end])
+		found, err := c.store.Versions(ctx, ids[start:end], bound)
 		if err != nil {
 			return nil, err
 		}
@@ -280,6 +285,69 @@ func (c *Closer) versionsOf(
 type emission struct {
 	record  chdata.CorrelatedRequest
 	members int
+}
+
+// PartitionSlack is how far either side of a batch's own window starts an existing copy
+// of those records is looked for.
+//
+// A day on top of the tenant's lateness bound. The bound is what limits how far a
+// record's window_start can move between emissions; the day is slack for a feed
+// delivering events hours after they happened, which production does — 4.5-hour-old
+// event times were observed during a backfill, and a record whose partition is decided
+// by event time follows them across midnight.
+const PartitionSlack = 24 * time.Hour
+
+// partitionBound is the range of partitions a batch's records could already exist in.
+func partitionBound(emitted []emission, lateness time.Duration) chdata.PartitionBound {
+	slack := PartitionSlack + max(lateness, 0)
+
+	from, to := emitted[0].record.WindowStart, emitted[0].record.WindowStart
+	for _, e := range emitted[1:] {
+		if e.record.WindowStart.Before(from) {
+			from = e.record.WindowStart
+		}
+		if e.record.WindowStart.After(to) {
+			to = e.record.WindowStart
+		}
+	}
+	return chdata.PartitionBound{From: from.Add(-slack), To: to.Add(slack)}
+}
+
+// versioned stamps each record with the version it will be stored at.
+//
+// Returns new emissions rather than editing the ones it was given: the metrics are
+// observed from the result after the write succeeds, and a half-versioned batch left
+// behind by a failed insert would report versions that were never stored.
+func versioned(
+	emitted []emission, existing map[uuid.UUID]uint64,
+	stored map[uuid.UUID]chdata.CorrelatedRequest, conflictThreshold float32,
+) ([]emission, []chdata.CorrelatedRequest) {
+	out := make([]emission, 0, len(emitted))
+	records := make([]chdata.CorrelatedRequest, 0, len(emitted))
+
+	for _, e := range emitted {
+		record := e.record
+		// A record that already exists is an AMENDMENT: same correlation id, higher
+		// version, amended set. That is the late-arrival contract (FR-018) — the
+		// analyst who bookmarked a correlation id still finds it, now with the extra
+		// vendor attached.
+		if version, ok := existing[record.CorrelationID]; ok {
+			// MERGED, not replaced. The window behind this closing may hold only the
+			// late event: its member state expires with the lateness bound while the
+			// correlation id does not, so an amendment built from the window alone
+			// would overwrite the other vendors with nothing.
+			if previous, ok := stored[record.CorrelationID]; ok {
+				record = mergeRecords(previous, record, conflictThreshold)
+			}
+			record.Version = version + 1
+			record.Amended = true
+		} else {
+			record.Version = 1
+		}
+		out = append(out, emission{record: record, members: e.members})
+		records = append(records, record)
+	}
+	return out, records
 }
 
 // insert versions and writes one tenant's closed windows.
@@ -299,7 +367,10 @@ func (c *Closer) insert(ctx context.Context, tenantID uuid.UUID, emitted []emiss
 		ids = append(ids, e.record.CorrelationID)
 	}
 
-	existing, err := c.versionsOf(scoped, ids)
+	settings := c.settings.For(ctx, tenantID)
+	bound := partitionBound(emitted, settings.Keys.LatenessBound)
+
+	existing, err := c.versionsOf(scoped, ids, bound)
 	if err != nil {
 		CloseFailures.WithLabelValues("read").Inc()
 		return fmt.Errorf("look up %d existing records: %w", len(ids), err)
@@ -307,36 +378,13 @@ func (c *Closer) insert(ctx context.Context, tenantID uuid.UUID, emitted []emiss
 
 	// The stored records are read only for ids that already exist, so a tick of first
 	// emissions — the ordinary case — costs nothing extra.
-	stored, err := c.storedFor(scoped, existing)
+	stored, err := c.storedFor(scoped, existing, bound)
 	if err != nil {
 		CloseFailures.WithLabelValues("read").Inc()
 		return fmt.Errorf("load %d existing records: %w", len(existing), err)
 	}
 
-	records := make([]chdata.CorrelatedRequest, 0, len(emitted))
-	for i, e := range emitted {
-		record := e.record
-		// A record that already exists is an AMENDMENT: same correlation id, higher
-		// version, amended set. That is the late-arrival contract (FR-018) — the
-		// analyst who bookmarked a correlation id still finds it, now with the extra
-		// vendor attached.
-		if version, ok := existing[record.CorrelationID]; ok {
-			// MERGED, not replaced. The window behind this closing may hold only the
-			// late event: its member state expires with the lateness bound while the
-			// correlation id does not, so an amendment built from the window alone
-			// would overwrite the other vendors with nothing.
-			if previous, ok := stored[record.CorrelationID]; ok {
-				record = mergeRecords(previous, record,
-					c.settings.For(ctx, tenantID).ScoreConflictThreshold)
-			}
-			record.Version = version + 1
-			record.Amended = true
-		} else {
-			record.Version = 1
-		}
-		emitted[i].record = record
-		records = append(records, record)
-	}
+	emitted, records := versioned(emitted, existing, stored, settings.ScoreConflictThreshold)
 
 	if err := c.store.Insert(scoped, records); err != nil {
 		CloseFailures.WithLabelValues("insert").Inc()
@@ -352,7 +400,7 @@ func (c *Closer) insert(ctx context.Context, tenantID uuid.UUID, emitted []emiss
 
 // storedFor loads the records behind the ids that already exist.
 func (c *Closer) storedFor(
-	ctx context.Context, existing map[uuid.UUID]uint64,
+	ctx context.Context, existing map[uuid.UUID]uint64, bound chdata.PartitionBound,
 ) (map[uuid.UUID]chdata.CorrelatedRequest, error) {
 	if len(existing) == 0 {
 		return nil, nil
@@ -362,7 +410,7 @@ func (c *Closer) storedFor(
 	for id := range existing {
 		ids = append(ids, id)
 	}
-	return c.store.ByIDs(ctx, ids)
+	return c.store.ByIDs(ctx, ids, bound)
 }
 
 // build assembles the records for one closed window without writing them.
