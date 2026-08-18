@@ -17,10 +17,7 @@
 -- to "always read". GRANULARITY 1 rather than 4 because the filter is being asked about a
 -- single value that lives in a single granule -- a coarser index would keep four times as
 -- many granules alive for nothing.
-ALTER TABLE correlated_requests
-    ADD INDEX IF NOT EXISTS idx_corr_event_ids event_ids
-    TYPE bloom_filter(0.01) GRANULARITY 1;
-
+--
 -- NOT materialized, deliberately. This table holds 90 days at roughly ten million rows a
 -- day, and rewriting all of it to backfill an index would compete with ingestion for hours
 -- to speed up lookups against records nobody is looking at any more. Parts written from
@@ -29,3 +26,11 @@ ALTER TABLE correlated_requests
 --
 -- To backfill anyway, one day at a time and watching ingestion lag:
 --   ALTER TABLE correlated_requests MATERIALIZE INDEX idx_corr_event_ids IN PARTITION '2026-08-17'
+--
+-- The statement comes LAST and the file ends with it, with no trailing semicolon and no
+-- comment after it. The runner splits this file textually, so anything following the final
+-- statement is sent to ClickHouse as a query of its own -- and a comment block is an empty
+-- one, which fails with code 62. Migration 0017 was rolled back by hand for exactly this.
+ALTER TABLE correlated_requests
+    ADD INDEX IF NOT EXISTS idx_corr_event_ids event_ids
+    TYPE bloom_filter(0.01) GRANULARITY 1
