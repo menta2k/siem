@@ -510,16 +510,23 @@ func TestEventIDsForResolvesAFingerprint(t *testing.T) {
 	}
 
 	got := map[string]bool{}
-	for _, id := range ids {
+	for _, id := range ids.IDs {
 		got[id] = true
 	}
 	for _, want := range []string{"cf-blocked", "f5-allowed"} {
 		if !got[want] {
-			t.Errorf("EventIDsFor(ja4) = %v, want it to include %q", ids, want)
+			t.Errorf("EventIDsFor(ja4) = %v, want it to include %q", ids.IDs, want)
 		}
 	}
 	if got["dd-challenged"] {
 		t.Error("a different fingerprint was resolved as a match")
+	}
+
+	// The span is what lets the caller narrow the correlated scan from a week to the
+	// minutes these events actually cover, so it has to come back populated.
+	if ids.First.IsZero() || ids.Last.IsZero() || ids.Last.Before(ids.First) {
+		t.Errorf("span = %s..%s, want the window the resolved events cover",
+			ids.First, ids.Last)
 	}
 }
 
@@ -536,8 +543,11 @@ func TestEventIDsForReportsAnUnmatchedFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EventIDsFor: %v", err)
 	}
-	if len(ids) != 0 {
-		t.Errorf("EventIDsFor(unknown fingerprint) = %v, want none", ids)
+	if len(ids.IDs) != 0 {
+		t.Errorf("EventIDsFor(unknown fingerprint) = %v, want none", ids.IDs)
+	}
+	if !ids.First.IsZero() || !ids.Last.IsZero() {
+		t.Error("an unmatched identifier reported a span, which as a range would be the year 1")
 	}
 }
 
