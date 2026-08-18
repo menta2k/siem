@@ -23,6 +23,17 @@ type CacheWriter interface {
 	PutRef(ctx context.Context, ref, purpose, secret string) error
 }
 
+// The two things worth telling an operator about. Neither is an error, and neither is
+// routine: one means the cache had been emptied, the other that a credential existed
+// nowhere durable until now. Reported apart because they say different things about what
+// the deployment just survived.
+const (
+	// CacheRefilled: the cache did not have it and the sealed copy did.
+	CacheRefilled = "cache refilled from the durable copy"
+	// DurableBackfilled: the cache had it and nothing durable did, so it does now.
+	DurableBackfilled = "durable copy written from the cache"
+)
+
 // Tiered reads through a cache and falls back to the durable copy.
 type Tiered struct {
 	cache   CacheWriter
@@ -31,20 +42,18 @@ type Tiered struct {
 	// durably, so the check below costs one query per credential per restart rather than
 	// one per delivery.
 	backfilled sync.Map
-	// onRefill reports a cache miss that the durable copy answered. A miss is not an
-	// error, but it is never routine either: it means the cache was emptied, and the
-	// operator should learn that from a log rather than from a dark platform.
-	onRefill func(ctx context.Context, ref string)
+	// onEvent reports a healing, with which direction it went.
+	onEvent func(ctx context.Context, ref, what string)
 }
 
 // NewTiered wires a cache in front of the durable store.
 func NewTiered(
-	cache CacheWriter, durable *DurableStore, onRefill func(context.Context, string),
+	cache CacheWriter, durable *DurableStore, onEvent func(context.Context, string, string),
 ) *Tiered {
-	if onRefill == nil {
-		onRefill = func(context.Context, string) {}
+	if onEvent == nil {
+		onEvent = func(context.Context, string, string) {}
 	}
-	return &Tiered{cache: cache, durable: durable, onRefill: onRefill}
+	return &Tiered{cache: cache, durable: durable, onEvent: onEvent}
 }
 
 // ensureDurable writes a cached secret to the durable copy if it is not there yet.
@@ -76,7 +85,7 @@ func (t *Tiered) ensureDurable(ctx context.Context, ref, secret string) {
 		t.backfilled.Delete(ref)
 		return
 	}
-	t.onRefill(ctx, ref)
+	t.onEvent(ctx, ref, DurableBackfilled)
 }
 
 // Put writes the durable copy FIRST, then the cache.
@@ -98,15 +107,15 @@ func (t *Tiered) Put(ctx context.Context, purpose, secret string) (string, error
 
 // Resolve answers from the cache, refilling it from the durable copy on a miss.
 func (t *Tiered) Resolve(ctx context.Context, ref string) (string, error) {
+	// ANY cache failure falls through to the durable copy — empty, unreachable or
+	// misbehaving are the same thing from here, and none of them may stop a delivery
+	// whose credential is perfectly valid. The distinction is deliberately not drawn:
+	// drawing it produced a log line claiming the cache had been emptied every time a
+	// reference simply was not in it.
 	secret, err := t.cache.Resolve(ctx, ref)
 	if err == nil && secret != "" {
 		t.ensureDurable(ctx, ref, secret)
 		return secret, nil
-	}
-	if err != nil && !errors.Is(err, ErrNotFound) {
-		// The cache is broken rather than empty. Fall through to the durable copy: a
-		// degraded cache must not be able to stop ingestion either.
-		t.onRefill(ctx, ref)
 	}
 
 	secret, durableErr := t.durable.Resolve(ctx, ref)
@@ -114,7 +123,7 @@ func (t *Tiered) Resolve(ctx context.Context, ref string) (string, error) {
 		return "", durableErr
 	}
 
-	t.onRefill(ctx, ref)
+	t.onEvent(ctx, ref, CacheRefilled)
 	t.backfilled.Store(ref, struct{}{})
 	// Best effort: a cache that refuses writes costs a slow read per delivery, which is
 	// worth far less than refusing the delivery.
@@ -146,7 +155,7 @@ var ErrNoDurableCopy = errors.New(
 // log. A key that is present but MALFORMED is an error, because it means somebody
 // intended durability and does not have it.
 func Build(
-	cache CacheWriter, db DB, encodedKey string, onRefill func(context.Context, string),
+	cache CacheWriter, db DB, encodedKey string, onEvent func(context.Context, string, string),
 ) (Store, error) {
 	if encodedKey == "" {
 		return cache, ErrNoDurableCopy
@@ -164,5 +173,5 @@ func Build(
 	if err != nil {
 		return nil, err
 	}
-	return NewTiered(cache, durable, onRefill), nil
+	return NewTiered(cache, durable, onEvent), nil
 }

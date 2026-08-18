@@ -165,12 +165,13 @@ func Fatal(log *middleware.SlogLogger, msg string, err error) {
 func SecretStore(
 	log *middleware.SlogLogger, cache secrets.CacheWriter, db secrets.DB, encodedKey string,
 ) (secrets.Store, error) {
-	store, err := secrets.Build(cache, db, encodedKey, func(ctx context.Context, ref string) {
-		// A refill means the cache had been emptied. Not an error — the platform just
-		// healed itself — but the operator has to be able to see that it happened.
-		log.Warn(ctx, "feed credential refilled from the durable copy: the cache was empty",
-			"ref", ref)
-	})
+	store, err := secrets.Build(cache, db, encodedKey,
+		func(ctx context.Context, ref, what string) {
+			// Neither direction is an error — the platform healed itself — but both say
+			// something happened that an operator should not have to infer later: the
+			// cache was emptied, or a credential had existed nowhere durable until now.
+			log.Warn(ctx, "feed credential healed", "ref", ref, "how", what)
+		})
 
 	switch {
 	case errors.Is(err, secrets.ErrNoDurableCopy):

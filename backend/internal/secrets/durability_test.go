@@ -216,24 +216,55 @@ func TestARefillIsReported(t *testing.T) {
 		t.Fatalf("build durable store: %v", err)
 	}
 
-	var reported int
-	store := NewTiered(cache, durable, func(context.Context, string) { reported++ })
+	var reported []string
+	store := NewTiered(cache, durable, func(_ context.Context, _, what string) {
+		reported = append(reported, what)
+	})
 	ctx := context.Background()
 
 	ref, _ := store.Put(ctx, "feed-credential", "the-token")
 	if _, err := store.Resolve(ctx, ref); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if reported != 0 {
-		t.Error("a cache hit was reported as a refill")
+	if len(reported) != 0 {
+		t.Errorf("a cache hit was reported as %v", reported)
 	}
 
 	cache.flushAll()
 	if _, err := store.Resolve(ctx, ref); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if reported != 1 {
-		t.Errorf("refills reported = %d, want the empty cache to be visible", reported)
+	if len(reported) != 1 || reported[0] != CacheRefilled {
+		t.Errorf("reported %v, want the empty cache to be visible as a refill", reported)
+	}
+}
+
+// The two directions are reported APART. A backfill logged as "the cache was empty" sent
+// an operator looking for a Redis problem that had not happened.
+func TestABackfillIsNotReportedAsARefill(t *testing.T) {
+	cache, db := newMemoryCache(), newFakeDB()
+	durable, err := NewDurableStore(db, sealer(t))
+	if err != nil {
+		t.Fatalf("build durable store: %v", err)
+	}
+
+	var reported []string
+	store := NewTiered(cache, durable, func(_ context.Context, _, what string) {
+		reported = append(reported, what)
+	})
+
+	ctx := context.Background()
+	ref := NewReference("feed-credential")
+	if err := cache.PutRef(ctx, ref, "feed-credential", "the-token"); err != nil {
+		t.Fatalf("seed the cache: %v", err)
+	}
+
+	if _, err := store.Resolve(ctx, ref); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if len(reported) != 1 || reported[0] != DurableBackfilled {
+		t.Errorf("reported %v, want the durable copy being written", reported)
 	}
 }
 
