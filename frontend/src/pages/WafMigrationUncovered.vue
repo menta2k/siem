@@ -14,6 +14,7 @@ import { usePreferencesStore } from '@/stores/preferences'
 import { useMigrationRange } from '@/composables/useMigrationRange'
 import MigrationStageHeader from '@/components/MigrationStageHeader.vue'
 import MigrationSamples from '@/components/MigrationSamples.vue'
+import ExpressionTester from '@/components/ExpressionTester.vue'
 
 type UncoveredGroup = components['schemas']['WafUncoveredGroup']
 
@@ -164,6 +165,17 @@ function allowlistShare(g: UncoveredGroup): number {
                 <tr v-if="expanded === rowKey(g)">
                   <td colspan="8" class="pa-0">
                     <MigrationSamples
+                      :range="range"
+                      :violation="g.violation"
+                      :request-host="g.requestHost"
+                      :request-method="g.requestMethod"
+                      f5-verdict="blocked"
+                      cloudflare-verdict="allowed"
+                    />
+                    <!-- Beneath the requests, not beside them: the rule is written FROM
+                         what those requests look like, so they are read first. -->
+                    <v-divider />
+                    <ExpressionTester
                       :range="range"
                       :violation="g.violation"
                       :request-host="g.requestHost"

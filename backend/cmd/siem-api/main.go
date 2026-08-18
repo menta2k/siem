@@ -188,20 +188,27 @@ func buildServices(
 		// resolver the rest of the console uses, so a rule reads by name here too.
 		WafTuning: service.NewWAFTuningService(
 			clickhouse.NewWAFTuningRepo(ch), limits, ruleNames),
-		// Reads the correlated records rather than the rollups: every question the
-		// migration asks is about what the OTHER vendor did with the same request, which
-		// only the correlated record can answer.
-		// The rule table decides which Cloudflare rules are migration candidates, so the
-		// same repo the namer reads is passed in for that too.
-		WafMigration: service.NewWAFMigrationService(
-			clickhouse.NewWAFMigrationRepo(ch), limits, ruleNames,
-			clickhouse.NewCloudflareRuleRepo(ch)).
-			// Optional, and empty by default: a deployment without the evaluator keeps
-			// every migration page and refuses only the expression test, with a reason.
-			WithEvaluator(wirefilter.NewClient(cfg.CloudflareRules.EvaluatorURL),
-				events, adapters),
-		Alerts: buildAlertsService(rdb, alertingRepo, auditLog),
+		WafMigration: wafMigrationService(cfg, ch, limits, ruleNames, events, adapters),
+		Alerts:       buildAlertsService(rdb, alertingRepo, auditLog),
 	}
+}
+
+// wafMigrationService assembles the migration surface.
+//
+// Reads the correlated records rather than the rollups: every question the migration asks
+// is about what the OTHER vendor did with the same request, which only the correlated
+// record can answer. The rule table decides which Cloudflare rules are candidates, so the
+// same repo the namer reads is passed in for that too.
+func wafMigrationService(
+	cfg *conf.Config, ch *clickhouse.Client, limits query.Limits,
+	ruleNames service.RuleNamer, events *clickhouse.EventRepo, adapters *vendors.Registry,
+) *service.WAFMigrationService {
+	return service.NewWAFMigrationService(
+		clickhouse.NewWAFMigrationRepo(ch), limits, ruleNames,
+		clickhouse.NewCloudflareRuleRepo(ch)).
+		// Optional, and empty by default: a deployment without an evaluator keeps every
+		// migration page and refuses only the expression test, with a reason.
+		WithEvaluator(wirefilter.NewClient(cfg.CloudflareRules.EvaluatorURL), events, adapters)
 }
 
 // buildAlertsService assembles the alerting read and write path.
