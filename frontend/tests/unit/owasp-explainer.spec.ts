@@ -90,9 +90,10 @@ describe('OwaspExplainer', () => {
       matched: [match({ id: 913100, score: 2 }), match({ id: 942100, score: 5 })],
     })
 
-    const rows = view.findAll('tbody tr')
-    expect(rows[0].text()).toContain('942100')
-    expect(rows[1].text()).toContain('913100')
+    const rows = view.findAll('tbody tr').map((row) => row.text())
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toContain('942100')
+    expect(rows[1]).toContain('913100')
   })
 
   // THE ONE THAT PREVENTS A WRONG CONCLUSION. On this deployment every OWASP hit is an
