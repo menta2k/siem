@@ -293,12 +293,40 @@ function downloadExport(base64: string, contentType: string, filename: string): 
                     </router-link>
                   </td>
                 </tr>
+                <!-- The question an event is almost always opened with: what did the
+                     OTHER vendors do with this same request. The id is the answer, but
+                     nobody reads a UUID — the words are the link, and the id stays for
+                     pasting. -->
                 <tr v-if="detail.correlationId">
-                  <td class="text-medium-emphasis">Correlated</td>
+                  <td class="text-medium-emphasis">Full request</td>
                   <td>
                     <router-link :to="{ name: 'correlated', params: { id: detail.correlationId } }">
-                      {{ detail.correlationId }}
+                      Every vendor that saw this request
                     </router-link>
+                    <div class="text-caption text-medium-emphasis">
+                      <code>{{ detail.correlationId }}</code>
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- No record found, but the ray still identifies the request across
+                     vendors. A search is a worse answer than a link and a much better one
+                     than a dead end — the correlation may simply be younger than this
+                     event, since the join waits for the window to close. -->
+                <tr v-else-if="detail.summary?.vendorRequestId">
+                  <td class="text-medium-emphasis">Full request</td>
+                  <td>
+                    <router-link
+                      :to="{
+                        name: 'correlated-list',
+                        query: { ray: detail.summary.vendorRequestId },
+                      }"
+                    >
+                      Look for this request across vendors
+                    </router-link>
+                    <div class="text-caption text-medium-emphasis">
+                      no correlated record yet — nothing has joined this event
+                    </div>
                   </td>
                 </tr>
               </tbody>

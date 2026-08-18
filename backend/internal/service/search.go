@@ -48,6 +48,18 @@ type EventDetailReader interface {
 	) (chdata.RawPayload, error)
 }
 
+// CorrelationLocator finds the correlated record an event belongs to.
+//
+// A separate surface from the searcher because it answers the question backwards: not
+// "which records match this filter" but "which record is this event part of". Correlated
+// records store event ids and not the reverse, so it is a bounded search rather than a
+// lookup — see CorrelationForEvent for why the event's own time is what makes it cheap.
+type CorrelationLocator interface {
+	CorrelationForEvent(
+		ctx context.Context, eventID string, eventTime time.Time,
+	) (uuid.UUID, error)
+}
+
 // TenantPolicyReader supplies the redaction policy to re-apply when vendor fields are
 // rebuilt from a payload on read.
 type TenantPolicyReader interface {
@@ -56,10 +68,16 @@ type TenantPolicyReader interface {
 
 // SearchService implements the Search proto service.
 type SearchService struct {
-	search   EventSearcher
-	events   EventDetailReader
-	auditLog AuditWriter
-	limits   query.Limits
+	search EventSearcher
+	events EventDetailReader
+	// correlations links one event to the record it joined into. Optional: without it the
+	// detail view offers the lookup by ray, which is a click rather than a dead end.
+	correlations CorrelationLocator
+	// correlationTimeout bounds that lookup. A field so a test can shrink it: proving the
+	// dialog does not wait should not mean waiting.
+	correlationTimeout time.Duration
+	auditLog           AuditWriter
+	limits             query.Limits
 	// adapters and tenants rebuild raw_extra and unknown_fields from the stored payload
 	// rather than reading columns that used to hold a parsed copy of those same bytes.
 	adapters *vendors.Registry
@@ -96,7 +114,18 @@ func NewSearchService(
 		search: search, events: events, auditLog: auditLog,
 		limits: limits, adapters: adapters, tenants: tenants,
 		networks: networks, rules: rules, now: time.Now,
+		correlationTimeout: correlationLookupTimeout,
 	}
+}
+
+// WithCorrelations enables the link from one event to the record it joined into.
+//
+// Separate from the constructor because it is optional: without it every other part of the
+// detail view works and the link is simply absent, which is also what an uncorrelated
+// event renders.
+func (s *SearchService) WithCorrelations(locator CorrelationLocator) *SearchService {
+	s.correlations = locator
+	return s
 }
 
 // SearchEvents runs a bounded cross-vendor event search.
@@ -294,8 +323,44 @@ func (s *SearchService) GetEvent(
 	// still explains its violations — with the signatures simply absent, which is the
 	// honest rendering of "the bytes that named them are gone".
 	detail.Asm = asmFindings(event, detail.GetRawExtra())
+	detail.CorrelationId = s.correlationFor(ctx, event)
 
 	return detail, nil
+}
+
+// correlationLookupTimeout bounds the search for an event's correlated record.
+//
+// The detail view is a dialog an analyst is waiting on, and this is the last of three
+// reads it makes. A link that fails to resolve costs a click — the view still offers the
+// lookup by ray — while a dialog that hangs costs the whole answer.
+const correlationLookupTimeout = 3 * time.Second
+
+// correlationFor resolves the record this event was correlated into, or "" for none.
+//
+// Absent is a NORMAL answer and not an error: an event no other vendor saw is correlated
+// with nothing. A failed or slow lookup is also rendered as absent, because the view
+// degrades to finding the request by ray rather than to being wrong — but it is logged,
+// since a lookup that has quietly stopped working looks exactly like traffic that stopped
+// correlating.
+func (s *SearchService) correlationFor(ctx context.Context, event chdata.NormalizedEvent) string {
+	if s.correlations == nil {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.correlationTimeout)
+	defer cancel()
+
+	correlationID, err := s.correlations.CorrelationForEvent(ctx, event.EventID, event.EventTime)
+	switch {
+	case err == nil:
+		return correlationID.String()
+	case errors.Is(err, chdata.ErrNotFound):
+		return ""
+	case s.log != nil:
+		s.log.Error(ctx, "event detail: correlation lookup failed",
+			"event_id", event.EventID, "error", err.Error())
+	}
+	return ""
 }
 
 // vendorFields rebuilds one event's vendor-native fields under the tenant's redaction

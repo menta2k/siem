@@ -381,3 +381,65 @@ func (r *CorrelatedRepo) DeleteCorrelatedBefore(
 	}
 	return nil
 }
+
+// EventCorrelationSlack is how far either side of an event its correlated record may start.
+//
+// A record's window_start is the start of the bucket its events fell into, so it is at
+// most one correlation window before the earliest event and never after the latest. Ten
+// minutes is enormous against a five-second window, and it is what keeps the lookup below
+// affordable: the same query unbounded reads the whole 90-day retention.
+const EventCorrelationSlack = 10 * time.Minute
+
+// CorrelationForEvent finds the correlated record one event belongs to.
+//
+// An event does not carry a correlation id — the record stores event ids, and writing the
+// reverse would mean rewriting every event after the join — so this is a search rather
+// than a lookup, and the event's OWN TIME is what makes it a cheap one. Bounded to the
+// minutes around the event, it reads a few hundred thousand rows; unbounded it reads
+// hundreds of millions and is cancelled before it answers.
+//
+// No FINAL: the only column read is the correlation id, and every version of a record
+// carries the same one, so deduplicating would double the work to return the same answer.
+//
+// Not found is a normal answer. An event correlated with nothing — the only vendor that
+// saw the request — has no record, and that is a fact about the traffic rather than a
+// failure.
+func (r *CorrelatedRepo) CorrelationForEvent(
+	ctx context.Context, eventID string, eventTime time.Time,
+) (uuid.UUID, error) {
+	tenantID, err := tenancy.MustID(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if eventID == "" || eventTime.IsZero() {
+		// Without a time there is no window, and the query would be the unbounded scan
+		// this function exists to avoid.
+		return uuid.Nil, ErrNotFound
+	}
+
+	rows, err := r.client.Query(ctx,
+		`SELECT correlation_id FROM correlated_requests
+		 WHERE tenant_id = ? AND window_start >= ? AND window_start <= ?
+		   AND has(event_ids, ?) LIMIT 1`,
+		tenantID,
+		eventTime.Add(-EventCorrelationSlack).UTC(),
+		eventTime.Add(EventCorrelationSlack).UTC(),
+		eventID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("find correlation for event: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return uuid.Nil, fmt.Errorf("find correlation for event: %w", err)
+		}
+		return uuid.Nil, ErrNotFound
+	}
+
+	var correlationID uuid.UUID
+	if err := rows.Scan(&correlationID); err != nil {
+		return uuid.Nil, fmt.Errorf("scan correlation id: %w", err)
+	}
+	return correlationID, rows.Err()
+}

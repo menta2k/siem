@@ -177,7 +177,11 @@ func buildServices(
 			secrets.NewRedisStore(rdb), auditLog, adapters),
 		Search: service.NewSearchService(
 			searchRepo, events, auditLog, limits, adapters, tenants, networks, ruleNames).
-			WithLogger(deps.Log),
+			WithLogger(deps.Log).
+			// The event detail view links to the record an event joined into. The same
+			// repo the correlation service reads, because it is the same question asked
+			// from the other end.
+			WithCorrelations(correlated),
 		Correlation: service.NewCorrelationService(correlated, networks, ruleNames),
 		Dashboards: service.NewDashboardsService(panels, feeds, health, limits, networks,
 			clickhouse.NewStorageRepo(ch, cfg.ClickHouse.Database), ruleNames),
