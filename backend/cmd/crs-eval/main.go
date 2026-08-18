@@ -76,13 +76,16 @@ func run(paranoia, threshold int, raw, asJSON bool, file string) error {
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(result)
 	}
-	report(os.Stdout, request, result)
-	return nil
+
+	_, err = io.WriteString(os.Stdout, report(request, result))
+	return err
 }
 
 func input(file string) ([]byte, error) {
 	if file != "" {
-		return os.ReadFile(file)
+		// The path comes from the operator running the command, on their own machine and
+		// with their own permissions; there is no privilege here to escalate.
+		return os.ReadFile(file) //nolint:gosec // an operator naming their own file
 	}
 	return io.ReadAll(os.Stdin)
 }
@@ -111,36 +114,33 @@ func f5Transcript(payload []byte) (string, error) {
 	return transcript, nil
 }
 
-// report prints the reading the way the question is asked: the decision first, then the
+// report renders the reading the way the question is asked: the decision first, then the
 // rules that produced it, largest contribution first.
-func report(out io.Writer, request crs.Request, result crs.Result) {
-	fmt.Fprintf(out, "%s %s\n", request.Method, request.URI)
-	fmt.Fprintf(out, "paranoia level %d, threshold %d, %d headers, %s\n\n",
+//
+// Built as a string and written once, so a broken pipe is one error to handle rather than
+// twenty writes that each quietly returned one.
+func report(request crs.Request, result crs.Result) string {
+	var out strings.Builder
+
+	fmt.Fprintf(&out, "%s %s\n", request.Method, request.URI)
+	fmt.Fprintf(&out, "paranoia level %d, threshold %d, %d headers, %s\n\n",
 		result.ParanoiaLevel, result.Threshold, len(request.Headers), bodyLine(result))
 
 	decision := "would NOT be blocked"
 	if result.WouldBlock {
 		decision = "would be BLOCKED"
 	}
-	fmt.Fprintf(out, "score %d of %d — %s\n", result.BlockingScore, result.Threshold, decision)
+	fmt.Fprintf(&out, "score %d of %d — %s\n", result.BlockingScore, result.Threshold, decision)
 	if result.DetectionScore > result.BlockingScore {
-		fmt.Fprintf(out, "  (%d at higher paranoia levels, which do not decide here)\n",
+		fmt.Fprintf(&out, "  (%d at higher paranoia levels, which do not decide here)\n",
 			result.DetectionScore)
 	}
-	fmt.Fprintln(out)
+	out.WriteString("\n")
 
-	matched := append([]crs.Match(nil), result.Matched...)
-	sort.SliceStable(matched, func(i, j int) bool {
-		if matched[i].Score != matched[j].Score {
-			return matched[i].Score > matched[j].Score
-		}
-		return matched[i].ID < matched[j].ID
-	})
-
-	if len(matched) == 0 {
-		fmt.Fprintln(out, "no rule matched")
+	if len(result.Matched) == 0 {
+		out.WriteString("no rule matched\n")
 	}
-	for _, match := range matched {
+	for _, match := range byContribution(result.Matched) {
 		score := "   "
 		if match.Score > 0 {
 			score = fmt.Sprintf("+%-2d", match.Score)
@@ -149,19 +149,29 @@ func report(out io.Writer, request crs.Request, result crs.Result) {
 		if match.Artifact {
 			note = "  [artifact of the captured body, not of the request]"
 		}
-		fmt.Fprintf(out, "%s %-7d %-16s %s%s\n",
+		fmt.Fprintf(&out, "%s %-7d %-16s %s%s\n",
 			score, match.ID, match.Category, firstLine(match.Message), note)
 		if match.Data != "" {
-			fmt.Fprintf(out, "            %s\n", firstLine(match.Data))
+			fmt.Fprintf(&out, "            %s\n", firstLine(match.Data))
 		}
 	}
 
-	if len(result.Notes) > 0 {
-		fmt.Fprintln(out)
-		for _, note := range result.Notes {
-			fmt.Fprintln(out, "note:", note)
-		}
+	for _, note := range result.Notes {
+		fmt.Fprintf(&out, "\nnote: %s\n", note)
 	}
+	return out.String()
+}
+
+// byContribution orders the rules by what each added to the score.
+func byContribution(matched []crs.Match) []crs.Match {
+	ordered := append([]crs.Match(nil), matched...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].Score != ordered[j].Score {
+			return ordered[i].Score > ordered[j].Score
+		}
+		return ordered[i].ID < ordered[j].ID
+	})
+	return ordered
 }
 
 // bodyLine says how much body the reading actually had to work with.

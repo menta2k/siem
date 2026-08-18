@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"math"
 
 	pb "github.com/menta2k/siem/api/gen/siem/v1"
 	"github.com/menta2k/siem/internal/crs"
@@ -99,39 +100,44 @@ func owaspResult(result crs.Result) *pb.WafOwaspResult {
 	out := &pb.WafOwaspResult{
 		Available:      true,
 		Matched:        make([]*pb.WafOwaspMatch, 0, len(result.Matched)),
-		BlockingScore:  uint32(clamp(result.BlockingScore)),
-		DetectionScore: uint32(clamp(result.DetectionScore)),
-		Threshold:      uint32(clamp(result.Threshold)),
-		ParanoiaLevel:  uint32(clamp(result.ParanoiaLevel)),
+		BlockingScore:  count(result.BlockingScore),
+		DetectionScore: count(result.DetectionScore),
+		Threshold:      count(result.Threshold),
+		ParanoiaLevel:  count(result.ParanoiaLevel),
 		WouldBlock:     result.WouldBlock,
-		BodyEvaluated:  uint32(clamp(result.BodyEvaluated)),
-		BodyDeclared:   uint32(clamp(result.BodyDeclared)),
+		BodyEvaluated:  count(result.BodyEvaluated),
+		BodyDeclared:   count(result.BodyDeclared),
 		BodyTruncated:  result.BodyTruncated,
 		Notes:          result.Notes,
 	}
 
 	for _, match := range result.Matched {
 		out.Matched = append(out.Matched, &pb.WafOwaspMatch{
-			Id:       uint32(clamp(match.ID)),
+			Id:       count(match.ID),
 			Message:  match.Message,
 			Data:     match.Data,
 			Severity: match.Severity,
-			Phase:    uint32(clamp(match.Phase)),
+			Phase:    count(match.Phase),
 			Category: match.Category,
-			Score:    uint32(clamp(match.Score)),
+			Score:    count(match.Score),
 			Artifact: match.Artifact,
 		})
 	}
 	return out
 }
 
-// clamp keeps a count inside the range the wire type can carry.
+// count narrows a number onto the wire type it is carried in.
 //
-// Every number here is a count or an identifier and cannot legitimately be negative, but
-// the conversion is where a bug would become a wildly wrong number rather than an error.
-func clamp(value int) int {
+// Every value here is a count, a score or a rule number, none of which can legitimately be
+// negative or larger than a rule set can produce. The conversion is still bounded on both
+// sides, because that is where a bug would stop being an error and become a wildly wrong
+// number presented with the same confidence as a right one.
+func count(value int) uint32 {
 	if value < 0 {
 		return 0
 	}
-	return value
+	if value > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(value) //nolint:gosec // bounded on both sides immediately above
 }

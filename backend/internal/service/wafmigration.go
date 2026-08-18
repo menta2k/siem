@@ -198,6 +198,15 @@ func (s *WAFMigrationService) agreement(
 		return nil, query.TranslateError(err)
 	}
 
+	out := agreementPanel(rules, actions)
+	describeAgreementRules(ctx, s.rules, out.Rules)
+	return out, nil
+}
+
+// agreementPanel renders the measured rules onto the wire.
+func agreementPanel(
+	rules []chdata.WAFRuleAgreement, actions map[string]string,
+) *pb.WafRuleAgreementPanel {
 	out := &pb.WafRuleAgreementPanel{
 		Rules: make([]*pb.WafRuleAgreement, 0, len(rules)),
 		// Stated on every panel, including an empty one: "nothing here yet, and here is
@@ -226,8 +235,7 @@ func (s *WAFMigrationService) agreement(
 			LastSeen:    timestamppb.New(r.LastSeen),
 		})
 	}
-	describeAgreementRules(ctx, s.rules, out.Rules)
-	return out, nil
+	return out
 }
 
 // candidates resolves which rules are migration candidates, and each one's action.
