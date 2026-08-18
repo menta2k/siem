@@ -70,6 +70,19 @@ func NewCloser(
 func (c *Closer) Name() string { return "correlation-closer" }
 
 // Run polls for closed windows until the context is cancelled.
+//
+// The ticker paces the IDLE loop, not the working one. A tick that hits its pass bound
+// with the schedule still full means the closer is behind, and sleeping for the interval
+// there caps it at MaxPassesPerTick*batch per interval — 8,192 windows every ten seconds,
+// under a thousand a second. Production files windows faster than that, so once the
+// closer fell behind it could never catch up: it kept claiming windows whose member
+// state had already passed its TTL, closed them empty, and wrote nothing. 1.7 million
+// windows were dropped that way against 70 records a minute emitted, while the console
+// showed the records from before the fall and looked healthy.
+//
+// So a tick that did not drain the schedule is followed immediately by another. The
+// interval only applies once there is nothing left due, which is the state the constant
+// was written for.
 func (c *Closer) Run(ctx context.Context) error {
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
@@ -79,13 +92,23 @@ func (c *Closer) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if err := c.Tick(ctx, time.Now()); err != nil {
+		}
+
+		for {
+			drained, err := c.tick(ctx, time.Now())
+			if err != nil {
 				// A failed tick is retried on the next one. The windows it could not
 				// process were already claimed off the schedule, but their state is
 				// still in Redis under the lateness bound, so a later arrival — or an
 				// operator's replay — can still close them. Stopping the loop here
 				// would halt correlation for every tenant over one bad batch.
 				c.log.Error(ctx, "correlate: close pass failed", "error", err)
+			}
+			// A failed tick stops the catch-up loop as well as reporting: whatever is
+			// wrong is more likely to still be wrong a microsecond later than a second
+			// later, and spinning on it would bury the log in repeats of one fault.
+			if drained || err != nil || ctx.Err() != nil {
+				break
 			}
 		}
 	}
@@ -113,7 +136,16 @@ const MaxPassesPerTick = 32
 // a correlated record is a handful of fields, and the bound already exists to stop a tick
 // running forever.
 func (c *Closer) Tick(ctx context.Context, now time.Time) error {
+	_, err := c.tick(ctx, now)
+	return err
+}
+
+// tick is Tick, also reporting whether the schedule was drained — which is what tells
+// Run whether to sleep or to keep working. Tick keeps the plain signature because that
+// is what the tests and any future caller want.
+func (c *Closer) tick(ctx context.Context, now time.Time) (bool, error) {
 	var failed error
+	drainedAll := true
 	byTenant := map[uuid.UUID][]emission{}
 
 	for range MaxPassesPerTick {
@@ -122,6 +154,9 @@ func (c *Closer) Tick(ctx context.Context, now time.Time) error {
 		if drained {
 			break
 		}
+		// Every pass took a full batch, so the pass bound is what ended the tick, not
+		// the schedule running out: there is more due right now.
+		drainedAll = false
 	}
 
 	// Windows are claimed off the schedule before this point, so a failed insert is
@@ -133,7 +168,7 @@ func (c *Closer) Tick(ctx context.Context, now time.Time) error {
 			failed = errors.Join(failed, err)
 		}
 	}
-	return failed
+	return drainedAll, failed
 }
 
 // pass claims one batch of closed windows and accumulates their records into byTenant,
