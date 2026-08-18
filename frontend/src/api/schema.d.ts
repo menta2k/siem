@@ -739,6 +739,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/waf-migration/owasp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Which OWASP rules a request matches, and what each contributed to the score.
+         *
+         *      Cloudflare's OWASP managed ruleset reports its decision as "949110: Inbound Anomaly
+         *      Score Exceeded" and never says which rules built that score — which is exactly what
+         *      deciding between "raise the threshold", "exclude one rule" and "this block was right"
+         *      requires. 949110 is the Core Rule Set's own rule number, because the managed ruleset
+         *      IS the Core Rule Set, so the contributors can be recovered by running the same rules
+         *      against the request the platform already stored.
+         */
+        post: operations["WafMigration_ExplainOwasp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/waf-migration/ready": {
         parameters: {
             query?: never;
@@ -2217,9 +2243,104 @@ export interface components {
              *      request carried no score.
              */
             attackScore?: number;
+            /**
+             * Format: date-time
+             * @description What a follow-up lookup of this request's raw payload needs, and cannot work without.
+             *
+             *      raw_events is partitioned by arrival date and sorted by delivering vendor, so an event
+             *      id alone reads every partition — the whole table — to find one payload. These two turn
+             *      that scan into a seek, which is the difference between an answer and a timeout.
+             *
+             *      source_vendor is the vendor that DELIVERED the bytes, which is not always the vendor
+             *      the event is attributed to: a DataDome verdict arrives inside a Cloudflare payload.
+             */
+            receivedAt?: string;
+            sourceVendor?: string;
         };
         WafMigrationSamplePanel: {
             samples?: components["schemas"]["WafMigrationSample"][];
+        };
+        /** @description WafOwaspMatch is one Core Rule Set rule that fired. */
+        WafOwaspMatch: {
+            /**
+             * Format: uint32
+             * @description The CRS rule number, which is the same number Cloudflare reports: 942100 here is
+             *      942100 there.
+             */
+            id?: number;
+            message?: string;
+            /** @description The part of the request the rule matched, as the rule itself reports it. */
+            data?: string;
+            severity?: string;
+            /** Format: uint32 */
+            phase?: number;
+            /** @description The attack class CRS assigns, read off the rule's own tags: attack-sqli, attack-xss. */
+            category?: string;
+            /**
+             * Format: uint32
+             * @description What this rule added to the inbound anomaly score. Zero for a rule that scores
+             *      nothing, which includes the blocking decision itself.
+             */
+            score?: number;
+            /**
+             * @description True for a rule that fired because of how the request was CAPTURED rather than what it
+             *      contained. A body cut off mid-upload trips the body-error rules every time, and
+             *      reporting that as a finding would send someone chasing a request that was never
+             *      malformed on the wire.
+             */
+            artifact?: boolean;
+        };
+        /** @description WafOwaspRequest asks what the Core Rule Set makes of one stored request. */
+        WafOwaspRequest: {
+            /** @description The event whose raw payload holds the request as the vendor logged it. */
+            eventId?: string;
+            /**
+             * Format: date-time
+             * @description Both carried straight back from the sample: without them the payload lookup cannot
+             *      prune, and reads the whole table for one row.
+             */
+            receivedAt?: string;
+            sourceVendor?: string;
+        };
+        WafOwaspResult: {
+            /**
+             * @description False when the reading could not be produced at all — no rule engine in this
+             *      deployment, or the request is no longer retained. The reason says which, because an
+             *      empty rule list and an unanswerable question look identical otherwise.
+             */
+            available?: boolean;
+            error?: string;
+            matched?: components["schemas"]["WafOwaspMatch"][];
+            /**
+             * Format: uint32
+             * @description The score the rules added up to, and the score at which the request would be blocked.
+             *      Both are reported because how CLOSE a decision was is most of what makes it reviewable.
+             */
+            blockingScore?: number;
+            /** Format: uint32 */
+            threshold?: number;
+            /**
+             * Format: uint32
+             * @description What the higher paranoia levels would have added. They are evaluated but do not decide
+             *      at the configured level.
+             */
+            detectionScore?: number;
+            /** Format: uint32 */
+            paranoiaLevel?: number;
+            wouldBlock?: boolean;
+            /**
+             * Format: uint32
+             * @description How much of the body the reading actually had. F5 keeps a bounded prefix, so a request
+             *      declaring 130KB of upload may have been judged on 2KB — and a rule that did not fire on
+             *      the rest has not been answered. Without these two numbers "nothing matched" reads as
+             *      "this request is clean", which is the one thing it must never be taken to mean.
+             */
+            bodyEvaluated?: number;
+            /** Format: uint32 */
+            bodyDeclared?: number;
+            bodyTruncated?: boolean;
+            /** @description Caveats about the evaluation itself, in the reader's language. */
+            notes?: string[];
         };
         WafPathCount: {
             requestHost?: string;
@@ -3656,6 +3777,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WafRuleAgreementPanel"];
+                };
+            };
+        };
+    };
+    WafMigration_ExplainOwasp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WafOwaspRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WafOwaspResult"];
                 };
             };
         };

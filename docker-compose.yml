@@ -68,6 +68,11 @@ services:
     env_file: [.env]
     environment:
       WIREFILTER_EVAL_URL: ${WIREFILTER_EVAL_URL:-http://wirefilter-eval:8010}
+      # The OWASP reading has to be produced under the SAME settings as the Cloudflare
+      # ruleset it is explaining, or it answers a question about a WAF nobody is running.
+      # Cloudflare's Low / Medium / High thresholds are 60 / 40 / 25.
+      OWASP_PARANOIA_LEVEL: ${OWASP_PARANOIA_LEVEL:-1}
+      OWASP_SCORE_THRESHOLD: ${OWASP_SCORE_THRESHOLD:-40}
     ports:
       - "${API_HTTP_PORT:-8000}:8000"
     depends_on:

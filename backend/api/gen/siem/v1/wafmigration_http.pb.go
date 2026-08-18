@@ -20,6 +20,7 @@ var _ = binding.EncodeURL
 const _ = http.SupportPackageIsVersion1
 
 const OperationWafMigrationEvaluateExpression = "/siem.v1.WafMigration/EvaluateExpression"
+const OperationWafMigrationExplainOwasp = "/siem.v1.WafMigration/ExplainOwasp"
 const OperationWafMigrationGetFalsePositives = "/siem.v1.WafMigration/GetFalsePositives"
 const OperationWafMigrationGetMigrationSamples = "/siem.v1.WafMigration/GetMigrationSamples"
 const OperationWafMigrationGetReadyToEnforce = "/siem.v1.WafMigration/GetReadyToEnforce"
@@ -34,6 +35,15 @@ type WafMigrationHTTPServer interface {
 	// and wait, and a mistake cost a day: one rule differed from a working one by a single
 	// backslash and matched nothing while looking correct.
 	EvaluateExpression(context.Context, *WafExpressionRequest) (*WafExpressionResult, error)
+	// ExplainOwasp Which OWASP rules a request matches, and what each contributed to the score.
+	//
+	// Cloudflare's OWASP managed ruleset reports its decision as "949110: Inbound Anomaly
+	// Score Exceeded" and never says which rules built that score — which is exactly what
+	// deciding between "raise the threshold", "exclude one rule" and "this block was right"
+	// requires. 949110 is the Core Rule Set's own rule number, because the managed ruleset
+	// IS the Core Rule Set, so the contributors can be recovered by running the same rules
+	// against the request the platform already stored.
+	ExplainOwasp(context.Context, *WafOwaspRequest) (*WafOwaspResult, error)
 	// GetFalsePositives Stage 3. Cloudflare rules running in log mode on traffic F5 lets through.
 	GetFalsePositives(context.Context, *WafMigrationRequest) (*WafRuleAgreementPanel, error)
 	// GetMigrationSamples The requests behind any row on any of the three stages, with BOTH verdicts on each.
@@ -52,6 +62,7 @@ func RegisterWafMigrationHTTPServer(s *http.Server, srv WafMigrationHTTPServer) 
 	r.GET("/api/v1/waf-migration/false-positives", _WafMigration_GetFalsePositives0_HTTP_Handler(srv))
 	r.GET("/api/v1/waf-migration/samples", _WafMigration_GetMigrationSamples0_HTTP_Handler(srv))
 	r.POST("/api/v1/waf-migration/evaluate", _WafMigration_EvaluateExpression0_HTTP_Handler(srv))
+	r.POST("/api/v1/waf-migration/owasp", _WafMigration_ExplainOwasp0_HTTP_Handler(srv))
 }
 
 func _WafMigration_GetUncovered0_HTTP_Handler(srv WafMigrationHTTPServer) func(ctx http.Context) error {
@@ -152,6 +163,28 @@ func _WafMigration_EvaluateExpression0_HTTP_Handler(srv WafMigrationHTTPServer) 
 	}
 }
 
+func _WafMigration_ExplainOwasp0_HTTP_Handler(srv WafMigrationHTTPServer) func(ctx http.Context) error {
+	return func(ctx http.Context) error {
+		var in WafOwaspRequest
+		if err := ctx.Bind(&in); err != nil {
+			return err
+		}
+		if err := ctx.BindQuery(&in); err != nil {
+			return err
+		}
+		http.SetOperation(ctx, OperationWafMigrationExplainOwasp)
+		h := ctx.Middleware(func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.ExplainOwasp(ctx, req.(*WafOwaspRequest))
+		})
+		out, err := h(ctx, &in)
+		if err != nil {
+			return err
+		}
+		reply := out.(*WafOwaspResult)
+		return ctx.Result(200, reply)
+	}
+}
+
 type WafMigrationHTTPClient interface {
 	// EvaluateExpression Whether a candidate Cloudflare rule would catch the requests in a stage-1 group,
 	// answered by Cloudflare's own expression engine against the requests as captured.
@@ -161,6 +194,15 @@ type WafMigrationHTTPClient interface {
 	// and wait, and a mistake cost a day: one rule differed from a working one by a single
 	// backslash and matched nothing while looking correct.
 	EvaluateExpression(ctx context.Context, req *WafExpressionRequest, opts ...http.CallOption) (rsp *WafExpressionResult, err error)
+	// ExplainOwasp Which OWASP rules a request matches, and what each contributed to the score.
+	//
+	// Cloudflare's OWASP managed ruleset reports its decision as "949110: Inbound Anomaly
+	// Score Exceeded" and never says which rules built that score — which is exactly what
+	// deciding between "raise the threshold", "exclude one rule" and "this block was right"
+	// requires. 949110 is the Core Rule Set's own rule number, because the managed ruleset
+	// IS the Core Rule Set, so the contributors can be recovered by running the same rules
+	// against the request the platform already stored.
+	ExplainOwasp(ctx context.Context, req *WafOwaspRequest, opts ...http.CallOption) (rsp *WafOwaspResult, err error)
 	// GetFalsePositives Stage 3. Cloudflare rules running in log mode on traffic F5 lets through.
 	GetFalsePositives(ctx context.Context, req *WafMigrationRequest, opts ...http.CallOption) (rsp *WafRuleAgreementPanel, err error)
 	// GetMigrationSamples The requests behind any row on any of the three stages, with BOTH verdicts on each.
@@ -192,6 +234,27 @@ func (c *WafMigrationHTTPClientImpl) EvaluateExpression(ctx context.Context, in 
 	pattern := "/api/v1/waf-migration/evaluate"
 	path := binding.EncodeURL(pattern, in, false)
 	opts = append(opts, http.Operation(OperationWafMigrationEvaluateExpression))
+	opts = append(opts, http.PathTemplate(pattern))
+	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ExplainOwasp Which OWASP rules a request matches, and what each contributed to the score.
+//
+// Cloudflare's OWASP managed ruleset reports its decision as "949110: Inbound Anomaly
+// Score Exceeded" and never says which rules built that score — which is exactly what
+// deciding between "raise the threshold", "exclude one rule" and "this block was right"
+// requires. 949110 is the Core Rule Set's own rule number, because the managed ruleset
+// IS the Core Rule Set, so the contributors can be recovered by running the same rules
+// against the request the platform already stored.
+func (c *WafMigrationHTTPClientImpl) ExplainOwasp(ctx context.Context, in *WafOwaspRequest, opts ...http.CallOption) (*WafOwaspResult, error) {
+	var out WafOwaspResult
+	pattern := "/api/v1/waf-migration/owasp"
+	path := binding.EncodeURL(pattern, in, false)
+	opts = append(opts, http.Operation(OperationWafMigrationExplainOwasp))
 	opts = append(opts, http.PathTemplate(pattern))
 	err := c.cc.Invoke(ctx, "POST", path, in, &out, opts...)
 	if err != nil {

@@ -624,7 +624,17 @@ type WafMigrationSample struct {
 	CloudflareRuleId  string   `protobuf:"bytes,16,opt,name=cloudflare_rule_id,json=cloudflareRuleId,proto3" json:"cloudflare_rule_id,omitempty"`
 	// On the INVERTED scale: 1 is certainly an attack, 100 certainly clean. 0 when the
 	// request carried no score.
-	AttackScore   uint32 `protobuf:"varint,17,opt,name=attack_score,json=attackScore,proto3" json:"attack_score,omitempty"`
+	AttackScore uint32 `protobuf:"varint,17,opt,name=attack_score,json=attackScore,proto3" json:"attack_score,omitempty"`
+	// What a follow-up lookup of this request's raw payload needs, and cannot work without.
+	//
+	// raw_events is partitioned by arrival date and sorted by delivering vendor, so an event
+	// id alone reads every partition — the whole table — to find one payload. These two turn
+	// that scan into a seek, which is the difference between an answer and a timeout.
+	//
+	// source_vendor is the vendor that DELIVERED the bytes, which is not always the vendor
+	// the event is attributed to: a DataDome verdict arrives inside a Cloudflare payload.
+	ReceivedAt    *timestamppb.Timestamp `protobuf:"bytes,18,opt,name=received_at,json=receivedAt,proto3" json:"received_at,omitempty"`
+	SourceVendor  string                 `protobuf:"bytes,19,opt,name=source_vendor,json=sourceVendor,proto3" json:"source_vendor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -776,6 +786,20 @@ func (x *WafMigrationSample) GetAttackScore() uint32 {
 		return x.AttackScore
 	}
 	return 0
+}
+
+func (x *WafMigrationSample) GetReceivedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ReceivedAt
+	}
+	return nil
+}
+
+func (x *WafMigrationSample) GetSourceVendor() string {
+	if x != nil {
+		return x.SourceVendor
+	}
+	return ""
 }
 
 type WafMigrationSamplePanel struct {
@@ -1114,6 +1138,325 @@ func (x *WafExpressionResult) GetOutcomes() []*WafExpressionOutcome {
 	return nil
 }
 
+// WafOwaspRequest asks what the Core Rule Set makes of one stored request.
+type WafOwaspRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The event whose raw payload holds the request as the vendor logged it.
+	EventId string `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	// Both carried straight back from the sample: without them the payload lookup cannot
+	// prune, and reads the whole table for one row.
+	ReceivedAt    *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=received_at,json=receivedAt,proto3" json:"received_at,omitempty"`
+	SourceVendor  string                 `protobuf:"bytes,3,opt,name=source_vendor,json=sourceVendor,proto3" json:"source_vendor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WafOwaspRequest) Reset() {
+	*x = WafOwaspRequest{}
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WafOwaspRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WafOwaspRequest) ProtoMessage() {}
+
+func (x *WafOwaspRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WafOwaspRequest.ProtoReflect.Descriptor instead.
+func (*WafOwaspRequest) Descriptor() ([]byte, []int) {
+	return file_siem_v1_wafmigration_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *WafOwaspRequest) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *WafOwaspRequest) GetReceivedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ReceivedAt
+	}
+	return nil
+}
+
+func (x *WafOwaspRequest) GetSourceVendor() string {
+	if x != nil {
+		return x.SourceVendor
+	}
+	return ""
+}
+
+// WafOwaspMatch is one Core Rule Set rule that fired.
+type WafOwaspMatch struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The CRS rule number, which is the same number Cloudflare reports: 942100 here is
+	// 942100 there.
+	Id      uint32 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// The part of the request the rule matched, as the rule itself reports it.
+	Data     string `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	Severity string `protobuf:"bytes,4,opt,name=severity,proto3" json:"severity,omitempty"`
+	Phase    uint32 `protobuf:"varint,5,opt,name=phase,proto3" json:"phase,omitempty"`
+	// The attack class CRS assigns, read off the rule's own tags: attack-sqli, attack-xss.
+	Category string `protobuf:"bytes,6,opt,name=category,proto3" json:"category,omitempty"`
+	// What this rule added to the inbound anomaly score. Zero for a rule that scores
+	// nothing, which includes the blocking decision itself.
+	Score uint32 `protobuf:"varint,7,opt,name=score,proto3" json:"score,omitempty"`
+	// True for a rule that fired because of how the request was CAPTURED rather than what it
+	// contained. A body cut off mid-upload trips the body-error rules every time, and
+	// reporting that as a finding would send someone chasing a request that was never
+	// malformed on the wire.
+	Artifact      bool `protobuf:"varint,8,opt,name=artifact,proto3" json:"artifact,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WafOwaspMatch) Reset() {
+	*x = WafOwaspMatch{}
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WafOwaspMatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WafOwaspMatch) ProtoMessage() {}
+
+func (x *WafOwaspMatch) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WafOwaspMatch.ProtoReflect.Descriptor instead.
+func (*WafOwaspMatch) Descriptor() ([]byte, []int) {
+	return file_siem_v1_wafmigration_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *WafOwaspMatch) GetId() uint32 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *WafOwaspMatch) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *WafOwaspMatch) GetData() string {
+	if x != nil {
+		return x.Data
+	}
+	return ""
+}
+
+func (x *WafOwaspMatch) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *WafOwaspMatch) GetPhase() uint32 {
+	if x != nil {
+		return x.Phase
+	}
+	return 0
+}
+
+func (x *WafOwaspMatch) GetCategory() string {
+	if x != nil {
+		return x.Category
+	}
+	return ""
+}
+
+func (x *WafOwaspMatch) GetScore() uint32 {
+	if x != nil {
+		return x.Score
+	}
+	return 0
+}
+
+func (x *WafOwaspMatch) GetArtifact() bool {
+	if x != nil {
+		return x.Artifact
+	}
+	return false
+}
+
+type WafOwaspResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// False when the reading could not be produced at all — no rule engine in this
+	// deployment, or the request is no longer retained. The reason says which, because an
+	// empty rule list and an unanswerable question look identical otherwise.
+	Available bool             `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"`
+	Error     string           `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Matched   []*WafOwaspMatch `protobuf:"bytes,3,rep,name=matched,proto3" json:"matched,omitempty"`
+	// The score the rules added up to, and the score at which the request would be blocked.
+	// Both are reported because how CLOSE a decision was is most of what makes it reviewable.
+	BlockingScore uint32 `protobuf:"varint,4,opt,name=blocking_score,json=blockingScore,proto3" json:"blocking_score,omitempty"`
+	Threshold     uint32 `protobuf:"varint,5,opt,name=threshold,proto3" json:"threshold,omitempty"`
+	// What the higher paranoia levels would have added. They are evaluated but do not decide
+	// at the configured level.
+	DetectionScore uint32 `protobuf:"varint,6,opt,name=detection_score,json=detectionScore,proto3" json:"detection_score,omitempty"`
+	ParanoiaLevel  uint32 `protobuf:"varint,7,opt,name=paranoia_level,json=paranoiaLevel,proto3" json:"paranoia_level,omitempty"`
+	WouldBlock     bool   `protobuf:"varint,8,opt,name=would_block,json=wouldBlock,proto3" json:"would_block,omitempty"`
+	// How much of the body the reading actually had. F5 keeps a bounded prefix, so a request
+	// declaring 130KB of upload may have been judged on 2KB — and a rule that did not fire on
+	// the rest has not been answered. Without these two numbers "nothing matched" reads as
+	// "this request is clean", which is the one thing it must never be taken to mean.
+	BodyEvaluated uint32 `protobuf:"varint,9,opt,name=body_evaluated,json=bodyEvaluated,proto3" json:"body_evaluated,omitempty"`
+	BodyDeclared  uint32 `protobuf:"varint,10,opt,name=body_declared,json=bodyDeclared,proto3" json:"body_declared,omitempty"`
+	BodyTruncated bool   `protobuf:"varint,11,opt,name=body_truncated,json=bodyTruncated,proto3" json:"body_truncated,omitempty"`
+	// Caveats about the evaluation itself, in the reader's language.
+	Notes         []string `protobuf:"bytes,12,rep,name=notes,proto3" json:"notes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WafOwaspResult) Reset() {
+	*x = WafOwaspResult{}
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WafOwaspResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WafOwaspResult) ProtoMessage() {}
+
+func (x *WafOwaspResult) ProtoReflect() protoreflect.Message {
+	mi := &file_siem_v1_wafmigration_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WafOwaspResult.ProtoReflect.Descriptor instead.
+func (*WafOwaspResult) Descriptor() ([]byte, []int) {
+	return file_siem_v1_wafmigration_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *WafOwaspResult) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
+}
+
+func (x *WafOwaspResult) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *WafOwaspResult) GetMatched() []*WafOwaspMatch {
+	if x != nil {
+		return x.Matched
+	}
+	return nil
+}
+
+func (x *WafOwaspResult) GetBlockingScore() uint32 {
+	if x != nil {
+		return x.BlockingScore
+	}
+	return 0
+}
+
+func (x *WafOwaspResult) GetThreshold() uint32 {
+	if x != nil {
+		return x.Threshold
+	}
+	return 0
+}
+
+func (x *WafOwaspResult) GetDetectionScore() uint32 {
+	if x != nil {
+		return x.DetectionScore
+	}
+	return 0
+}
+
+func (x *WafOwaspResult) GetParanoiaLevel() uint32 {
+	if x != nil {
+		return x.ParanoiaLevel
+	}
+	return 0
+}
+
+func (x *WafOwaspResult) GetWouldBlock() bool {
+	if x != nil {
+		return x.WouldBlock
+	}
+	return false
+}
+
+func (x *WafOwaspResult) GetBodyEvaluated() uint32 {
+	if x != nil {
+		return x.BodyEvaluated
+	}
+	return 0
+}
+
+func (x *WafOwaspResult) GetBodyDeclared() uint32 {
+	if x != nil {
+		return x.BodyDeclared
+	}
+	return 0
+}
+
+func (x *WafOwaspResult) GetBodyTruncated() bool {
+	if x != nil {
+		return x.BodyTruncated
+	}
+	return false
+}
+
+func (x *WafOwaspResult) GetNotes() []string {
+	if x != nil {
+		return x.Notes
+	}
+	return nil
+}
+
 var File_siem_v1_wafmigration_proto protoreflect.FileDescriptor
 
 const file_siem_v1_wafmigration_proto_rawDesc = "" +
@@ -1170,7 +1513,7 @@ const file_siem_v1_wafmigration_proto_rawDesc = "" +
 	"\x0erequest_method\x18\x06 \x01(\tR\rrequestMethod\x12\x1d\n" +
 	"\n" +
 	"f5_verdict\x18\a \x01(\tR\tf5Verdict\x12-\n" +
-	"\x12cloudflare_verdict\x18\b \x01(\tR\x11cloudflareVerdict\"\x91\x05\n" +
+	"\x12cloudflare_verdict\x18\b \x01(\tR\x11cloudflareVerdict\"\xf3\x05\n" +
 	"\x12WafMigrationSample\x12%\n" +
 	"\x0ecorrelation_id\x18\x01 \x01(\tR\rcorrelationId\x12\x1e\n" +
 	"\vf5_event_id\x18\x02 \x01(\tR\tf5EventId\x12.\n" +
@@ -1193,7 +1536,10 @@ const file_siem_v1_wafmigration_proto_rawDesc = "" +
 	"\rf5_violations\x18\x0e \x03(\tR\ff5Violations\x12-\n" +
 	"\x12cloudflare_verdict\x18\x0f \x01(\tR\x11cloudflareVerdict\x12,\n" +
 	"\x12cloudflare_rule_id\x18\x10 \x01(\tR\x10cloudflareRuleId\x12!\n" +
-	"\fattack_score\x18\x11 \x01(\rR\vattackScore\"P\n" +
+	"\fattack_score\x18\x11 \x01(\rR\vattackScore\x12;\n" +
+	"\vreceived_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"receivedAt\x12#\n" +
+	"\rsource_vendor\x18\x13 \x01(\tR\fsourceVendor\"P\n" +
 	"\x17WafMigrationSamplePanel\x125\n" +
 	"\asamples\x18\x01 \x03(\v2\x1b.siem.v1.WafMigrationSampleR\asamples\"\xce\x02\n" +
 	"\x14WafExpressionRequest\x121\n" +
@@ -1223,13 +1569,43 @@ const file_siem_v1_wafmigration_proto_rawDesc = "" +
 	"\x06tested\x18\x04 \x01(\rR\x06tested\x12\x18\n" +
 	"\amatched\x18\x05 \x01(\rR\amatched\x12\x1c\n" +
 	"\tuncertain\x18\x06 \x01(\rR\tuncertain\x129\n" +
-	"\boutcomes\x18\a \x03(\v2\x1d.siem.v1.WafExpressionOutcomeR\boutcomes2\xff\x04\n" +
+	"\boutcomes\x18\a \x03(\v2\x1d.siem.v1.WafExpressionOutcomeR\boutcomes\"\x8e\x01\n" +
+	"\x0fWafOwaspRequest\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12;\n" +
+	"\vreceived_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"receivedAt\x12#\n" +
+	"\rsource_vendor\x18\x03 \x01(\tR\fsourceVendor\"\xcd\x01\n" +
+	"\rWafOwaspMatch\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\rR\x02id\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x12\n" +
+	"\x04data\x18\x03 \x01(\tR\x04data\x12\x1a\n" +
+	"\bseverity\x18\x04 \x01(\tR\bseverity\x12\x14\n" +
+	"\x05phase\x18\x05 \x01(\rR\x05phase\x12\x1a\n" +
+	"\bcategory\x18\x06 \x01(\tR\bcategory\x12\x14\n" +
+	"\x05score\x18\a \x01(\rR\x05score\x12\x1a\n" +
+	"\bartifact\x18\b \x01(\bR\bartifact\"\xb5\x03\n" +
+	"\x0eWafOwaspResult\x12\x1c\n" +
+	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x120\n" +
+	"\amatched\x18\x03 \x03(\v2\x16.siem.v1.WafOwaspMatchR\amatched\x12%\n" +
+	"\x0eblocking_score\x18\x04 \x01(\rR\rblockingScore\x12\x1c\n" +
+	"\tthreshold\x18\x05 \x01(\rR\tthreshold\x12'\n" +
+	"\x0fdetection_score\x18\x06 \x01(\rR\x0edetectionScore\x12%\n" +
+	"\x0eparanoia_level\x18\a \x01(\rR\rparanoiaLevel\x12\x1f\n" +
+	"\vwould_block\x18\b \x01(\bR\n" +
+	"wouldBlock\x12%\n" +
+	"\x0ebody_evaluated\x18\t \x01(\rR\rbodyEvaluated\x12#\n" +
+	"\rbody_declared\x18\n" +
+	" \x01(\rR\fbodyDeclared\x12%\n" +
+	"\x0ebody_truncated\x18\v \x01(\bR\rbodyTruncated\x12\x14\n" +
+	"\x05notes\x18\f \x03(\tR\x05notes2\xea\x05\n" +
 	"\fWafMigration\x12q\n" +
 	"\fGetUncovered\x12\x1c.siem.v1.WafMigrationRequest\x1a\x1a.siem.v1.WafUncoveredPanel\"'\x82\xd3\xe4\x93\x02!\x12\x1f/api/v1/waf-migration/uncovered\x12v\n" +
 	"\x11GetReadyToEnforce\x12\x1c.siem.v1.WafMigrationRequest\x1a\x1e.siem.v1.WafRuleAgreementPanel\"#\x82\xd3\xe4\x93\x02\x1d\x12\x1b/api/v1/waf-migration/ready\x12\x80\x01\n" +
 	"\x11GetFalsePositives\x12\x1c.siem.v1.WafMigrationRequest\x1a\x1e.siem.v1.WafRuleAgreementPanel\"-\x82\xd3\xe4\x93\x02'\x12%/api/v1/waf-migration/false-positives\x12\x82\x01\n" +
 	"\x13GetMigrationSamples\x12\".siem.v1.WafMigrationSampleRequest\x1a .siem.v1.WafMigrationSamplePanel\"%\x82\xd3\xe4\x93\x02\x1f\x12\x1d/api/v1/waf-migration/samples\x12|\n" +
-	"\x12EvaluateExpression\x12\x1d.siem.v1.WafExpressionRequest\x1a\x1c.siem.v1.WafExpressionResult\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/waf-migration/evaluateB\x8d\x01\n" +
+	"\x12EvaluateExpression\x12\x1d.siem.v1.WafExpressionRequest\x1a\x1c.siem.v1.WafExpressionResult\")\x82\xd3\xe4\x93\x02#:\x01*\"\x1e/api/v1/waf-migration/evaluate\x12i\n" +
+	"\fExplainOwasp\x12\x18.siem.v1.WafOwaspRequest\x1a\x17.siem.v1.WafOwaspResult\"&\x82\xd3\xe4\x93\x02 :\x01*\"\x1b/api/v1/waf-migration/owaspB\x8d\x01\n" +
 	"\vcom.siem.v1B\x11WafmigrationProtoP\x01Z.github.com/menta2k/siem/api/gen/siem/v1;siemv1\xa2\x02\x03SXX\xaa\x02\aSiem.V1\xca\x02\aSiem\\V1\xe2\x02\x13Siem\\V1\\GPBMetadata\xea\x02\bSiem::V1b\x06proto3"
 
 var (
@@ -1244,7 +1620,7 @@ func file_siem_v1_wafmigration_proto_rawDescGZIP() []byte {
 	return file_siem_v1_wafmigration_proto_rawDescData
 }
 
-var file_siem_v1_wafmigration_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_siem_v1_wafmigration_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_siem_v1_wafmigration_proto_goTypes = []any{
 	(*WafMigrationRequest)(nil),       // 0: siem.v1.WafMigrationRequest
 	(*WafUncoveredGroup)(nil),         // 1: siem.v1.WafUncoveredGroup
@@ -1257,37 +1633,45 @@ var file_siem_v1_wafmigration_proto_goTypes = []any{
 	(*WafExpressionRequest)(nil),      // 8: siem.v1.WafExpressionRequest
 	(*WafExpressionOutcome)(nil),      // 9: siem.v1.WafExpressionOutcome
 	(*WafExpressionResult)(nil),       // 10: siem.v1.WafExpressionResult
-	(*TimeRange)(nil),                 // 11: siem.v1.TimeRange
-	(*timestamppb.Timestamp)(nil),     // 12: google.protobuf.Timestamp
+	(*WafOwaspRequest)(nil),           // 11: siem.v1.WafOwaspRequest
+	(*WafOwaspMatch)(nil),             // 12: siem.v1.WafOwaspMatch
+	(*WafOwaspResult)(nil),            // 13: siem.v1.WafOwaspResult
+	(*TimeRange)(nil),                 // 14: siem.v1.TimeRange
+	(*timestamppb.Timestamp)(nil),     // 15: google.protobuf.Timestamp
 }
 var file_siem_v1_wafmigration_proto_depIdxs = []int32{
-	11, // 0: siem.v1.WafMigrationRequest.time_range:type_name -> siem.v1.TimeRange
-	12, // 1: siem.v1.WafUncoveredGroup.first_seen:type_name -> google.protobuf.Timestamp
-	12, // 2: siem.v1.WafUncoveredGroup.last_seen:type_name -> google.protobuf.Timestamp
+	14, // 0: siem.v1.WafMigrationRequest.time_range:type_name -> siem.v1.TimeRange
+	15, // 1: siem.v1.WafUncoveredGroup.first_seen:type_name -> google.protobuf.Timestamp
+	15, // 2: siem.v1.WafUncoveredGroup.last_seen:type_name -> google.protobuf.Timestamp
 	1,  // 3: siem.v1.WafUncoveredPanel.groups:type_name -> siem.v1.WafUncoveredGroup
-	12, // 4: siem.v1.WafRuleAgreement.first_seen:type_name -> google.protobuf.Timestamp
-	12, // 5: siem.v1.WafRuleAgreement.last_seen:type_name -> google.protobuf.Timestamp
+	15, // 4: siem.v1.WafRuleAgreement.first_seen:type_name -> google.protobuf.Timestamp
+	15, // 5: siem.v1.WafRuleAgreement.last_seen:type_name -> google.protobuf.Timestamp
 	3,  // 6: siem.v1.WafRuleAgreementPanel.rules:type_name -> siem.v1.WafRuleAgreement
-	11, // 7: siem.v1.WafMigrationSampleRequest.time_range:type_name -> siem.v1.TimeRange
-	12, // 8: siem.v1.WafMigrationSample.event_time:type_name -> google.protobuf.Timestamp
-	6,  // 9: siem.v1.WafMigrationSamplePanel.samples:type_name -> siem.v1.WafMigrationSample
-	11, // 10: siem.v1.WafExpressionRequest.time_range:type_name -> siem.v1.TimeRange
-	9,  // 11: siem.v1.WafExpressionResult.outcomes:type_name -> siem.v1.WafExpressionOutcome
-	0,  // 12: siem.v1.WafMigration.GetUncovered:input_type -> siem.v1.WafMigrationRequest
-	0,  // 13: siem.v1.WafMigration.GetReadyToEnforce:input_type -> siem.v1.WafMigrationRequest
-	0,  // 14: siem.v1.WafMigration.GetFalsePositives:input_type -> siem.v1.WafMigrationRequest
-	5,  // 15: siem.v1.WafMigration.GetMigrationSamples:input_type -> siem.v1.WafMigrationSampleRequest
-	8,  // 16: siem.v1.WafMigration.EvaluateExpression:input_type -> siem.v1.WafExpressionRequest
-	2,  // 17: siem.v1.WafMigration.GetUncovered:output_type -> siem.v1.WafUncoveredPanel
-	4,  // 18: siem.v1.WafMigration.GetReadyToEnforce:output_type -> siem.v1.WafRuleAgreementPanel
-	4,  // 19: siem.v1.WafMigration.GetFalsePositives:output_type -> siem.v1.WafRuleAgreementPanel
-	7,  // 20: siem.v1.WafMigration.GetMigrationSamples:output_type -> siem.v1.WafMigrationSamplePanel
-	10, // 21: siem.v1.WafMigration.EvaluateExpression:output_type -> siem.v1.WafExpressionResult
-	17, // [17:22] is the sub-list for method output_type
-	12, // [12:17] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	14, // 7: siem.v1.WafMigrationSampleRequest.time_range:type_name -> siem.v1.TimeRange
+	15, // 8: siem.v1.WafMigrationSample.event_time:type_name -> google.protobuf.Timestamp
+	15, // 9: siem.v1.WafMigrationSample.received_at:type_name -> google.protobuf.Timestamp
+	6,  // 10: siem.v1.WafMigrationSamplePanel.samples:type_name -> siem.v1.WafMigrationSample
+	14, // 11: siem.v1.WafExpressionRequest.time_range:type_name -> siem.v1.TimeRange
+	9,  // 12: siem.v1.WafExpressionResult.outcomes:type_name -> siem.v1.WafExpressionOutcome
+	15, // 13: siem.v1.WafOwaspRequest.received_at:type_name -> google.protobuf.Timestamp
+	12, // 14: siem.v1.WafOwaspResult.matched:type_name -> siem.v1.WafOwaspMatch
+	0,  // 15: siem.v1.WafMigration.GetUncovered:input_type -> siem.v1.WafMigrationRequest
+	0,  // 16: siem.v1.WafMigration.GetReadyToEnforce:input_type -> siem.v1.WafMigrationRequest
+	0,  // 17: siem.v1.WafMigration.GetFalsePositives:input_type -> siem.v1.WafMigrationRequest
+	5,  // 18: siem.v1.WafMigration.GetMigrationSamples:input_type -> siem.v1.WafMigrationSampleRequest
+	8,  // 19: siem.v1.WafMigration.EvaluateExpression:input_type -> siem.v1.WafExpressionRequest
+	11, // 20: siem.v1.WafMigration.ExplainOwasp:input_type -> siem.v1.WafOwaspRequest
+	2,  // 21: siem.v1.WafMigration.GetUncovered:output_type -> siem.v1.WafUncoveredPanel
+	4,  // 22: siem.v1.WafMigration.GetReadyToEnforce:output_type -> siem.v1.WafRuleAgreementPanel
+	4,  // 23: siem.v1.WafMigration.GetFalsePositives:output_type -> siem.v1.WafRuleAgreementPanel
+	7,  // 24: siem.v1.WafMigration.GetMigrationSamples:output_type -> siem.v1.WafMigrationSamplePanel
+	10, // 25: siem.v1.WafMigration.EvaluateExpression:output_type -> siem.v1.WafExpressionResult
+	13, // 26: siem.v1.WafMigration.ExplainOwasp:output_type -> siem.v1.WafOwaspResult
+	21, // [21:27] is the sub-list for method output_type
+	15, // [15:21] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_siem_v1_wafmigration_proto_init() }
@@ -1302,7 +1686,7 @@ func file_siem_v1_wafmigration_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_siem_v1_wafmigration_proto_rawDesc), len(file_siem_v1_wafmigration_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

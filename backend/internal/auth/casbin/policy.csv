@@ -69,6 +69,7 @@ p, admin, *, /api/v1/waf-migration/samples, GET
 # POST because the expression is a body, not a path: a candidate rule is long, quoted
 # and full of characters a query string would mangle. It WRITES nothing.
 p, admin, *, /api/v1/waf-migration/evaluate, POST
+p, admin, *, /api/v1/waf-migration/owasp, POST
 
 p, admin, *, /api/v1/admin/users, GET
 p, admin, *, /api/v1/admin/users, POST
@@ -122,6 +123,7 @@ p, analyst, *, /api/v1/waf-migration/ready, GET
 p, analyst, *, /api/v1/waf-migration/false-positives, GET
 p, analyst, *, /api/v1/waf-migration/samples, GET
 p, analyst, *, /api/v1/waf-migration/evaluate, POST
+p, analyst, *, /api/v1/waf-migration/owasp, POST
 
 p, analyst, *, /api/v1/alert-rules, GET
 p, analyst, *, /api/v1/alert-rules/:id/preview, POST

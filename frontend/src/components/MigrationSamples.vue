@@ -12,6 +12,7 @@ import { computed, ref, watch } from 'vue'
 import { api, toDisplayMessage } from '@/api/client'
 import type { components } from '@/api/schema'
 import { usePreferencesStore } from '@/stores/preferences'
+import OwaspExplainer from '@/components/OwaspExplainer.vue'
 import type { MigrationRange } from '@/composables/useMigrationRange'
 
 type Sample = components['schemas']['WafMigrationSample']
@@ -98,6 +99,18 @@ function verdictColour(verdict?: string): string {
   }
 }
 
+/**
+ * Which request has its OWASP reading open.
+ *
+ * One at a time, and only on demand: the reading loads the stored payload and runs several
+ * thousand rules over it, which is not something to do twenty times because a row expanded.
+ */
+const explaining = ref<string | null>(null)
+
+function toggleOwasp(sample: Sample): void {
+  explaining.value = explaining.value === sample.f5EventId ? null : (sample.f5EventId ?? null)
+}
+
 const empty = computed(() => !loading.value && !errorMessage.value && samples.value.length === 0)
 </script>
 
@@ -130,69 +143,93 @@ const empty = computed(() => !loading.value && !errorMessage.value && samples.va
         </tr>
       </thead>
       <tbody>
-        <tr v-for="s in samples" :key="s.f5EventId">
-          <td class="text-no-wrap text-caption">{{ prefs.dateTime(s.eventTime) }}</td>
+        <template v-for="s in samples" :key="s.f5EventId">
+          <tr>
+            <td class="text-no-wrap text-caption">{{ prefs.dateTime(s.eventTime) }}</td>
 
-          <td class="request-cell">
-            <div>
-              <span class="text-medium-emphasis">{{ s.requestMethod }}</span>
-              <!-- Interpolated, never v-html: this is attacker-controlled text and the
+            <td class="request-cell">
+              <div>
+                <span class="text-medium-emphasis">{{ s.requestMethod }}</span>
+                <!-- Interpolated, never v-html: this is attacker-controlled text and the
                    path is exactly where a payload arrives. -->
-              <code class="ml-1">{{ s.requestPath }}</code>
-            </div>
-            <div v-if="s.requestQuery" class="text-caption text-medium-emphasis">
-              <!-- Usually the deciding field: an injection lives in the query string, and
-                   ?id=1+OR+1=1 reads very differently from ?sort=price. -->
-              ?{{ s.requestQuery }}
-            </div>
-            <div class="text-caption text-medium-emphasis">{{ s.requestHost }}</div>
-          </td>
-
-          <td class="text-caption">
-            <div>{{ s.clientIp || '—' }}</div>
-            <div class="text-medium-emphasis">
-              {{ s.country }}<span v-if="s.clientAsn"> · AS{{ s.clientAsn }}</span>
-            </div>
-          </td>
-
-          <td>
-            <v-chip :color="verdictColour(s.f5Verdict)" size="x-small" variant="tonal">
-              {{ s.f5Verdict }}
-            </v-chip>
-            <!-- Every violation, not only the grouped one: a request that tripped four is
-                 a different case from one that tripped this one alone. -->
-            <div class="mt-1">
-              <div v-for="v in s.f5Violations" :key="v" class="text-caption text-medium-emphasis">
-                {{ v }}
+                <code class="ml-1">{{ s.requestPath }}</code>
               </div>
-            </div>
-          </td>
+              <div v-if="s.requestQuery" class="text-caption text-medium-emphasis">
+                <!-- Usually the deciding field: an injection lives in the query string, and
+                   ?id=1+OR+1=1 reads very differently from ?sort=price. -->
+                ?{{ s.requestQuery }}
+              </div>
+              <div class="text-caption text-medium-emphasis">{{ s.requestHost }}</div>
+            </td>
 
-          <td>
-            <v-chip :color="verdictColour(s.cloudflareVerdict)" size="x-small" variant="tonal">
-              {{ s.cloudflareVerdict }}
-            </v-chip>
-            <div v-if="s.attackScore" class="text-caption text-medium-emphasis mt-1">
-              <!-- The scale runs BACKWARDS from every other score in the console: 1 is
+            <td class="text-caption">
+              <div>{{ s.clientIp || '—' }}</div>
+              <div class="text-medium-emphasis">
+                {{ s.country }}<span v-if="s.clientAsn"> · AS{{ s.clientAsn }}</span>
+              </div>
+            </td>
+
+            <td>
+              <v-chip :color="verdictColour(s.f5Verdict)" size="x-small" variant="tonal">
+                {{ s.f5Verdict }}
+              </v-chip>
+              <!-- Every violation, not only the grouped one: a request that tripped four is
+                 a different case from one that tripped this one alone. -->
+              <div class="mt-1">
+                <div v-for="v in s.f5Violations" :key="v" class="text-caption text-medium-emphasis">
+                  {{ v }}
+                </div>
+              </div>
+            </td>
+
+            <td>
+              <v-chip :color="verdictColour(s.cloudflareVerdict)" size="x-small" variant="tonal">
+                {{ s.cloudflareVerdict }}
+              </v-chip>
+              <div v-if="s.attackScore" class="text-caption text-medium-emphasis mt-1">
+                <!-- The scale runs BACKWARDS from every other score in the console: 1 is
                    certainly an attack, 100 certainly clean. The word travels with it. -->
-              score {{ s.attackScore }}/100
-              {{ s.attackScore <= 20 ? '(attack)' : s.attackScore > 50 ? '(clean)' : '' }}
-            </div>
-          </td>
+                score {{ s.attackScore }}/100
+                {{ s.attackScore <= 20 ? '(attack)' : s.attackScore > 50 ? '(clean)' : '' }}
+              </div>
+            </td>
 
-          <td class="text-no-wrap">
-            <!-- Straight to the full record: the F5 payload carries the request that
+            <td class="text-no-wrap">
+              <!-- Cloudflare's OWASP ruleset reports "949110: Inbound Anomaly Score
+                 Exceeded" and never the rules behind it. This is where that half of the
+                 answer lives. -->
+              <v-btn
+                v-if="s.f5EventId"
+                size="x-small"
+                variant="text"
+                :prepend-icon="explaining === s.f5EventId ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                @click="toggleOwasp(s)"
+              >
+                OWASP rules
+              </v-btn>
+              <!-- Straight to the full record: the F5 payload carries the request that
                  caused the block, which is what a new rule has to match on. -->
-            <v-btn
-              v-if="s.correlationId"
-              size="x-small"
-              variant="text"
-              :to="{ name: 'correlated', params: { id: s.correlationId } }"
-            >
-              Both vendors
-            </v-btn>
-          </td>
-        </tr>
+              <v-btn
+                v-if="s.correlationId"
+                size="x-small"
+                variant="text"
+                :to="{ name: 'correlated', params: { id: s.correlationId } }"
+              >
+                Both vendors
+              </v-btn>
+            </td>
+          </tr>
+
+          <tr v-if="explaining === s.f5EventId" class="owasp-row">
+            <td colspan="6" class="pa-0">
+              <OwaspExplainer
+                :event-id="s.f5EventId ?? ''"
+                :received-at="s.receivedAt"
+                :source-vendor="s.sourceVendor"
+              />
+            </td>
+          </tr>
+        </template>
       </tbody>
     </v-table>
   </div>
@@ -206,5 +243,10 @@ const empty = computed(() => !loading.value && !errorMessage.value && samples.va
 
 .request-cell {
   max-width: 28rem;
+}
+
+/* Set apart from the request rows, so the reading reads as belonging to the row above. */
+.owasp-row > td {
+  background: rgba(128, 128, 128, 0.06);
 }
 </style>

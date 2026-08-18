@@ -1286,6 +1286,33 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/WafRuleAgreementPanel'
+    /api/v1/waf-migration/owasp:
+        post:
+            tags:
+                - WafMigration
+            description: |-
+                Which OWASP rules a request matches, and what each contributed to the score.
+
+                 Cloudflare's OWASP managed ruleset reports its decision as "949110: Inbound Anomaly
+                 Score Exceeded" and never says which rules built that score — which is exactly what
+                 deciding between "raise the threshold", "exclude one rule" and "this block was right"
+                 requires. 949110 is the Core Rule Set's own rule number, because the managed ruleset
+                 IS the Core Rule Set, so the contributors can be recovered by running the same rules
+                 against the request the platform already stored.
+            operationId: WafMigration_ExplainOwasp
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/WafOwaspRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/WafOwaspResult'
     /api/v1/waf-migration/ready:
         get:
             tags:
@@ -3635,6 +3662,20 @@ components:
                         On the INVERTED scale: 1 is certainly an attack, 100 certainly clean. 0 when the
                          request carried no score.
                     format: uint32
+                receivedAt:
+                    type: string
+                    description: |-
+                        What a follow-up lookup of this request's raw payload needs, and cannot work without.
+
+                         raw_events is partitioned by arrival date and sorted by delivering vendor, so an event
+                         id alone reads every partition — the whole table — to find one payload. These two turn
+                         that scan into a seek, which is the difference between an answer and a timeout.
+
+                         source_vendor is the vendor that DELIVERED the bytes, which is not always the vendor
+                         the event is attributed to: a DataDome verdict arrives inside a Cloudflare payload.
+                    format: date-time
+                sourceVendor:
+                    type: string
             description: WafMigrationSample is one request as BOTH vendors saw it.
         WafMigrationSamplePanel:
             type: object
@@ -3643,6 +3684,110 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/WafMigrationSample'
+        WafOwaspMatch:
+            type: object
+            properties:
+                id:
+                    type: integer
+                    description: |-
+                        The CRS rule number, which is the same number Cloudflare reports: 942100 here is
+                         942100 there.
+                    format: uint32
+                message:
+                    type: string
+                data:
+                    type: string
+                    description: The part of the request the rule matched, as the rule itself reports it.
+                severity:
+                    type: string
+                phase:
+                    type: integer
+                    format: uint32
+                category:
+                    type: string
+                    description: 'The attack class CRS assigns, read off the rule''s own tags: attack-sqli, attack-xss.'
+                score:
+                    type: integer
+                    description: |-
+                        What this rule added to the inbound anomaly score. Zero for a rule that scores
+                         nothing, which includes the blocking decision itself.
+                    format: uint32
+                artifact:
+                    type: boolean
+                    description: |-
+                        True for a rule that fired because of how the request was CAPTURED rather than what it
+                         contained. A body cut off mid-upload trips the body-error rules every time, and
+                         reporting that as a finding would send someone chasing a request that was never
+                         malformed on the wire.
+            description: WafOwaspMatch is one Core Rule Set rule that fired.
+        WafOwaspRequest:
+            type: object
+            properties:
+                eventId:
+                    type: string
+                    description: The event whose raw payload holds the request as the vendor logged it.
+                receivedAt:
+                    type: string
+                    description: |-
+                        Both carried straight back from the sample: without them the payload lookup cannot
+                         prune, and reads the whole table for one row.
+                    format: date-time
+                sourceVendor:
+                    type: string
+            description: WafOwaspRequest asks what the Core Rule Set makes of one stored request.
+        WafOwaspResult:
+            type: object
+            properties:
+                available:
+                    type: boolean
+                    description: |-
+                        False when the reading could not be produced at all — no rule engine in this
+                         deployment, or the request is no longer retained. The reason says which, because an
+                         empty rule list and an unanswerable question look identical otherwise.
+                error:
+                    type: string
+                matched:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/WafOwaspMatch'
+                blockingScore:
+                    type: integer
+                    description: |-
+                        The score the rules added up to, and the score at which the request would be blocked.
+                         Both are reported because how CLOSE a decision was is most of what makes it reviewable.
+                    format: uint32
+                threshold:
+                    type: integer
+                    format: uint32
+                detectionScore:
+                    type: integer
+                    description: |-
+                        What the higher paranoia levels would have added. They are evaluated but do not decide
+                         at the configured level.
+                    format: uint32
+                paranoiaLevel:
+                    type: integer
+                    format: uint32
+                wouldBlock:
+                    type: boolean
+                bodyEvaluated:
+                    type: integer
+                    description: |-
+                        How much of the body the reading actually had. F5 keeps a bounded prefix, so a request
+                         declaring 130KB of upload may have been judged on 2KB — and a rule that did not fire on
+                         the rest has not been answered. Without these two numbers "nothing matched" reads as
+                         "this request is clean", which is the one thing it must never be taken to mean.
+                    format: uint32
+                bodyDeclared:
+                    type: integer
+                    format: uint32
+                bodyTruncated:
+                    type: boolean
+                notes:
+                    type: array
+                    items:
+                        type: string
+                    description: Caveats about the evaluation itself, in the reader's language.
         WafPathCount:
             type: object
             properties:

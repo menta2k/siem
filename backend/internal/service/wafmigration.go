@@ -61,7 +61,10 @@ type WAFMigrationService struct {
 	evaluator ExpressionEvaluator
 	payloads  RawPayloadReader
 	adapters  *vendors.Registry
-	now       func() time.Time
+	// owasp answers "which OWASP rules did this request match" — the half Cloudflare's
+	// 949110 leaves out. Optional on its own, and useless without payloads and adapters.
+	owasp OwaspEvaluator
+	now   func() time.Time
 }
 
 // NewWAFMigrationService constructs the service.
@@ -354,6 +357,11 @@ func migrationSamplePanel(samples []chdata.WAFMigrationSample) *pb.WafMigrationS
 			CloudflareVerdict: sample.CloudflareVerdict,
 			CloudflareRuleId:  sample.CloudflareRuleID,
 			AttackScore:       uint32(sample.AttackScore),
+			// Carried out so a follow-up question about this request — what did the
+			// OWASP rules make of it — can seek its raw payload instead of scanning
+			// every partition for the id.
+			ReceivedAt:   timestamppb.New(sample.ReceivedAt),
+			SourceVendor: sample.SourceVendor,
 		}
 		// Absent rather than "::" for an event carrying no client address: a rendered
 		// zero address reads as a real one.

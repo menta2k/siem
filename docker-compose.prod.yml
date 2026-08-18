@@ -136,6 +136,11 @@ services:
       # has the sidecar gets the feature without an operator editing anything. Deliberately
       # NOT a depends_on: the evaluator is optional, and the API must start without it.
       WIREFILTER_EVAL_URL: ${WIREFILTER_EVAL_URL:-http://wirefilter-eval:8010}
+      # The OWASP reading has to be produced under the SAME settings as the Cloudflare
+      # ruleset it is explaining, or it answers a question about a WAF nobody is running.
+      # Cloudflare's Low / Medium / High thresholds are 60 / 40 / 25.
+      OWASP_PARANOIA_LEVEL: ${OWASP_PARANOIA_LEVEL:-1}
+      OWASP_SCORE_THRESHOLD: ${OWASP_SCORE_THRESHOLD:-40}
     # No host port. The web tier proxies /api to it over the compose network, so the
     # analyst-facing API is never directly addressable from outside.
     expose: ["8000"]

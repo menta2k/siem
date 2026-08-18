@@ -134,6 +134,23 @@ type CloudflareRules struct {
 	// page working and simply cannot offer that. Absent is therefore a configuration, not
 	// a fault, and the API says so rather than failing the request.
 	EvaluatorURL string
+	// OWASP configures the local Core Rule Set reading of a stored request.
+	OWASP OWASPRules
+}
+
+// OWASPRules holds the settings the Core Rule Set reading is produced under.
+//
+// These two decide what CRS says, and Cloudflare exposes both, so a reading is only
+// comparable to the edge's if they are set to match the Cloudflare configuration. They are
+// deployment settings rather than per-request ones because loading the rule set at another
+// paranoia level means parsing several thousand rules again.
+type OWASPRules struct {
+	// ParanoiaLevel is CRS's PL1 to PL4. Higher levels add rules and false positives.
+	ParanoiaLevel int
+	// Threshold is the anomaly score at which a request is blocked. Cloudflare's own
+	// Low / Medium / High are 60 / 40 / 25, so the default here is their Medium rather
+	// than CRS's default of 5 — the point is to reproduce Cloudflare's decision.
+	Threshold int
 }
 
 // Log holds observability settings.
@@ -329,10 +346,16 @@ func loadCloudflareRules(collect func(error)) CloudflareRules {
 	interval, err := durationMinutes("CLOUDFLARE_RULES_REFRESH_MINUTES", 60)
 	collect(err)
 
+	paranoia, err := integer("OWASP_PARANOIA_LEVEL", 1)
+	collect(err)
+	threshold, err := integer("OWASP_SCORE_THRESHOLD", 40)
+	collect(err)
+
 	return CloudflareRules{
 		APIBase:      optional("CLOUDFLARE_API_BASE", ""),
 		Interval:     interval,
 		EvaluatorURL: optional("WIREFILTER_EVAL_URL", ""),
+		OWASP:        OWASPRules{ParanoiaLevel: paranoia, Threshold: threshold},
 	}
 }
 

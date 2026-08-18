@@ -21,6 +21,7 @@ import (
 	"github.com/menta2k/siem/internal/cfrules"
 	"github.com/menta2k/siem/internal/conf"
 	"github.com/menta2k/siem/internal/correlate"
+	"github.com/menta2k/siem/internal/crs"
 	"github.com/menta2k/siem/internal/data/clickhouse"
 	"github.com/menta2k/siem/internal/data/redis"
 	mw "github.com/menta2k/siem/internal/middleware"
@@ -208,7 +209,14 @@ func wafMigrationService(
 		clickhouse.NewCloudflareRuleRepo(ch)).
 		// Optional, and empty by default: a deployment without an evaluator keeps every
 		// migration page and refuses only the expression test, with a reason.
-		WithEvaluator(wirefilter.NewClient(cfg.CloudflareRules.EvaluatorURL), events, adapters)
+		WithEvaluator(wirefilter.NewClient(cfg.CloudflareRules.EvaluatorURL), events, adapters).
+		// The rule set is loaded on FIRST USE, not here: parsing several thousand rules
+		// takes about a second, and a deployment where nobody opens the panel should not
+		// pay it — nor should a bad rule set be able to stop the API from booting.
+		WithOwasp(crs.NewLazy(crs.Options{
+			ParanoiaLevel: cfg.CloudflareRules.OWASP.ParanoiaLevel,
+			Threshold:     cfg.CloudflareRules.OWASP.Threshold,
+		}))
 }
 
 // buildAlertsService assembles the alerting read and write path.
